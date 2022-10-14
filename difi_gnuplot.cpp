@@ -99,10 +99,10 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("VRT samples to file %s") % desc << std::endl;
+        std::cout << boost::format("DIFI samples to gnuplot %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application streams data from a VRT stream "
-                     "to a file.\n"
+                  << "This application streams data from a DIFI stream "
+                     "to gnuplot.\n"
                   << std::endl;
         return ~0;
     }
@@ -249,41 +249,35 @@ int main(int argc, char* argv[])
 
                 signal_pointer = 0;
 
-                if (packet_count==0) {
-                    fftw_execute(plan);
+                fftw_execute(plan);
 
-                    double max = 0;
-                    int32_t max_i = -1;
+                double max = 0;
+                int32_t max_i = -1;
 
-                    printf("set xtics 200000; plot \"-\" u 1:2 with lines;\n");
+                uint32_t integrate = rate/100000;
+                double avg = 0;
 
-                   for (uint32_t i = 0; i < num_points; ++i) {
-                        double mag = sqrt(result[i][REAL] * result[i][REAL] +
-                                  result[i][IMAG] * result[i][IMAG]);
-                        printf("%li, %.0f\n",rf_freq + i - rate/2 + 1, 20*log10(mag));
-                        if (mag > max) {
-                            max = mag;
-                            max_i = i;
-                            // printf("*");
-                        }
+                float ticks = rate/(4e6);
+
+                printf("set format y \"%%.3t\"; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (db)\"; ",ticks);
+                printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
+
+               for (uint32_t i = 0; i < num_points; ++i) {
+                    double mag = sqrt(result[i][REAL] * result[i][REAL] +
+                              result[i][IMAG] * result[i][IMAG]);
+                    avg += mag;
+                    if (i % integrate == integrate-1) {
+                        printf("%.3f, %.3f\n", (double)(rf_freq + i - rate/2 + 1)/1e6, 10*log10(avg/integrate));
+                        avg = 0;
                     }
-
-                    printf("e\n");
                 }
+
+                printf("e\n");
 
             }
 
             num_total_samps += num_rx_samps;
 
-            // if (start_rx and first_frame) {
-            //     std::cout << boost::format(
-            //                      "First frame: %u samples, %u full secs, %.09f frac secs")
-            //                      % num_rx_samps
-            //                      % f.integer_seconds_timestamp
-            //                      % ((double)f.fractional_seconds_timestamp/1e12)
-            //               << std::endl;
-            //     first_frame = false;
-            // }
         }
 
         if (progress) {
