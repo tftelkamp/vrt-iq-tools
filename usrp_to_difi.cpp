@@ -370,6 +370,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
 
+    // seed random generator with microseconds
+    srand(time_now.tv_usec);
+
     // Non-PPS
     usrp->set_time_now(uhd::time_spec_t(time_now.tv_sec, (double)time_now.tv_usec / 1e6));
 
@@ -483,7 +486,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     p.header.tsm                 = VRT_TSM_FINE;
     p.header.tsi                 = VRT_TSI_OTHER; // unix time
     p.header.tsf                 = VRT_TSF_REAL_TIME;
-    p.fields.stream_id           = 0; //(uint32_t)rand();
+    p.fields.stream_id           = (uint32_t)rand();
     p.words_body                 = 10000;
 
     p.header.has.class_id        = true;

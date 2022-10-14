@@ -127,6 +127,7 @@ int main(int argc, char* argv[])
     uint32_t bandwidth = 0;
     bool reflock = false;
     bool time_cal = false;
+    uint32_t stream_id;
 
     uint64_t starttime_integer;
     uint64_t starttime_fractional;
@@ -207,6 +208,8 @@ int main(int argc, char* argv[])
                 return EXIT_FAILURE;
             }
             offset += rv;
+
+            stream_id = f.stream_id;
 
             struct vrt_if_context c;
             rv = vrt_read_if_context(buffer + offset, 100000 - offset, &c, true);
@@ -369,11 +372,12 @@ int main(int argc, char* argv[])
     global_item.put("core:datatype", "ci16_le"); 
     // global_item.put("core:dataset", file);
     global_item.put("camras:usrp:rx_gain", gain); 
-    global_item.put("camras:usrp:channel", 0); 
+    // global_item.put("camras:usrp:channel", 0); 
     global_item.put("camras:usrp:bandwidth", bandwidth); 
     global_item.put("camras:usrp:reference", (reflock ? "external" : "internal")); 
     global_item.put("camras:usrp:time_source", (time_cal ? "pps" : "internal")); 
     global_item.put("camras:usrp:rx_gain", gain); 
+    global_item.put("difi:stream_id", stream_id); 
     global.push_back(std::make_pair("", global_item));
 
     // captures
