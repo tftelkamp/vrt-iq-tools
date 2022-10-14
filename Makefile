@@ -1,5 +1,5 @@
 # DIFI IQ tools
-all: usrp_to_difi difi_to_file difi_fftmax difi_gnuplot
+all: usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf
 
 INCLUDES = -I.
 LIBS = -L.
@@ -10,6 +10,10 @@ usrp_to_difi: usrp_to_difi.cpp
 
 difi_to_file: difi_to_file.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) -o difi_to_file difi_to_file.cpp \
+		-lvrt -lzmq -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lpthread
+
+difi_to_sigmf: difi_to_sigmf.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) -o difi_to_sigmf difi_to_sigmf.cpp \
 		-lvrt -lzmq -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lpthread
 
 difi_to_gnuradio: difi_to_gnuradio.cpp
