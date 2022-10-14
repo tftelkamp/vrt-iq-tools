@@ -487,7 +487,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     p.words_body                 = 10000;
 
     p.header.has.class_id        = true;
-    p.fields.class_id.oui        = 0x6A621E; // DI-FI
+    p.fields.class_id.oui        = 0x6A621E; // DIFI
     p.fields.class_id.information_class_code = 0;
     p.fields.class_id.packet_class_code = 0;
 
@@ -683,7 +683,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             pc.fields.integer_seconds_timestamp = md.time_spec.get_full_secs();
             pc.fields.fractional_seconds_timestamp = (uint64_t)1e12 * md.time_spec.get_frac_secs();
 
-            pc.if_context.bandwidth                         = 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
+            pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
             pc.if_context.sample_rate                       = usrp->get_rx_rate();
             pc.if_context.rf_reference_frequency            = usrp->get_rx_freq();
             pc.if_context.if_reference_frequency            = 0; // Zero-IF

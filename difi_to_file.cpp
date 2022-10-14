@@ -115,6 +115,14 @@ int main(int argc, char* argv[])
 
     int64_t rf_freq = 0;
     uint32_t sample_rate = 0;
+    uint32_t gain = 0;
+    uint32_t bandwidth = 0;
+    bool reflock = false;
+    bool time_cal = false;
+
+    uint64_t starttime_integer;
+    uint64_t starttime_fractional;
+
 
     std::vector<std::shared_ptr<std::ofstream>> outfiles;
     std::vector<size_t> channel_nums = {0}; // single channel (0)
@@ -204,11 +212,30 @@ int main(int argc, char* argv[])
             }
             if (c.has.rf_reference_frequency) {
                 printf("RF Freq [Hz]: %.0f\n", c.rf_reference_frequency);
-                rf_freq = (int64_t)c.rf_reference_frequency;
+                rf_freq = (int64_t)round(c.rf_reference_frequency);
             } else {
                 printf("No Freq\n");
             }
-
+            if (c.has.bandwidth) {
+                printf("Bandwidth [Hz]: %.0f\n", c.bandwidth);
+                bandwidth = c.bandwidth;
+            } else {
+                printf("No Bandwidth\n");
+            }
+            if (c.has.gain) {
+                printf("Gain [dB]: %.0f\n", c.gain.stage1);
+                gain = c.gain.stage1;
+            } else {
+                printf("No Gain\n");
+            }
+            if (c.state_and_event_indicators.has.reference_lock) {
+                printf("Ref lock: %i\n", c.state_and_event_indicators.reference_lock);
+                reflock = c.state_and_event_indicators.reference_lock;
+            } else {
+                printf("No Ref lock.\n");
+            }
+            start_time = now;
+            stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
         }
 
         if (start_rx and (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID)) {
@@ -238,7 +265,9 @@ int main(int argc, char* argv[])
                         continue;
                 } else {
                     int_second = false;
-                    last_update       = now;
+                    last_update = now; 
+                    start_time = now;
+                    stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
                 }
             }
 
@@ -251,6 +280,8 @@ int main(int argc, char* argv[])
                                  % f.integer_seconds_timestamp
                                  % ((double)f.fractional_seconds_timestamp/1e12)
                           << std::endl;
+                starttime_integer = f.integer_seconds_timestamp;
+                starttime_fractional = f.fractional_seconds_timestamp;
                 first_frame = false;
             }
 
@@ -306,6 +337,43 @@ int main(int argc, char* argv[])
 
     zmq_close(subscriber);
     zmq_ctx_destroy(context);
+
+    std::cout << "Writing metadata..." << std::endl;
+
+    std::string mdfilename;
+    std::fstream mdfile;
+
+    boost::filesystem::path base_fn_fp(file);
+    base_fn_fp.replace_extension(boost::filesystem::path(
+        str(boost::format("%s.metadata") % base_fn_fp.extension().string())));
+    mdfilename = base_fn_fp.string();
+
+    mdfile.open(mdfilename, std::ios::out);
+    if (!mdfile) {
+        std::cout << "File not created!";
+    }
+    else {
+        mdfile << "time_first_sample, rate, frequency, rx_gain, bandwidth, reference, time_source, format, channel, antenna, sdr_type, total_samples, filename, master_clock_rate" << std::endl;
+        for (size_t ch = 0; ch < channel_nums.size(); ch++) {
+            size_t channel = channel_nums[ch];
+            mdfile << boost::format("%d.%06.0f, ") % starttime_integer % (double)(starttime_fractional/1e6);
+            mdfile << boost::format("%.0f, ")   % sample_rate;
+            mdfile << boost::format("%.0f, ")   % rf_freq;
+            mdfile << boost::format("%.0f, ")   % gain;
+            mdfile << boost::format("%.0f, ")   % bandwidth;
+            mdfile << boost::format("\"%s\", ") % (reflock ? "external" : "internal");
+            mdfile << boost::format("\"%s\", ") % (time_cal ? "pps" : "internal");
+            mdfile << boost::format("\"%s\", ") % "sc16";
+            mdfile << boost::format("%i, ")     % 0;
+            mdfile << boost::format("\"%s\", ") % "unknown";
+            mdfile << boost::format("\"%s\", ") % "DIFI";
+            mdfile << boost::format("%i, ")       % num_total_samps;
+            mdfile << boost::format("\"%s\", ") % generate_out_filename(file, channel_nums.size(), channel);
+            mdfile << boost::format("%.0f")   % 0;
+            mdfile << std::endl;
+        }
+        mdfile.close();
+    }
 
     return 0;
 
