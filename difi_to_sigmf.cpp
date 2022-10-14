@@ -11,6 +11,9 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/thread/thread.hpp>
 
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/date_time/posix_time/posix_time_io.hpp>
+
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
@@ -116,7 +119,7 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
-    bool int_second             = (bool)vm.count("int-second");
+    bool int_second             = vm.count("int-second");
 
     int64_t rf_freq = 0;
     uint32_t sample_rate = 0;
@@ -128,9 +131,12 @@ int main(int argc, char* argv[])
     uint64_t starttime_integer;
     uint64_t starttime_fractional;
 
-
     std::vector<std::shared_ptr<std::ofstream>> outfiles;
     std::vector<size_t> channel_nums = {0}; // single channel (0)
+
+    std::string mdfilename;
+    mdfilename = file + ".sigmf-meta";
+    file = file + ".sigmf-data";
 
     if (not null)
         for (size_t i = 0; i < channel_nums.size(); i++) {
@@ -138,7 +144,6 @@ int main(int argc, char* argv[])
             outfiles.push_back(std::shared_ptr<std::ofstream>(
                 new std::ofstream(this_filename.c_str(), std::ofstream::binary)));
         }
-
 
     // ZMQ
     void *context = zmq_ctx_new();
@@ -238,6 +243,12 @@ int main(int argc, char* argv[])
                 reflock = c.state_and_event_indicators.reference_lock;
             } else {
                 printf("No Ref lock.\n");
+            }
+            if (c.state_and_event_indicators.has.calibrated_time) {
+                printf("Time cal: %i\n", c.state_and_event_indicators.calibrated_time);
+                time_cal = c.state_and_event_indicators.calibrated_time;
+            } else {
+                printf("No Time cal.\n");
             }
             start_time = now;
             stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
@@ -345,14 +356,6 @@ int main(int argc, char* argv[])
 
     std::cout << "Writing SigMF metadata..." << std::endl;
 
-    std::string mdfilename;
-    std::fstream mdfile;
-
-    boost::filesystem::path base_fn_fp(file);
-    base_fn_fp.replace_extension(boost::filesystem::path(
-        str(boost::format("%s.sigmf-meta") % base_fn_fp.extension().string())));
-    mdfilename = base_fn_fp.string();
-
     ptree pt;
     ptree global;
     ptree captures;
@@ -364,7 +367,7 @@ int main(int argc, char* argv[])
     global_item.put("core:recorder", "difi_to_sigmf"); 
     global_item.put("core:sample_rate", sample_rate); 
     global_item.put("core:datatype", "ci16_le"); 
-    global_item.put("core:dataset", file);
+    // global_item.put("core:dataset", file);
     global_item.put("camras:usrp:rx_gain", gain); 
     global_item.put("camras:usrp:channel", 0); 
     global_item.put("camras:usrp:bandwidth", bandwidth); 
@@ -377,6 +380,10 @@ int main(int argc, char* argv[])
     captures_item.put("core:sample_start", 0); 
     captures_item.put("core:frequency", rf_freq); 
     captures_item.put("core:datetime", boost::format("%d.%06.0f") % starttime_integer % (double)(starttime_fractional/1e6)); 
+    captures_item.put("core:datetime", boost::format("%s.%06.0f")
+        % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(starttime_integer)))
+        % (double)(starttime_fractional/1e6)
+    );
     captures.push_back(std::make_pair("", captures_item));
    
     pt.add_child("global", global);
