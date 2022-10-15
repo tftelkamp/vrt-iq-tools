@@ -288,6 +288,7 @@ int main(int argc, char* argv[])
 
                 int64_t peak_hz = rf_freq + max_i - rate/2;
                 printf("%lu.%09li, %li, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max));
+                fflush(stdout);
             }
 
             num_total_samps += num_rx_samps;
