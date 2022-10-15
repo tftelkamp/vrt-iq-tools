@@ -38,6 +38,8 @@ namespace po = boost::program_options;
 #define REAL 0
 #define IMAG 1
 
+#define SCALE_MAX 32768
+
 static bool stop_signal_called = false;
 void sig_int_handler(int)
 {
@@ -189,16 +191,16 @@ int main(int argc, char* argv[])
                 return EXIT_FAILURE;
             }
             if (c.has.sample_rate) {
-                printf("Sample Rate [samples per second]: %.0f\n", c.sample_rate);
+                printf("# Sample Rate [samples per second]: %.0f\n", c.sample_rate);
                 rate = (uint32_t)c.sample_rate;
             } else {
-                printf("No Rate\n");
+                printf("# No Rate\n");
             }
             if (c.has.rf_reference_frequency) {
-                printf("RF Freq [Hz]: %.0f\n", c.rf_reference_frequency);
+                printf("# RF Freq [Hz]: %.0f\n", c.rf_reference_frequency);
                 rf_freq = (int64_t)c.rf_reference_frequency;
             } else {
-                printf("No Freq\n");
+                printf("# No Freq\n");
             }
             if (rate and rf_freq) {
                 num_points = rate;
@@ -284,15 +286,15 @@ int main(int argc, char* argv[])
                     seconds++;
                 }
 
-                int64_t peak_hz = rf_freq + max_i - rate/2 + 1;
-                printf("%lu.%09li %li Hz\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz);
+                int64_t peak_hz = rf_freq + max_i - rate/2;
+                printf("%lu.%09li, %li, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max));
             }
 
             num_total_samps += num_rx_samps;
 
             if (start_rx and first_frame) {
                 std::cout << boost::format(
-                                 "First frame: %u samples, %u full secs, %.09f frac secs")
+                                 "# First frame: %u samples, %u full secs, %.09f frac secs")
                                  % num_rx_samps
                                  % f.integer_seconds_timestamp
                                  % ((double)f.fractional_seconds_timestamp/1e12)

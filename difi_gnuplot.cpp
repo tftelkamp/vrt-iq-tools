@@ -259,15 +259,15 @@ int main(int argc, char* argv[])
 
                 float ticks = rate/(4e6);
 
-                printf("set format y \"%%.3t\"; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (db)\"; ",ticks);
+                printf("set format y \"%%.3t\"; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ",ticks);
                 printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
 
                for (uint32_t i = 0; i < num_points; ++i) {
                     double mag = sqrt(result[i][REAL] * result[i][REAL] +
                               result[i][IMAG] * result[i][IMAG]);
-                    avg += mag;
+                    avg += mag/integrate;
                     if (i % integrate == integrate-1) {
-                        printf("%.3f, %.3f\n", (double)(rf_freq + i - rate/2 + 1)/1e6, 10*log10(avg/integrate));
+                        printf("%.3f, %.3f\n", (double)(rf_freq + i - rate/2)/1e6, 20*log10(avg));
                         avg = 0;
                     }
                 }
