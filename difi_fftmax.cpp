@@ -92,6 +92,7 @@ int main(int argc, char* argv[])
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
+        ("ignore-dc", "Ignore 10 perc. of bins around DC")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
     ;
     // clang-format on
@@ -114,6 +115,7 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
+    bool ignore_dc              = (bool)vm.count("ignore-dc");
 
     // std::vector<std::shared_ptr<std::ofstream>> outfiles;
     std::vector<size_t> channel_nums = {0}; // single channel (0)
@@ -272,7 +274,8 @@ int main(int argc, char* argv[])
                for (uint32_t i = 0; i < num_points; ++i) {
                     double mag = sqrt(result[i][REAL] * result[i][REAL] +
                               result[i][IMAG] * result[i][IMAG]);
-                    if (mag > max) {
+                    // ignore 10% of bins around DC (exp.)
+                    if ( (mag > max) and (not ignore_dc or (abs((int32_t)i-(int32_t)num_points/2) ) > num_points/10)  ) {
                         max = mag;
                         max_i = i;
                     }
