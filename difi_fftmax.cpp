@@ -74,6 +74,8 @@ int main(int argc, char* argv[])
 
     // variables to be set by po
     std::string file, type, zmq_address;
+    uint16_t port;
+    int hwm;
     size_t num_requested_samples;
     double total_time;
 
@@ -94,6 +96,8 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("ignore-dc", "Ignore 10 perc. of bins around DC")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
     ;
     // clang-format on
     po::variables_map vm;
@@ -102,10 +106,10 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("VRT samples to file %s") % desc << std::endl;
+        std::cout << boost::format("DIFI samples to fftmax %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application streams data from a VRT stream "
-                     "to a file.\n"
+                  << "This application streams data from a DIFI stream "
+                     "to fftmax.\n"
                   << std::endl;
         return ~0;
     }
@@ -124,9 +128,8 @@ int main(int argc, char* argv[])
 
     void *context = zmq_ctx_new();
     void *subscriber = zmq_socket(context, ZMQ_SUB);
-    int hwm = 10000;
     int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
-    std::string connect_string = "tcp://" + zmq_address + ":50100";
+    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(port);
     rc = zmq_connect(subscriber, connect_string.c_str());
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);

@@ -118,6 +118,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // variables to be set by po
     std::string file, type, ant_list, subdev, ref, wirefmt, channel_list, gain_list, udp_forward;
     size_t total_num_samps, spb;
+    uint16_t port;
+    int hwm;
     double rate, freq, bw, total_time, setup_time, lo_offset;
 
     // recv_frame_size=1024, num_recv_frames=1024, recv_buff_size
@@ -158,6 +160,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("skip-lo", "skip checking LO lock status")
         ("int-n", "tune USRP with integer-N tuning")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
     ;
     // clang-format on
     po::variables_map vm;
@@ -370,8 +374,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
 
-    // seed random generator with microseconds
-    srand(time_now.tv_usec);
+    // seed random generator with seconds and microseconds
+    srand(time_now.tv_usec + time_now.tv_sec);
 
     // Non-PPS
     usrp->set_time_now(uhd::time_spec_t(time_now.tv_sec, (double)time_now.tv_usec / 1e6));
@@ -476,7 +480,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     /* Warn if not standards compliant */
     if (vrt_is_platform_little_endian()) {
-        printf("Warning: Written packet is little endian. It is NOT compliant with the VRT standard.\n");
+        printf("Warning: little endian support is work in progress.\n");
     }
 
     /* Configure */
@@ -490,7 +494,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     p.words_body                 = 10000;
 
     p.header.has.class_id        = true;
-    p.fields.class_id.oui        = 0x6A621E; // DIFI
+    p.fields.class_id.oui        = 0x6A621E; // DIFI OUI
     p.fields.class_id.information_class_code = 0;
     p.fields.class_id.packet_class_code = 0;
 
@@ -501,12 +505,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     if (vrt) {
         void *context = zmq_ctx_new();
         void *responder = zmq_socket(context, ZMQ_PUB);
-        int hwm = 10000;
         int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
         assert(rc == 0);
 
-        rc = zmq_bind(responder, "tcp://*:50100");
-//        rc = zmq_bind(responder, "ipc:///tmp/test0");
+        std::string connect_string = "tcp://*:" + std::to_string(port);
+        rc = zmq_bind(responder, connect_string.c_str());
         assert (rc == 0);
         zmq_server = responder;
     }

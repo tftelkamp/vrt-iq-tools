@@ -82,6 +82,8 @@ int main(int argc, char* argv[])
     std::string file, type, zmq_address;
     size_t num_requested_samples;
     double total_time;
+    uint16_t port;
+    int hwm;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -99,6 +101,8 @@ int main(int argc, char* argv[])
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
     ;
     // clang-format on
     po::variables_map vm;
@@ -149,9 +153,8 @@ int main(int argc, char* argv[])
     // ZMQ
     void *context = zmq_ctx_new();
     void *subscriber = zmq_socket(context, ZMQ_SUB);
-    int hwm = 10000;
     int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
-    std::string connect_string = "tcp://" + zmq_address + ":50100";
+    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(port);
     rc = zmq_connect(subscriber, connect_string.c_str());
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
