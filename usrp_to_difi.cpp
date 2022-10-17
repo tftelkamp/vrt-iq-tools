@@ -44,6 +44,9 @@
 
 #include <boost/thread/thread.hpp>
 
+// DIFI tools functions
+#include "difi-tools.h"
+
 unsigned long long num_total_samps = 0;
 
 namespace po = boost::program_options;
@@ -120,6 +123,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     size_t total_num_samps, spb;
     uint16_t port;
     int hwm;
+    uint32_t stream_id;
     double rate, freq, bw, total_time, setup_time, lo_offset;
 
     // recv_frame_size=1024, num_recv_frames=1024, recv_buff_size
@@ -160,6 +164,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("skip-lo", "skip checking LO lock status")
         ("int-n", "tune USRP with integer-N tuning")
+        ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
     ;
@@ -454,7 +459,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // fixed buffer size
     size_t samps_per_buff = 10000; // spb
 
-    #define SIZE 10007
     uint32_t buffer[SIZE];
 
     // create a receive streamer
@@ -483,22 +487,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         printf("Warning: little endian support is work in progress.\n");
     }
 
-    /* Configure */
-    p.header.packet_type         = VRT_PT_IF_DATA_WITH_STREAM_ID;
-
-    p.header.packet_size         = SIZE;
-    p.header.tsm                 = VRT_TSM_FINE;
-    p.header.tsi                 = VRT_TSI_OTHER; // unix time
-    p.header.tsf                 = VRT_TSF_REAL_TIME;
-    p.fields.stream_id           = (uint32_t)rand();
-    p.words_body                 = 10000;
-
-    p.header.has.class_id        = true;
-    p.fields.class_id.oui        = 0x6A621E; // DIFI OUI
-    p.fields.class_id.information_class_code = 0;
-    p.fields.class_id.packet_class_code = 0;
-
-    p.header.has.trailer         = false;
+    /* DIFI init */
+    difi_init_data_packet(&p);
+    
+    if (!vm.count("stream-id"))
+        p.fields.stream_id = (uint32_t)rand();
 
     // ZMQ
     void *zmq_server;
@@ -653,38 +646,16 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
             last_context = now;
 
-            // VITA
+            // VITA 49.2
             /* Initialize to reasonable values */
             struct vrt_packet pc;
             vrt_init_packet(&pc);
 
-            /* Configure. Note that context packets cannot have a trailer word. */
-            pc.header.packet_type         = VRT_PT_IF_CONTEXT;
-            pc.fields.stream_id           = p.fields.stream_id;
-            pc.header.has.class_id = true;
-            pc.if_context.has.bandwidth   = true;
-            pc.if_context.has.sample_rate = true;
-            pc.if_context.has.reference_point_identifier = true;
-            pc.if_context.has.if_reference_frequency = true;
-            pc.if_context.has.rf_reference_frequency = true;
-            pc.if_context.has.if_band_offset = true;
-            pc.if_context.has.reference_level = true;
-            pc.if_context.has.gain = true;
-            pc.if_context.has.timestamp_adjustment = true;
-            pc.if_context.has.timestamp_calibration_time = true;
-            pc.if_context.has.state_and_event_indicators = true;
-            pc.if_context.has.data_packet_payload_format = true;
 
-            pc.if_context.data_packet_payload_format.packing_method = VRT_PM_LINK_EFFICIENT;
-            pc.if_context.data_packet_payload_format.real_or_complex = VRT_ROC_COMPLEX_CARTESIAN;
-            pc.if_context.data_packet_payload_format.data_item_format = VRT_DIF_SIGNED_FIXED_POINT;
-            pc.if_context.data_packet_payload_format.sample_component_repeat = false;
-            pc.if_context.data_packet_payload_format.item_packing_field_size = 31;
-            pc.if_context.data_packet_payload_format.data_item_size = 15;
+            /* DIFI Configure. Note that context packets cannot have a trailer word. */
+            difi_init_context_packet(&pc);
 
-            pc.header.tsm                 = VRT_TSM_COARSE;
-            pc.header.tsi                 = VRT_TSI_OTHER; // unix time (?)
-            pc.header.tsf                 = VRT_TSF_REAL_TIME;
+            pc.fields.stream_id = p.fields.stream_id;
 
             pc.fields.integer_seconds_timestamp = md.time_spec.get_full_secs();
             pc.fields.fractional_seconds_timestamp = (uint64_t)1e12 * md.time_spec.get_frac_secs();
@@ -692,8 +663,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
             pc.if_context.sample_rate                       = usrp->get_rx_rate();
             pc.if_context.rf_reference_frequency            = usrp->get_rx_freq();
-            pc.if_context.if_reference_frequency            = 0; // Zero-IF
             pc.if_context.rf_reference_frequency_offset     = 0;
+            pc.if_context.if_reference_frequency            = 0; // Zero-IF
             pc.if_context.gain.stage1                       = usrp->get_rx_gain();
             pc.if_context.gain.stage2                       = 0;
 
