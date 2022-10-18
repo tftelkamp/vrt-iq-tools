@@ -432,10 +432,9 @@ int main(int argc, char* argv[])
     // given), or until Ctrl-C was pressed.
 
     uint32_t frame_count = 0;
-
     uint32_t len;
-    int32_t status=0;
     uint32_t num_words_read=0;
+    uint32_t last_num_rx = 0;
 
     int16_t bodydata[samps_per_buff*2];
 
@@ -499,6 +498,11 @@ int main(int argc, char* argv[])
                   << std::endl;
             if (not continue_on_bad_packet)
                 break;
+            // insert zero's in circular buffer to make up for lost packet(s)
+            for (uint32_t p = 0; p < (diff-1); p++)
+                for (uint32_t i = 0; i < 2*last_num_rx; i++) {
+                    cb.push_back(0);
+                }
         }
 
         prev_sequence = (0xffff == sequence) ? 0 : sequence;
@@ -507,6 +511,8 @@ int main(int argc, char* argv[])
         uint16_t *sample = (uint16_t *)(data + HEADER_SIZE + SEQNUM_SIZE);
 
         size_t rx_samples = (rx_bytes - HEADER_SIZE - SEQNUM_SIZE) / (sizeof(int16_t) * 2);
+
+        last_num_rx = rx_samples;
 
     	for (uint32_t i = 0; i < 2*rx_samples; i++) {
     		cb.push_back( (int16_t)(sample[i]) );
