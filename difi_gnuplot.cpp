@@ -255,23 +255,19 @@ int main(int argc, char* argv[])
 
                 fftw_execute(plan);
 
-                double max = 0;
-                int32_t max_i = -1;
-
                 uint32_t integrate = rate/100000;
                 double avg = 0;
 
                 float ticks = rate/(4e6);
-
-                printf("set format y \"%%.3t\"; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ",ticks);
+                printf("set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ",ticks);
                 printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
 
                for (uint32_t i = 0; i < num_points; ++i) {
                     double mag = sqrt(result[i][REAL] * result[i][REAL] +
                               result[i][IMAG] * result[i][IMAG]);
-                    avg += mag/integrate;
+                    avg += mag/(double)integrate;
                     if (i % integrate == integrate-1) {
-                        printf("%.3f, %.3f\n", (double)(rf_freq + i - rate/2)/1e6, 20*log10(avg));
+                        printf("%.3f, %.3f\n", (double)(rf_freq + i - rate/2)/1e6, 20*log10(avg/32768.0));
                         avg = 0;
                     }
                 }
