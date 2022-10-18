@@ -14,9 +14,6 @@
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/date_time/posix_time/posix_time_io.hpp>
 
-#include <boost/property_tree/ptree.hpp>
-#include <boost/property_tree/json_parser.hpp>
-
 #include <chrono>
 #include <complex>
 #include <csignal>
@@ -36,8 +33,6 @@
 #include <vrt/vrt_util.h>
 
 namespace po = boost::program_options;
-
-using boost::property_tree::ptree;
 
 static bool stop_signal_called = false;
 void sig_int_handler(int)
@@ -127,7 +122,7 @@ int main(int argc, char* argv[])
 
     int64_t rf_freq = 0;
     uint32_t sample_rate = 0;
-    uint32_t gain = 0;
+    int32_t gain = 0;
     uint32_t bandwidth = 0;
     bool reflock = false;
     bool time_cal = false;
@@ -363,41 +358,43 @@ int main(int argc, char* argv[])
     if (not null) {
         std::cout << "Writing SigMF metadata..." << std::endl;
 
-        ptree pt;
-        ptree global;
-        ptree captures;
-        ptree global_items;
-        ptree captures_items;
-
-        // global
-        global_items.put("core:version", "1.0.0"); 
-        global_items.put("core:recorder", "difi_to_sigmf"); 
-        global_items.put("core:sample_rate", (double)sample_rate); 
-        global_items.put("core:datatype", "ci16_le"); 
-        // global_items.put("core:dataset", file);
-        global_items.put("camras:usrp:rx_gain", gain); 
-        // global_items.put("camras:usrp:channel", 0); 
-        global_items.put("camras:usrp:bandwidth", bandwidth); 
-        global_items.put("camras:usrp:reference", (reflock ? "external" : "internal")); 
-        global_items.put("camras:usrp:time_source", (time_cal ? "pps" : "internal")); 
-        global_items.put("camras:usrp:rx_gain", gain); 
-        global_items.put("difi:stream_id", stream_id); 
-        // global.push_back(std::make_pair("", global_items));
-
-        // captures
-        captures_items.put("core:sample_start", 0); 
-        captures_items.put("core:frequency", rf_freq); 
-        captures_items.put("core:datetime", boost::format("%d.%06.0f") % starttime_integer % (double)(starttime_fractional/1e6)); 
-        captures_items.put("core:datetime", boost::format("%s.%06.0f")
+        std::fstream mdfile;
+        mdfile.open(mdfilename, std::ios::out);
+        if (!mdfile) {
+            std::cout << "File not created!";
+        } else {
+            mdfile << boost::format("{ \n"
+            "    \"global\": {\n"
+            "        \"core:version\": \"1.0.0\",\n"
+            "        \"core:recorder\": \"difi_to_sigmf\",\n"
+            "        \"core:sample_rate\": %u,\n"
+            "        \"core:datatype\": \"ci16_le\",\n"
+            "        \"camras:usrp:rx_gain\": %i,\n"
+            "        \"camras:usrp:bandwidth\": %u,\n"
+            "        \"camras:usrp:reference\": \"%s\",\n"
+            "        \"camras:usrp:time_source\": \"%s\",\n"
+            "        \"difi:stream_id\": %u\n"
+            "    },\n"
+            "    \"captures\": [\n"
+            "        {\n"
+            "            \"core:sample_start\": 0,\n"
+            "            \"core:frequency\": %u,\n"
+            "            \"core:datetime\": \"%s.%06.0f\"\n"
+            "        }\n"
+            "    ]\n"
+            "}\n")
+            % sample_rate
+            % gain
+            % bandwidth
+            % (reflock ? "external" : "internal")
+            % (time_cal ? "pps" : "internal")
+            % stream_id
+            % rf_freq
             % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(starttime_integer)))
-            % (double)(starttime_fractional/1e6)
-        );
-        captures.push_back(std::make_pair("", captures_items));
-       
-        pt.add_child("global", global_items);
-        pt.add_child("captures", captures);
-
-        write_json(mdfilename, pt);
+            % (double)(starttime_fractional/1e6);
+            mdfile << std::endl;
+            mdfile.close();
+        }
     }
 
     return 0;
