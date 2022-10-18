@@ -330,9 +330,6 @@ int main(int argc, char* argv[])
 
     transaction( atten, sizeof(atten), response);
 
-    // Sleep setup time
-    std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
-
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
 
@@ -340,11 +337,6 @@ int main(int argc, char* argv[])
     srand(time_now.tv_usec + time_now.tv_sec);
 
  	// Receive
-
-    if (total_num_samps == 0) {
-        std::signal(SIGINT, &sig_int_handler);
-        std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
-    }
 
 	size_t samps_per_buff = 10000; // spb
 
@@ -405,6 +397,14 @@ int main(int argc, char* argv[])
         difi_servaddr.sin_family    = AF_INET; // IPv4 
         difi_servaddr.sin_addr.s_addr = inet_addr(udp_forward.c_str()); /* Server's Address   */
         difi_servaddr.sin_port = htons(50000);  // 4991?
+    }
+
+    // Sleep setup time
+    std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
+
+    if (total_num_samps == 0) {
+        std::signal(SIGINT, &sig_int_handler);
+        std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
     }
 
     // time keeping
@@ -566,8 +566,6 @@ int main(int argc, char* argv[])
 
 	        int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE, true);
 
-	        frame_count++;
-
 	        // UDP
 	        if (enable_udp) {
 	            if (sendto(sockfd, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE*4, 0,
@@ -583,6 +581,8 @@ int main(int argc, char* argv[])
 	        }
 
 	        zmq_msg_close(&msg);
+
+            frame_count++;
 
             const auto time_since_last_keepalive = now - last_keepalive;
             if (time_since_last_keepalive > std::chrono::seconds(60)) {
