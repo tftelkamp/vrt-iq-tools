@@ -4,6 +4,7 @@
 #define _DIFITOOLS_H
 
 #define SIZE 10007
+#define DIFI_DATA_PACKET_SIZE 10007
 
 // VRT
 #include <vrt/vrt_init.h>
