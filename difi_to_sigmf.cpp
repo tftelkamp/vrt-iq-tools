@@ -174,7 +174,8 @@ int main(int argc, char* argv[])
     auto last_update                     = start_time;
     unsigned long long last_update_samps = 0;
 
-    bool start_rx = false;
+    bool start_rx = true;
+    bool received_context = false;
     uint64_t last_fractional_seconds_timestamp = 0;
 
     while (not stop_signal_called
@@ -195,8 +196,9 @@ int main(int argc, char* argv[])
         }
         offset += rv;
 
-        if (not start_rx and (h.packet_type == VRT_PT_IF_CONTEXT)) {
+        if (not received_context and (h.packet_type == VRT_PT_IF_CONTEXT)) {
             start_rx = true;
+            received_context = true;
             printf("Packet type: %s\n", vrt_string_packet_type(h.packet_type));
 
             /* Parse fields */
@@ -292,10 +294,11 @@ int main(int argc, char* argv[])
 
             if (first_frame) {
                 std::cout << boost::format(
-                                 "First frame: %u samples, %u full secs, %.09f frac secs")
+                                 "First frame: %u samples, %u full secs, %.09f frac secs (counter %i)")
                                  % num_rx_samps
                                  % f.integer_seconds_timestamp
                                  % ((double)f.fractional_seconds_timestamp/1e12)
+                                 % (int32_t)packet_count
                           << std::endl;
                 starttime_integer = f.integer_seconds_timestamp;
                 starttime_fractional = f.fractional_seconds_timestamp;
