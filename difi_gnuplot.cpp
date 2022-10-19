@@ -320,6 +320,9 @@ int main(int argc, char* argv[])
         }
     }
 
+    printf("e\n");
+    fflush(stdout);
+
     zmq_close(subscriber);
     zmq_ctx_destroy(context);
 
