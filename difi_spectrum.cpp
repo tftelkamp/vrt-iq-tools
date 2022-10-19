@@ -74,7 +74,7 @@ int main(int argc, char* argv[])
     // variables to be set by po
     std::string file, type, zmq_address;
     size_t num_requested_samples;
-    uint32_t bins;
+    uint32_t bins, updates_per_second;
     double total_time;
     uint16_t port;
     int hwm;
@@ -93,6 +93,7 @@ int main(int argc, char* argv[])
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
         ("bins", po::value<uint32_t>(&bins)->default_value(100), "Spectrum bins (default 100)")
+        ("updates", po::value<uint32_t>(&updates_per_second)->default_value(1), "Updates per second (default 1)")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
@@ -207,12 +208,12 @@ int main(int argc, char* argv[])
                 printf("No Freq\n");
             }
             if (rate and rf_freq) {
-                num_points = rate;
+                num_points = rate/updates_per_second;
                 signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
                 result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
                 plan = fftw_plan_dft_1d(num_points, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
 
-                integrate = rate/bins;
+                integrate = num_points/bins;
 
                 printf("# Center freq: %li, rate: %u\n", rf_freq, rate);
                 printf("# timestamp ");
