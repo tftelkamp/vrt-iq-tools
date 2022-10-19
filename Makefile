@@ -1,5 +1,5 @@
 # DIFI IQ tools
-all: usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf difi_forwarder rfspace_to_difi rtlsdr_to_difi
+all: usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf difi_forwarder rfspace_to_difi rtlsdr_to_difi difi_spectrum
 
 INCLUDES = -I.
 LIBS = -L.
@@ -27,6 +27,10 @@ difi_fftmax: difi_fftmax.cpp
 difi_gnuplot: difi_gnuplot.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) -o difi_gnuplot difi_gnuplot.cpp \
 		-lvrt -lzmq -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lpthread -lfftw3
+
+difi_spectrum: difi_spectrum.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) -o difi_spectrum difi_spectrum.cpp \
+		-lvrt -lzmq -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lpthread -lfftw3
 
 difi_forwarder: difi_forwarder.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) -o difi_forwarder difi_forwarder.cpp \
