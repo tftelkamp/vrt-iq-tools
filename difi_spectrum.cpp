@@ -203,7 +203,7 @@ int main(int argc, char* argv[])
             }
             if (c.has.rf_reference_frequency) {
                 // printf("RF Freq [Hz]: %.0f\n", c.rf_reference_frequency);
-                rf_freq = (int64_t)c.rf_reference_frequency;
+                rf_freq = (int64_t)round(c.rf_reference_frequency);
             } else {
                 printf("No Freq\n");
             }

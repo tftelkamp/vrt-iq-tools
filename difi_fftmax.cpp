@@ -203,7 +203,7 @@ int main(int argc, char* argv[])
             }
             if (c.has.rf_reference_frequency) {
                 printf("# RF Freq [Hz]: %.0f\n", c.rf_reference_frequency);
-                rf_freq = (int64_t)c.rf_reference_frequency;
+                rf_freq = (int64_t)round(c.rf_reference_frequency);
             } else {
                 printf("# No Freq\n");
             }
@@ -292,7 +292,7 @@ int main(int argc, char* argv[])
                     seconds++;
                 }
 
-                int64_t peak_hz = rf_freq + max_i - rate/2 + 1;
+                int64_t peak_hz = rf_freq + max_i - rate/2;
                 printf("%lu.%09li, %li, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
                 fflush(stdout);
             }
