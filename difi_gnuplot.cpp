@@ -74,6 +74,7 @@ int main(int argc, char* argv[])
     std::string file, type, zmq_address;
     size_t num_requested_samples;
     double total_time;
+    uint32_t bins;
     uint16_t port;
     int hwm;
 
@@ -92,6 +93,7 @@ int main(int argc, char* argv[])
         // ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
+        ("bins", po::value<uint32_t>(&bins)->default_value(1000), "Spectrum bins (default 100)")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
@@ -255,7 +257,7 @@ int main(int argc, char* argv[])
 
                 fftw_execute(plan);
 
-                uint32_t integrate = rate/100000;
+                uint32_t integrate = rate/bins;
                 double avg = 0;
 
                 float ticks = rate/(4e6);
@@ -273,7 +275,7 @@ int main(int argc, char* argv[])
                 }
 
                 printf("e\n");
-
+                fflush(stdout);
             }
 
             num_total_samps += num_rx_samps;
