@@ -292,8 +292,8 @@ int main(int argc, char* argv[])
                     seconds++;
                 }
 
-                int64_t peak_hz = rf_freq + max_i - rate/2;
-                printf("%lu.%09li, %li, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max));
+                int64_t peak_hz = rf_freq + max_i - rate/2 + 1;
+                printf("%lu.%09li, %li, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
                 fflush(stdout);
             }
 

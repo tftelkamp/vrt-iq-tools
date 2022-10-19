@@ -298,7 +298,7 @@ int main(int argc, char* argv[])
                               result[i][IMAG] * result[i][IMAG]);
                     avg += mag/(double)integrate;
                     if (i % integrate == integrate-1) {
-                        printf(", %.3f",20*log10(avg/32768.0));
+                        printf(", %.3f",20*log10(avg/(double)num_points));
                         avg = 0;
                     }
                 }
