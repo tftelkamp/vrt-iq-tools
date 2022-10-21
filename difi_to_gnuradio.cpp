@@ -170,9 +170,12 @@ int main(int argc, char* argv[])
 
     // Track time and samps between updating the BW summary
     auto last_update                     = start_time;
+    auto last_gnuradio_forward           = start_time;
     unsigned long long last_update_samps = 0;
 
     bool start_rx = false;
+
+    bool alternate = true;
 
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
@@ -193,46 +196,56 @@ int main(int argc, char* argv[])
         offset += rv;
 
         if (h.packet_type == VRT_PT_IF_CONTEXT) {
-            start_rx = true;
-            printf("Packet type: %s\n", vrt_string_packet_type(h.packet_type));
 
-            /* Parse fields */
-            rv = vrt_read_fields(&h, buffer + offset, 100000 - offset, &f, true);
-            if (rv < 0) {
-                fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
-                return EXIT_FAILURE;
+            const auto time_since_last_forward = now - last_gnuradio_forward;
+            if (!start_rx or time_since_last_forward > std::chrono::seconds(1)) {
+
+                last_gnuradio_forward = now;
+
+                printf("Packet type: %s\n", vrt_string_packet_type(h.packet_type));
+
+                /* Parse fields */
+                rv = vrt_read_fields(&h, buffer + offset, 100000 - offset, &f, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
+                    return EXIT_FAILURE;
+                }
+                offset += rv;
+
+                struct vrt_if_context c;
+                rv = vrt_read_if_context(buffer + offset, 100000 - offset, &c, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
+                    return EXIT_FAILURE;
+                }
+                if (c.has.sample_rate) {
+                    printf("Sample Rate [samples per second]: %.0f\n", c.sample_rate);
+                } else {
+                    printf("No Rate\n");
+                }
+                if (c.has.rf_reference_frequency) {
+                    printf("RF Freq [Hz]: %.0f\n", c.rf_reference_frequency);
+                } else {
+                    printf("No Freq\n");
+                }
+
+                // Workaround to prevent GR 3.10 from crashing...
+                if (alternate) {
+                    pmt::pmt_t P_str = pmt::intern("freq");
+                    pmt::pmt_t P_double = pmt::from_double(c.rf_reference_frequency);
+                    pmt::pmt_t P_pair = pmt::cons(P_str, P_double);
+                    std::string str = pmt::serialize_str(P_pair);
+                    zmq_send (zmq_gr_freq, str.c_str(), str.size(), 0);
+                } else {
+                    pmt::pmt_t P_str = pmt::intern("sample_rate");
+                    pmt::pmt_t P_double = pmt::from_double(c.sample_rate);
+                    pmt::pmt_t P_pair = pmt::cons(P_str, P_double);
+                    std::string str = pmt::serialize_str(P_pair);
+                    zmq_send (zmq_gr_rate, str.c_str(), str.size(), 0);
+                }
+                alternate = !alternate;
+                start_rx = true;
             }
-            offset += rv;
-
-            struct vrt_if_context c;
-            rv = vrt_read_if_context(buffer + offset, 100000 - offset, &c, true);
-            if (rv < 0) {
-                fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
-                return EXIT_FAILURE;
-            }
-            if (c.has.sample_rate) {
-                printf("Sample Rate [samples per second]: %.0f\n", c.sample_rate);
-            } else {
-                printf("No Rate\n");
-            }
-            if (c.has.rf_reference_frequency) {
-                printf("RF Freq [Hz]: %.0f\n", c.rf_reference_frequency);
-            } else {
-                printf("No Freq\n");
-            }
-
-            pmt::pmt_t P_str = pmt::intern("freq");
-            pmt::pmt_t P_double = pmt::from_double(c.rf_reference_frequency);
-            pmt::pmt_t P_pair = pmt::cons(P_str, P_double);
-            std::string str = pmt::serialize_str(P_pair);
-            zmq_send (zmq_gr_freq, str.c_str(), str.size(), 0);
-
-            P_str = pmt::intern("sample_rate");
-            P_double = pmt::from_double(c.sample_rate);
-            P_pair = pmt::cons(P_str, P_double);
-            str = pmt::serialize_str(P_pair);
-            zmq_send (zmq_gr_rate, str.c_str(), str.size(), 0);
-
         }
 
         if (start_rx and (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID)) {
