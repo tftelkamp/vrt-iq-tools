@@ -6,6 +6,8 @@
 #define SIZE 10007
 #define DIFI_DATA_PACKET_SIZE 10007
 
+#define ZMQ_BUFFER_SIZE 100000
+
 // VRT
 #include <vrt/vrt_init.h>
 #include <vrt/vrt_string.h>
@@ -13,6 +15,164 @@
 #include <vrt/vrt_util.h>
 #include <vrt/vrt_write.h>
 #include <vrt/vrt_read.h>
+
+struct context_type {
+    bool context_received;
+    bool context_changed;
+    int64_t rf_freq;
+    uint32_t sample_rate;
+    int32_t gain;
+    uint32_t bandwidth;
+    bool reflock;
+    bool time_cal;
+    uint32_t stream_id;
+    uint64_t starttime_integer;
+    uint64_t starttime_fractional;
+    int8_t last_data_counter;
+};
+
+struct difi_packet_type {
+    bool context;
+    bool data;
+    uint32_t data_offset;
+    bool lost_frame;
+    uint32_t num_rx_samps;
+    uint32_t offset;
+    uint64_t fractional_seconds_timestamp;
+    uint64_t integer_seconds_timestamp;
+};
+
+void init_context(context_type* context) {
+    context->context_received = false;
+    context->context_changed = false;
+    context->last_data_counter = -1;
+    context->rf_freq = 0;
+    context->sample_rate = 0;
+    context->gain = 0;
+    context->bandwidth = 0;
+    context->stream_id = 0;
+    context->starttime_integer = 0;
+    context->starttime_fractional = 0;
+    context->reflock = false;
+    context->time_cal = false;
+}
+
+bool check_packet_count(int8_t counter, context_type* difi_context) {
+    if ( (difi_context->last_data_counter > 0) and (counter != (difi_context->last_data_counter+1)%16) ) {
+        printf("Error: lost frame (expected %i, received %i)\n", difi_context->last_data_counter, counter);
+        difi_context->last_data_counter = counter;
+        return false;
+    } else {
+        difi_context->last_data_counter = counter;
+        return true;
+    }
+}
+
+void difi_print_context(context_type* difi_context) {
+
+    printf("  DIFI Context:\n");
+    printf("    Sample Rate [samples per second]: %i\n", difi_context->sample_rate);
+    printf("    RF Freq [Hz]: %li\n", difi_context->rf_freq);
+    printf("    Bandwidth [Hz]: %i\n", difi_context->bandwidth);
+    printf("    Gain [dB]: %i\n", difi_context->gain);
+    printf("    Ref lock: %i\n", difi_context->reflock);
+    printf("    Time cal: %i\n", difi_context->time_cal);
+
+}
+
+bool difi_process(uint32_t* buffer, uint32_t size, context_type* difi_context, difi_packet_type* difi_packet) {
+
+    struct vrt_header h;
+    struct vrt_fields f;
+
+    int32_t offset = 0;
+    int32_t rv = vrt_read_header(buffer + offset, size - offset, &h, true);
+
+    difi_packet->context = false;
+    difi_packet->data = false;
+
+    /* Parse header */
+    if (rv < 0) {
+        fprintf(stderr, "Failed to parse header: %s\n", vrt_string_error(rv));
+        return false;
+    }
+    offset += rv;
+
+    if (h.packet_type == VRT_PT_IF_CONTEXT) {
+        // Context
+
+        /* Parse fields */
+        rv = vrt_read_fields(&h, buffer + offset, size - offset, &f, true);
+        if (rv < 0) {
+            fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
+            return false;
+        }
+        offset += rv;
+
+        difi_context->stream_id = f.stream_id;
+
+        struct vrt_if_context c;
+        rv = vrt_read_if_context(buffer + offset, 100000 - offset, &c, true);
+        if (rv < 0) {
+            fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
+            return false;
+        }
+        if (c.has.sample_rate) {
+            difi_context->sample_rate = (uint32_t)c.sample_rate;
+        } else {
+            printf("No Rate\n");
+        }
+        if (c.has.rf_reference_frequency) {
+            difi_context->rf_freq = (int64_t)round(c.rf_reference_frequency);
+        } else {
+            printf("No Freq\n");
+        }
+        if (c.has.bandwidth) {
+            difi_context->bandwidth = c.bandwidth;
+        } else {
+            printf("No Bandwidth\n");
+        }
+        if (c.has.gain) {
+            difi_context->gain = c.gain.stage1;
+        } else {
+            printf("No Gain\n");
+        }
+        if (c.state_and_event_indicators.has.reference_lock) {
+            difi_context->reflock = c.state_and_event_indicators.reference_lock;
+        } else {
+            printf("No Ref lock.\n");
+        }
+        if (c.state_and_event_indicators.has.calibrated_time) {
+            difi_context->time_cal = c.state_and_event_indicators.calibrated_time;
+        } else {
+            printf("No Time cal.\n");
+        }
+        difi_packet->context = true;
+        difi_context->context_received = true;
+
+    } else if (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID) {
+        // Data
+        if (not check_packet_count(h.packet_count, difi_context))
+            difi_packet->lost_frame = true;
+        else 
+            difi_packet->lost_frame = false;
+       /* Parse fields */
+        rv = vrt_read_fields(&h, buffer + offset, 100000 - offset, &f, true);
+        if (rv < 0) {
+            fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
+            return false;
+        }
+        offset += rv;
+
+        difi_packet->integer_seconds_timestamp = f.integer_seconds_timestamp;
+        difi_packet->fractional_seconds_timestamp = f.fractional_seconds_timestamp;
+        difi_packet->num_rx_samps = (h.packet_size-offset);
+        difi_packet->offset = offset;
+        difi_packet->data = true;
+    }
+
+    return true;
+}
 
 void difi_init_data_packet(struct vrt_packet* p) {
 
