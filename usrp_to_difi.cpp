@@ -138,7 +138,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("args", po::value<std::string>(&args)->default_value(""), "multi uhd device address args")
         // ("file", po::value<std::string>(&file)->default_value("usrp_samples.dat"), "name of the file to write binary samples to")
         // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
-        // ("nsamps", po::value<size_t>(&total_num_samps)->default_value(0), "total number of samples to receive")
+        ("nsamps", po::value<size_t>(&total_num_samps)->default_value(0), "total number of samples to receive")
         // ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         // ("spb", po::value<size_t>(&spb)->default_value(10000), "samples per buffer")
         ("rate", po::value<double>(&rate)->default_value(1e6), "rate of incoming samples")
@@ -192,6 +192,57 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool enable_udp             = vm.count("udp") > 0;
 
     vrt = true;
+
+    struct vrt_packet p;
+    vrt_init_packet(&p);
+
+    /* Warn if not standards compliant */
+    if (vrt_is_platform_little_endian()) {
+        printf("Warning: little endian support is work in progress.\n");
+    }
+
+    /* DIFI init */
+    difi_init_data_packet(&p);
+    
+    if (!vm.count("stream-id"))
+        p.fields.stream_id = (uint32_t)rand();
+
+    // ZMQ
+    void *zmq_server;
+    if (vrt) {
+        void *context = zmq_ctx_new();
+        void *responder = zmq_socket(context, ZMQ_PUB);
+        int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
+        assert(rc == 0);
+
+        std::string connect_string = "tcp://*:" + std::to_string(port);
+        rc = zmq_bind(responder, connect_string.c_str());
+        assert (rc == 0);
+        zmq_server = responder;
+    }
+
+    // UDP DI-FI
+
+    int sockfd; 
+    struct sockaddr_in servaddr, cliaddr; 
+    if (enable_udp) {
+
+        printf("Enable UDP\n");
+            
+        // Creating socket file descriptor 
+        if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
+            perror("socket creation failed"); 
+            exit(EXIT_FAILURE); 
+        } 
+            
+        memset(&servaddr, 0, sizeof(servaddr)); 
+        memset(&cliaddr, 0, sizeof(cliaddr)); 
+            
+        // Filling server information 
+        servaddr.sin_family    = AF_INET; // IPv4 
+        servaddr.sin_addr.s_addr = inet_addr(udp_forward.c_str()); /* Server's Address   */
+        servaddr.sin_port = htons(50000);  // 4991?
+    }
 
     // create a usrp device
 
@@ -479,57 +530,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool overflow_message = true;
     bool first_frame = true;
 
-    struct vrt_packet p;
-    vrt_init_packet(&p);
-
-    /* Warn if not standards compliant */
-    if (vrt_is_platform_little_endian()) {
-        printf("Warning: little endian support is work in progress.\n");
-    }
-
-    /* DIFI init */
-    difi_init_data_packet(&p);
-    
-    if (!vm.count("stream-id"))
-        p.fields.stream_id = (uint32_t)rand();
-
-    // ZMQ
-    void *zmq_server;
-    if (vrt) {
-        void *context = zmq_ctx_new();
-        void *responder = zmq_socket(context, ZMQ_PUB);
-        int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
-        assert(rc == 0);
-
-        std::string connect_string = "tcp://*:" + std::to_string(port);
-        rc = zmq_bind(responder, connect_string.c_str());
-        assert (rc == 0);
-        zmq_server = responder;
-    }
-
-    // UDP DI-FI
-
-    int sockfd; 
-    struct sockaddr_in servaddr, cliaddr; 
-    if (enable_udp) {
-
-        printf("Enable UDP\n");
-            
-        // Creating socket file descriptor 
-        if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
-            perror("socket creation failed"); 
-            exit(EXIT_FAILURE); 
-        } 
-            
-        memset(&servaddr, 0, sizeof(servaddr)); 
-        memset(&cliaddr, 0, sizeof(cliaddr)); 
-            
-        // Filling server information 
-        servaddr.sin_family    = AF_INET; // IPv4 
-        servaddr.sin_addr.s_addr = inet_addr(udp_forward.c_str()); /* Server's Address   */
-        servaddr.sin_port = htons(50000);  // 4991?
-    }
-
     // time keeping
     auto start_time = std::chrono::steady_clock::now();
     auto stop_time =
@@ -566,8 +566,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     uint32_t frame_count = 0;
 
-    while (not stop_signal_called) {
-           // and (num_requested_samples != num_total_samps or num_requested_samples == 0)
+    while (not stop_signal_called 
+           and (num_requested_samples != num_total_samps or num_requested_samples == 0)) {
            // and (time_requested == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
         const auto now = std::chrono::steady_clock::now();
 
