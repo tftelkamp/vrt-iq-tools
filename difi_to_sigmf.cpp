@@ -150,8 +150,6 @@ int main(int argc, char* argv[])
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
 
-    bool first_frame = true;
-
     // time keeping
     auto start_time = std::chrono::steady_clock::now();
     auto stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
@@ -167,6 +165,7 @@ int main(int argc, char* argv[])
 
     uint64_t last_fractional_seconds_timestamp = 0;
 
+    bool first_frame = true;
     bool first_context = false;
 
     while (not stop_signal_called
@@ -285,10 +284,10 @@ int main(int argc, char* argv[])
             "        \"core:recorder\": \"difi_to_sigmf\",\n"
             "        \"core:sample_rate\": %u,\n"
             "        \"core:datatype\": \"ci16_le\",\n"
-            "        \"camras:usrp:rx_gain\": %i,\n"
-            "        \"camras:usrp:bandwidth\": %u,\n"
-            "        \"camras:usrp:reference\": \"%s\",\n"
-            "        \"camras:usrp:time_source\": \"%s\",\n"
+            "        \"difi:rx_gain\": %i,\n"
+            "        \"difi:bandwidth\": %u,\n"
+            "        \"difi:reference\": \"%s\",\n"
+            "        \"difi:time_source\": \"%s\",\n"
             "        \"difi:stream_id\": %u\n"
             "    },\n"
             "    \"captures\": [\n"

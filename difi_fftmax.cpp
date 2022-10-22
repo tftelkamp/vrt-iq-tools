@@ -136,8 +136,6 @@ int main(int argc, char* argv[])
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
 
-    bool first_frame = true;
-
     // time keeping
     auto start_time = std::chrono::steady_clock::now();
     auto stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
@@ -150,6 +148,7 @@ int main(int argc, char* argv[])
     auto last_update                     = start_time;
     unsigned long long last_update_samps = 0;
 
+    bool first_frame = true;
     bool start_rx = false;
     uint64_t last_fractional_seconds_timestamp = 0;
 
@@ -176,9 +175,8 @@ int main(int argc, char* argv[])
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
             plan = fftw_plan_dft_1d(num_points, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
         }
-       
-
-       if (start_rx and difi_packet.data) {
+        
+        if (start_rx and difi_packet.data) {
 
             if (difi_packet.lost_frame)
                if (not continue_on_bad_packet)
