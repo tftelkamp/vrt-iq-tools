@@ -238,7 +238,7 @@ int main(int argc, char* argv[])
             uint32_t num_rx_samps = (h.packet_size-offset);
 
             int mult = 1;
-            for (uint32_t i = 0; i < 10000; i++) {
+            for (uint32_t i = 0; i < num_rx_samps; i++) {
                 signal_pointer++;
                 if (signal_pointer >= num_points)  
                     break;

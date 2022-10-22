@@ -186,10 +186,7 @@ int main(int argc, char* argv[])
             // Assumes ci16_le
 
             for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
-                int16_t re;
-                memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
-                int16_t img;
-                memcpy(&img, (char*)&buffer[difi_packet.offset+i]+2, 2);
+                auto sample = (std::complex<int16_t>)buffer[difi_packet.offset+i];
                 // Do something
             }
 
@@ -200,7 +197,7 @@ int main(int argc, char* argv[])
 
             if (start_rx and first_frame) {
                 std::cout << boost::format(
-                                 "# First frame: %u samples, %u full secs, %.09f frac secs")
+                                 "  First frame: %u samples, %u full secs, %.09f frac secs")
                                  % difi_packet.num_rx_samps
                                  % difi_packet.integer_seconds_timestamp
                                  % ((double)difi_packet.fractional_seconds_timestamp/1e12)

@@ -114,7 +114,7 @@ bool difi_process(uint32_t* buffer, uint32_t size, context_type* difi_context, d
         difi_context->stream_id = f.stream_id;
 
         struct vrt_if_context c;
-        rv = vrt_read_if_context(buffer + offset, 100000 - offset, &c, true);
+        rv = vrt_read_if_context(buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
         if (rv < 0) {
             fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
             return false;
@@ -159,7 +159,7 @@ bool difi_process(uint32_t* buffer, uint32_t size, context_type* difi_context, d
         else 
             difi_packet->lost_frame = false;
        /* Parse fields */
-        rv = vrt_read_fields(&h, buffer + offset, 100000 - offset, &f, true);
+        rv = vrt_read_fields(&h, buffer + offset, ZMQ_BUFFER_SIZE - offset, &f, true);
         if (rv < 0) {
             fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
             return false;
@@ -185,7 +185,7 @@ void difi_init_data_packet(struct vrt_packet* p) {
     p->header.tsi                 = VRT_TSI_OTHER; // unix time
     p->header.tsf                 = VRT_TSF_REAL_TIME;
     p->fields.stream_id           = 0;
-    p->words_body                 = 10000;
+    p->words_body                 = DIFI_SAMPLES_PER_PACKET;
 
     p->header.has.class_id        = true;
     p->fields.class_id.oui        = 0x6A621E; // DIFI OUI

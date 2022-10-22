@@ -510,7 +510,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // fixed buffer size
     size_t samps_per_buff = DIFI_SAMPLES_PER_PACKET; // spb
 
-    uint32_t buffer[SIZE];
+    uint32_t buffer[DIFI_DATA_PACKET_SIZE];
 
     // create a receive streamer
     uhd::stream_args_t stream_args(cpu_format, wire_format);
@@ -619,15 +619,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         p.fields.fractional_seconds_timestamp = (uint64_t)1e12 * md.time_spec.get_frac_secs();
 
         zmq_msg_t msg;
-        int rc = zmq_msg_init_size (&msg, SIZE*4);
+        int rc = zmq_msg_init_size (&msg, DIFI_DATA_PACKET_SIZE*4);
 
-        int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), SIZE, true);
+        int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE, true);
 
         frame_count++;
 
         // UDP
         if (enable_udp) {
-            if (sendto(sockfd, zmq_msg_data(&msg), SIZE*4, 0,
+            if (sendto(sockfd, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE*4, 0,
                          (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
             {
                printf("UDP fail\n");
@@ -674,7 +674,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             pc.if_context.state_and_event_indicators.has.calibrated_time = true;
             pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (ref=="gpsdo"));
 
-            int32_t rv = vrt_write_packet(&pc, buffer, SIZE, true);
+            int32_t rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
             if (rv < 0) {
                 fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
             }
