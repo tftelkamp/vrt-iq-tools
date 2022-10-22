@@ -1,5 +1,5 @@
 # DIFI IQ tools
-all: usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf difi_forwarder rfspace_to_difi rtlsdr_to_difi difi_spectrum
+all: usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf difi_forwarder rfspace_to_difi rtlsdr_to_difi difi_spectrum difi_to_void
 
 INCLUDES = -I.
 LIBS = -L.
@@ -19,6 +19,10 @@ difi_to_sigmf: difi_to_sigmf.cpp
 difi_to_gnuradio: difi_to_gnuradio.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) -o difi_to_gnuradio difi_to_gnuradio.cpp \
 		-lvrt -lzmq -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lpthread -lgnuradio-pmt
+
+difi_to_void: difi_to_void.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) -o difi_to_void difi_to_void.cpp \
+		-lvrt -lzmq -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem
 
 difi_fftmax: difi_fftmax.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) -o difi_fftmax difi_fftmax.cpp \
@@ -48,4 +52,4 @@ convenience.o: convenience.c
 		g++ -O3 -c $(INCLUDES) $(LIBS) -o convenience.o convenience.c
 
 clean:
-		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder
+		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void
