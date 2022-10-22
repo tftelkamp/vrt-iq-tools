@@ -508,7 +508,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool int_second             = (bool)vm.count("int-second");
 
     // fixed buffer size
-    size_t samps_per_buff = 10000; // spb
+    size_t samps_per_buff = DIFI_SAMPLES_PER_PACKET; // spb
 
     uint32_t buffer[SIZE];
 
