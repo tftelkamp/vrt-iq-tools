@@ -1,5 +1,8 @@
 # DIFI IQ tools
-all: usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf difi_forwarder rfspace_to_difi rtlsdr_to_difi difi_spectrum difi_to_void
+all: clients
+clients: difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf sigmf_to_difi difi_forwarder difi_spectrum difi_to_void
+sdr: usrp_to_difi rfspace_to_difi rtlsdr_to_difi
+gnuradio: difi_to_gnuradio
 
 INCLUDES = -I.
 LIBS = -L.
@@ -47,6 +50,10 @@ rtlsdr_to_difi: convenience.o rtlsdr_to_difi.cpp
 rfspace_to_difi: rfspace_to_difi.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) rfspace_to_difi.cpp -o rfspace_to_difi \
 		-lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lzmq -lvrt
+
+sigmf_to_difi: sigmf_to_difi.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) sigmf_to_difi.cpp -o sigmf_to_difi \
+		-lboost_date_time -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lzmq -lvrt
 
 convenience.o: convenience.c
 		g++ -O3 -c $(INCLUDES) $(LIBS) -o convenience.o convenience.c
