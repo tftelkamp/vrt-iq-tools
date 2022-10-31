@@ -88,6 +88,7 @@ int main(int argc, char* argv[])
     uint32_t stream_id;
     int hwm;
     int16_t gain;
+    double datarate;
     double rate, freq, bw, total_time, setup_time, lo_offset;
 
     FILE *read_ptr;
@@ -99,6 +100,7 @@ int main(int argc, char* argv[])
         ("help", "help message")
         ("file", po::value<std::string>(&file)->default_value("samples.sigmf-meta"), "name of the SigMF meta file")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
+        ("datarate", po::value<double>(&datarate)->default_value(0), "rate of outgoing samples")
         ("udp", po::value<std::string>(&udp_forward), "DIFI UDP forward address")
         ("progress", "periodically display short-term bandwidth")
         ("stats", "show average bandwidth on exit")
@@ -179,6 +181,9 @@ int main(int argc, char* argv[])
         printf("Only 16 bit complex int data formmat supported (\"ci16_le\")\n");
         exit(1);
     }
+
+    if (datarate == 0)
+        datarate = rate;
 
     // Open data file
 
@@ -279,27 +284,23 @@ int main(int argc, char* argv[])
 
     std::complex<short> samples[samps_per_buff];
 
-    auto time_first_sample = time_now;
+    timeval time_first_sample;
 
-    boost::posix_time::ptime t2(boost::posix_time::from_iso_extended_string(start_time_str));
+    boost::posix_time::ptime t1(boost::posix_time::from_iso_extended_string(start_time_str));
 
-    time_t xtime_first_sample = boost::posix_time::to_time_t(t2);
-    boost::posix_time::ptime t3(boost::posix_time::from_time_t(xtime_first_sample));
+    time_t integer_time_first_sample = boost::posix_time::to_time_t(t1);
+    boost::posix_time::ptime t2(boost::posix_time::from_time_t(integer_time_first_sample));
 
-    // // ptime to string.
-    // const std::string str_time = boost::posix_time::to_simple_string(t2-t3);
-    // std::cout << str_time << std::endl;
-
-    boost::posix_time::time_duration diff = t2-t3;
-    time_first_sample.tv_sec = xtime_first_sample;
-    time_first_sample.tv_usec = diff.total_microseconds();
+    boost::posix_time::time_duration fractional_sec = t1-t2;
+    time_first_sample.tv_sec = integer_time_first_sample;
+    time_first_sample.tv_usec = fractional_sec.total_microseconds();
 
     auto difi_time = time_first_sample;
 
     // trigger context update
     last_context -= std::chrono::seconds(1);
 
-    int update_interval = 1e6*samps_per_buff/rate;
+    int update_interval = 1e6*samps_per_buff/datarate;
 
     printf("Update interval: %i\n", update_interval);
 
