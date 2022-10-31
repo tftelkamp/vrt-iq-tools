@@ -168,6 +168,11 @@ int main(int argc, char* argv[])
     bool first_frame = true;
     bool first_context = false;
 
+    if (num_requested_samples == 0) {
+        std::signal(SIGINT, &sig_int_handler);
+        std::cout << "Press Ctrl + C to stop receiving..." << std::endl;
+    }
+
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
            and (total_time == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
