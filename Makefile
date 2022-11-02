@@ -7,7 +7,7 @@ gnuradio: difi_to_gnuradio
 #INCLUDES = -I.
 #LIBS = -L.
 
-CFLAGS = -stdlib=libc++ -std=c++11
+CFLAGS = -std=c++11
 INCLUDES = -I. -I/opt/local/include -I../libvrt/include
 LIBS = -L. -L../libvrt/build/ -L/opt/local/lib
 
@@ -66,4 +66,4 @@ convenience.o: convenience.c
 		g++ -O3 -c $(INCLUDES) $(CFLAGS) -o convenience.o convenience.c
 
 clean:
-		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void
+		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi
