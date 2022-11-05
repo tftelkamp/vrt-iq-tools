@@ -3,6 +3,7 @@ all: clients
 clients: difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf sigmf_to_difi difi_forwarder difi_spectrum difi_to_void
 sdr: usrp_to_difi rfspace_to_difi rtlsdr_to_difi
 gnuradio: difi_to_gnuradio
+gpu: difi_gpu_fftmax
 
 #INCLUDES = -I.
 #LIBS = -L.
@@ -62,8 +63,12 @@ sigmf_to_difi: sigmf_to_difi.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) sigmf_to_difi.cpp -o sigmf_to_difi \
 		$(BOOSTLIBS) -lzmq -lvrt
 
+difi_gpu_fftmax: difi_gpu_fftmax.cu
+		nvcc -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_gpu_fftmax difi_gpu_fftmax.cu \
+		$(BOOSTLIBS) -lzmq -lvrt -lcufft
+
 convenience.o: convenience.c
 		g++ -O3 -c $(INCLUDES) $(CFLAGS) -o convenience.o convenience.c
 
 clean:
-		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi
+		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax
