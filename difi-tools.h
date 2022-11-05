@@ -61,7 +61,7 @@ void init_context(context_type* context) {
 
 bool check_packet_count(int8_t counter, context_type* difi_context) {
     if ( (difi_context->last_data_counter > 0) and (counter != (difi_context->last_data_counter+1)%16) ) {
-        printf("Error: lost frame (expected %i, received %i)\n", difi_context->last_data_counter, counter);
+        printf("# Error: lost frame (expected %i, received %i)\n", difi_context->last_data_counter, counter);
         difi_context->last_data_counter = counter;
         return false;
     } else {
@@ -72,13 +72,13 @@ bool check_packet_count(int8_t counter, context_type* difi_context) {
 
 void difi_print_context(context_type* difi_context) {
 
-    printf("  DIFI Context:\n");
-    printf("    Sample Rate [samples per second]: %i\n", difi_context->sample_rate);
-    printf("    RF Freq [Hz]: %li\n", difi_context->rf_freq);
-    printf("    Bandwidth [Hz]: %i\n", difi_context->bandwidth);
-    printf("    Gain [dB]: %i\n", difi_context->gain);
-    printf("    Ref lock: %i\n", difi_context->reflock);
-    printf("    Time cal: %i\n", difi_context->time_cal);
+    printf("# DIFI Context:\n");
+    printf("#    Sample Rate [samples per second]: %i\n", difi_context->sample_rate);
+    printf("#    RF Freq [Hz]: %li\n", difi_context->rf_freq);
+    printf("#    Bandwidth [Hz]: %i\n", difi_context->bandwidth);
+    printf("#    Gain [dB]: %i\n", difi_context->gain);
+    printf("#    Ref lock: %i\n", difi_context->reflock);
+    printf("#    Time cal: %i\n", difi_context->time_cal);
 
 }
 

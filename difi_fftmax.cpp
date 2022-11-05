@@ -251,6 +251,8 @@ int main(int argc, char* argv[])
                                  % ((double)difi_packet.fractional_seconds_timestamp/1e12)
                           << std::endl;
                 first_frame = false;
+                // Header
+                printf("timestamp, frequency, power\n");
             }
         }
 
