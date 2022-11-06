@@ -129,7 +129,7 @@ int main(int argc, char* argv[])
     dada_hdu_t *dada_hdu;
     multilog_t *dada_log;
     std::string dada_header;
-    int8_t dadabuffer[2*DIFI_SAMPLES_PER_PACKET] __attribute((aligned(32)));
+    std::complex<int8_t> dadabuffer[DIFI_SAMPLES_PER_PACKET] __attribute((aligned(32)));
 
     // ZMQ
     void *context = zmq_ctx_new();
@@ -235,10 +235,9 @@ int main(int argc, char* argv[])
             for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
                 auto sample = (std::complex<int16_t>)buffer[difi_packet.offset+i];
                 // Convert ci16_le to cs8
-                dadabuffer[i*2] = sample.real()/scale;
-                dadabuffer[i*2+1] = sample.imag()/scale;
+                dadabuffer[i] = sample/scale;
             }
-            if (ipcio_write(dada_hdu->data_block, (char*)dadabuffer, difi_packet.num_rx_samps*2) < 0)
+            if (ipcio_write(dada_hdu->data_block, (char*)dadabuffer, difi_packet.num_rx_samps*sizeof(std::complex<int8_t>)) < 0)
                throw std::runtime_error("Error writing buffer to DADA");
 
             // data: (const char*)&buffer[difi_packet.offset]
