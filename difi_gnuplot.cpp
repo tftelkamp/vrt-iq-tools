@@ -32,6 +32,9 @@
 #include <complex.h>
 #include <fftw3.h>
 
+// DIFI tools functions
+#include "difi-tools.h"
+
 namespace po = boost::program_options;
 
 #define NUM_POINTS 10000
@@ -140,7 +143,7 @@ int main(int argc, char* argv[])
 
     int8_t packet_count = -1;
 
-    uint32_t buffer[100000];
+    uint32_t buffer[ZMQ_BUFFER_SIZE];
 
     struct vrt_header h;
     struct vrt_fields f;
@@ -159,12 +162,12 @@ int main(int argc, char* argv[])
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
            and (total_time == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
 
-        int len = zmq_recv(subscriber, buffer, 100000, 0);
+        int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
 
         const auto now = std::chrono::steady_clock::now();
 
         int32_t offset = 0;
-        int32_t rv = vrt_read_header(buffer + offset, 100000 - offset, &h, true);
+        int32_t rv = vrt_read_header(buffer + offset, ZMQ_BUFFER_SIZE - offset, &h, true);
 
         /* Parse header */
         if (rv < 0) {
@@ -173,12 +176,11 @@ int main(int argc, char* argv[])
         }
         offset += rv;
 
-        if (not start_rx and (h.packet_type == VRT_PT_IF_CONTEXT)) {
-            start_rx = true;
+        if (h.packet_type == VRT_PT_IF_CONTEXT) {
             // printf("Packet type: %s\n", vrt_string_packet_type(h.packet_type));
 
             /* Parse fields */
-            rv = vrt_read_fields(&h, buffer + offset, 100000 - offset, &f, true);
+            rv = vrt_read_fields(&h, buffer + offset, ZMQ_BUFFER_SIZE - offset, &f, true);
             if (rv < 0) {
                 fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
                 return EXIT_FAILURE;
@@ -186,7 +188,7 @@ int main(int argc, char* argv[])
             offset += rv;
 
             struct vrt_if_context c;
-            rv = vrt_read_if_context(buffer + offset, 100000 - offset, &c, true);
+            rv = vrt_read_if_context(buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
             if (rv < 0) {
                 fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
                 return EXIT_FAILURE;
@@ -204,15 +206,17 @@ int main(int argc, char* argv[])
                 printf("No Freq\n");
             }
             if (rate and rf_freq) {
-                num_points = rate;
-                signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
-                result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
-                plan = fftw_plan_dft_1d(num_points, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
+                if (not start_rx) {
+                    num_points = rate;
+                    signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
+                    result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
+                    plan = fftw_plan_dft_1d(num_points, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
+                    start_rx = true;
+                }
             } else {
                 printf("Context received but no rate and frequency. Exiting.\n");
                 break;
             }
-
         }
 
         if (start_rx and (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID)) {
@@ -228,7 +232,7 @@ int main(int argc, char* argv[])
             }
 
             /* Parse fields */
-            rv = vrt_read_fields(&h, buffer + offset, 100000 - offset, &f, true);
+            rv = vrt_read_fields(&h, buffer + offset, ZMQ_BUFFER_SIZE - offset, &f, true);
             if (rv < 0) {
                 fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
                 return EXIT_FAILURE;

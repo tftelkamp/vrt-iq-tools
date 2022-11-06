@@ -209,16 +209,22 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     // ZMQ
     void *zmq_server;
+    void *zmq_control;
     if (vrt) {
         void *context = zmq_ctx_new();
         void *responder = zmq_socket(context, ZMQ_PUB);
         int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
         assert(rc == 0);
-
         std::string connect_string = "tcp://*:" + std::to_string(port);
         rc = zmq_bind(responder, connect_string.c_str());
         assert (rc == 0);
         zmq_server = responder;
+
+        responder = zmq_socket(context, ZMQ_SUB);
+        rc = zmq_bind(responder, "tcp://*:50300");
+        assert (rc == 0);
+        zmq_control = responder;
+        zmq_setsockopt(zmq_control, ZMQ_SUBSCRIBE, "", 0);
     }
 
     // UDP DI-FI
@@ -665,6 +671,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             pc.if_context.rf_reference_frequency            = usrp->get_rx_freq();
             pc.if_context.rf_reference_frequency_offset     = 0;
             pc.if_context.if_reference_frequency            = 0; // Zero-IF
+            pc.if_context.if_band_offset                    = lo_offset;
             pc.if_context.gain.stage1                       = usrp->get_rx_gain();
             pc.if_context.gain.stage2                       = 0;
 
@@ -726,6 +733,73 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 std::cout << "" << boost::format("%.0f") % (100.0*clip_i/num_rx_samps) << "% I clip.";
                 std::cout << std::endl;
 
+            }
+        }
+
+        // Control 
+        int len = zmq_recv(zmq_control, buffer, 100000, ZMQ_NOBLOCK);
+        if (len > 0) {
+            printf("-> Control context received\n");
+
+            struct vrt_header h;
+            struct vrt_fields f;
+
+            int32_t offset = 0;
+            int32_t size = ZMQ_BUFFER_SIZE;
+            int32_t rv = vrt_read_header(buffer + offset, size - offset, &h, true);
+
+            /* Parse header */
+            if (rv < 0) {
+                fprintf(stderr, "Failed to parse header: %s\n", vrt_string_error(rv));
+                break;
+            }
+            offset += rv;
+
+            if (h.packet_type == VRT_PT_IF_CONTEXT) {
+            // Context
+
+                /* Parse fields */
+                rv = vrt_read_fields(&h, buffer + offset, size - offset, &f, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
+                    break;
+                }
+                offset += rv;
+
+                struct vrt_if_context c;
+                rv = vrt_read_if_context(buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
+                    break;
+                }
+
+                if (c.has.if_band_offset) {
+                    lo_offset = c.if_band_offset;
+                }
+
+                if (c.has.rf_reference_frequency || c.has.if_band_offset) {
+                    if (c.has.rf_reference_frequency)
+                        freq = (double)round(c.rf_reference_frequency);
+                    std::cout << boost::format("    Setting RX Freq: %f MHz...") % (freq / 1e6)
+                              << std::endl;
+                    std::cout << boost::format("    Setting RX LO Offset: %f MHz...") % (lo_offset / 1e6)
+                              << std::endl;
+                    uhd::tune_request_t tune_request(freq, lo_offset);
+                    if (vm.count("int-n"))
+                        tune_request.args = uhd::device_addr_t("mode_n=integer");
+                    usrp->set_rx_freq(tune_request, channel);
+                    std::cout << boost::format("    Actual RX Freq: %f MHz...")
+                                     % (usrp->get_rx_freq(channel) / 1e6)
+                              << std::endl;
+                }
+                if (c.has.gain) {
+                    double gain = c.gain.stage1;
+                    std::cout << boost::format("    Setting RX Gain: %f dB...") % gain << std::endl;
+                    usrp->set_rx_gain(gain, channel);
+                    std::cout << boost::format("    Actual RX Gain: %f dB...")
+                                     % usrp->get_rx_gain(channel)
+                              << std::endl;
+                }
             }
         }
     }
