@@ -4,6 +4,7 @@ clients: difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf sigmf_to_difi difi_
 sdr: usrp_to_difi rfspace_to_difi rtlsdr_to_difi
 gnuradio: difi_to_gnuradio
 gpu: difi_gpu_fftmax
+dada: difi_to_dada
 
 #INCLUDES = -I.
 #LIBS = -L.
@@ -71,8 +72,13 @@ difi_gpu_fftmax: difi_gpu_fftmax.cu
 		nvcc -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_gpu_fftmax difi_gpu_fftmax.cu \
 		$(BOOSTLIBS) -lzmq -lvrt -lcufft
 
+difi_to_dada: difi_to_dada.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_to_dada difi_to_dada.cpp \
+		-lvrt -lzmq $(BOOSTLIBS) -lpsrdada \
+		-I/home_local/camrasdemo/psrsoft/usr/include -L/home_local/camrasdemo/psrsoft/usr/lib
+
 convenience.o: convenience.c
 		g++ -O3 -c $(INCLUDES) $(CFLAGS) -o convenience.o convenience.c
 
 clean:
-		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi
+		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada
