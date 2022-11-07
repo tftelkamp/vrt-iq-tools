@@ -157,7 +157,7 @@ int main(int argc, char* argv[])
     stream_id = root.get<uint32_t>("global.difi:stream_id", 0);
 
     for (auto& item : root.get_child("captures")) {
-        freq = item.second.get<int>("core:frequency");
+        freq = item.second.get<double>("core:frequency");
         start_time_str = item.second.get<std::string>("core:datetime");
     }
 
