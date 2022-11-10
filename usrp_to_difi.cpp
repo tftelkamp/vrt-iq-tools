@@ -807,6 +807,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     stream_cmd.stream_mode = uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS;
     rx_stream->issue_stream_cmd(stream_cmd);
+    rx_stream.reset();
+    usrp.reset();
 
     if (stats) {
         std::cout << std::endl;
