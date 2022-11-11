@@ -265,7 +265,7 @@ int main(int argc, char* argv[])
                 double avg = 0;
 
                 float ticks = rate/(4e6);
-                printf("set term x11 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ",ticks);
+                printf("set term qt 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ",ticks);
                 printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
 
                for (uint32_t i = 0; i < num_points; ++i) {
