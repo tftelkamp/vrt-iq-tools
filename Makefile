@@ -1,6 +1,6 @@
 # DIFI IQ tools
 all: clients
-clients: difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf sigmf_to_difi difi_forwarder difi_spectrum difi_to_void control_difi difi_pll_track difi_to_rtl_tcp
+clients: difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf sigmf_to_difi difi_forwarder difi_spectrum difi_to_void control_difi difi_to_rtl_tcp
 sdr: usrp_to_difi rfspace_to_difi rtlsdr_to_difi
 gnuradio: difi_to_gnuradio
 gpu: difi_gpu_fftmax
@@ -10,8 +10,8 @@ dada: difi_to_dada
 #LIBS = -L.
 
 CFLAGS = -std=c++11
-INCLUDES = -I. -I/opt/local/include -I../libvrt/include
-LIBS = -L. -L../libvrt/build/ -L/opt/local/lib
+INCLUDES = -I. -I/opt/local/include -I../libvrt/include -I/opt/homebrew/include/
+LIBS = -L. -L../libvrt/build/ -L/opt/local/lib -L/opt/homebrew/lib/
 
 BOOSTLIBS = -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lboost_date_time
 #BOOSTLIBS = -lboost_system-mt -lboost_program_options-mt -lboost_chrono-mt -lboost_filesystem-mt -lboost_thread-mt -lboost_date_time-mt
@@ -44,9 +44,9 @@ difi_fftmax: difi_fftmax.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_fftmax difi_fftmax.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
 
-difi_pll_track: difi_pll_track.cpp
-		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_pll_track difi_pll_track.cpp \
-		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
+# difi_pll_track: difi_pll_track.cpp
+# 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_pll_track difi_pll_track.cpp \
+# 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
 
 difi_gnuplot: difi_gnuplot.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_gnuplot difi_gnuplot.cpp \
@@ -89,4 +89,4 @@ convenience.o: convenience.c
 		g++ -O3 -c $(INCLUDES) $(CFLAGS) -o convenience.o convenience.c
 
 clean:
-		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada difi_pll_track difi_to_rtl_tcp
+		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada difi_to_rtl_tcp
