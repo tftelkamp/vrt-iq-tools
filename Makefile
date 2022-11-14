@@ -1,6 +1,6 @@
 # DIFI IQ tools
 all: clients
-clients: difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf sigmf_to_difi difi_forwarder difi_spectrum difi_to_void control_difi
+clients: difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf sigmf_to_difi difi_forwarder difi_spectrum difi_to_void control_difi difi_pll_track difi_to_rtl_tcp
 sdr: usrp_to_difi rfspace_to_difi rtlsdr_to_difi
 gnuradio: difi_to_gnuradio
 gpu: difi_gpu_fftmax
@@ -36,8 +36,16 @@ difi_to_void: difi_to_void.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_to_void difi_to_void.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
+difi_to_rtl_tcp: difi_to_rtl_tcp.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_to_rtl_tcp difi_to_rtl_tcp.cpp \
+		-lvrt -lzmq $(BOOSTLIBS)
+
 difi_fftmax: difi_fftmax.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_fftmax difi_fftmax.cpp \
+		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
+
+difi_pll_track: difi_pll_track.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_pll_track difi_pll_track.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
 
 difi_gnuplot: difi_gnuplot.cpp
@@ -81,4 +89,4 @@ convenience.o: convenience.c
 		g++ -O3 -c $(INCLUDES) $(CFLAGS) -o convenience.o convenience.c
 
 clean:
-		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada
+		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada difi_pll_track difi_to_rtl_tcp
