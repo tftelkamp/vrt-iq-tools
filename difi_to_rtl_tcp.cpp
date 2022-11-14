@@ -138,7 +138,7 @@ int main(int argc, char* argv[])
 
     // variables to be set by po
     std::string file, type, zmq_address, rtl_address;
-    uint16_t port, rtl_port;
+    uint16_t port, rtl_port, ctrl_port;
     float scale;
     int hwm;
     size_t num_requested_samples;
@@ -158,11 +158,13 @@ int main(int argc, char* argv[])
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
+        ("control", "enable SDR control (freq.)")
         ("scale", po::value<float>(&scale)->default_value(1.0), "scaling factor for 16 to 8 bit conversion (default 1)")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
         ("rtl-address", po::value<std::string>(&rtl_address)->default_value("0.0.0.0"), "RTL-TCP address (default 0.0.0.0)")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
         ("rtl-port", po::value<uint16_t>(&rtl_port)->default_value(1234), "RTL-TCP port (default 1234)")
+        ("control-port", po::value<uint16_t>(&ctrl_port)->default_value(50300), "DIFI ZMQ control port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
     ;
     // clang-format on
@@ -184,8 +186,8 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
-    bool int_second             = (bool)vm.count("int-second");
-
+    bool int_second             = vm.count("int-second") > 0;
+    bool ctrl                   = vm.count("control") > 0;
 
     // RTL
     int r;  
@@ -198,6 +200,8 @@ int main(int argc, char* argv[])
     struct sockaddr_in local, remote;
 
     dongle_info_t dongle_info;
+
+    uint32_t freqhi = 0;
 
     struct command{
         unsigned char cmd;
@@ -295,6 +299,42 @@ int main(int argc, char* argv[])
         assert(rc == 0);
         zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
 
+        // Vita49 and ZMQ control
+        void* control;
+        struct vrt_packet pc;
+
+        if (ctrl) {
+            control = zmq_socket(context, ZMQ_PUB);
+            std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(ctrl_port);
+            int rc = zmq_connect(control, connect_string.c_str());
+            assert(rc == 0);
+
+            // Vita49
+            vrt_init_packet(&pc);
+
+            uint32_t buffer[DIFI_DATA_PACKET_SIZE];
+
+            /* DIFI Configure */
+            difi_init_context_packet(&pc);
+
+            pc.fields.stream_id = 0;
+
+            pc.if_context.has.bandwidth   = false;
+            pc.if_context.has.sample_rate = false;
+            pc.if_context.has.reference_point_identifier = true;
+            pc.if_context.has.if_reference_frequency = false;
+            pc.if_context.has.rf_reference_frequency = false;
+            pc.if_context.has.if_band_offset = false;
+            pc.if_context.has.reference_level = false;
+            pc.if_context.has.gain = false;
+            pc.if_context.has.timestamp_adjustment = false;
+            pc.if_context.has.timestamp_calibration_time = false;
+            pc.if_context.has.state_and_event_indicators = true;
+            pc.if_context.has.data_packet_payload_format = true;
+            pc.if_context.state_and_event_indicators.has.reference_lock = false;
+            pc.if_context.state_and_event_indicators.has.calibrated_time = false;
+        } 
+
         // time keeping
         auto start_time = std::chrono::steady_clock::now();
         auto stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
@@ -349,16 +389,51 @@ int main(int argc, char* argv[])
                     printf("exit\n");
                     break;
                 }
-                int32_t tmp = ntohl(cmd.param);
-                // if (cmd.cmd == SET_IF_STAGE) {
-                //     printf("set if stage %d gain %.1f dB\n", tmp >> 16, ((short)(tmp & 0xffff))/10.0);
-                // }
+                if (cmd.cmd == SET_IF_STAGE) {
+                    int32_t tmp = ntohl(cmd.param);
+                    printf("set IF stage %d gain %.1f dB\n", tmp >> 16, ((short)(tmp & 0xffff))/10.0);
+                }
                 if (cmd.cmd == SET_GAIN) {
+                    int32_t tmp = ntohl(cmd.param);
                     // tmp += 10;
                     printf("set manual scaling gain %.2f dB (%.1f)\n", tmp/10.0, pow(10,tmp/100.0));
                     scale = pow(10,tmp/100.0);
                 }
+                if (cmd.cmd == SET_FREQUENCY) {
+                    uint32_t tmp = ntohl(cmd.param);
+                    uint64_t freq64 = 0;
+                    if (!freqhi)
+                    {
+                        printf("set freq %f MHz\n", tmp * 1E-6);
+                        freq64 = tmp;
+                    }
+                    else
+                    {
+                        uint64_t tmp64 = ( ((uint64_t)freqhi) << 32 ) | (uint64_t)tmp;
+                        printf("set freq64 %f MHz\n", tmp64 * 1E-6);
+                        freq64 = freq64;
+                    }
+                    if (ctrl) {
+                        struct timeval time_now{};
+                        gettimeofday(&time_now, nullptr);
+                        pc.fields.integer_seconds_timestamp = time_now.tv_sec;
+                        pc.fields.fractional_seconds_timestamp = 1e3*time_now.tv_usec;
 
+                        pc.if_context.has.rf_reference_frequency = true;
+                        pc.if_context.rf_reference_frequency = freq64;
+
+                        uint32_t ctrl_buffer[DIFI_DATA_PACKET_SIZE];
+                        int32_t rv = vrt_write_packet(&pc, ctrl_buffer, DIFI_DATA_PACKET_SIZE, true);
+                        if (rv < 0) {
+                            fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
+                        } else 
+                            zmq_send (control, ctrl_buffer, rv*4, 0);
+                    }
+                }
+                if (cmd.cmd == SET_FREQ_HI32) {
+                    freqhi = ntohl(cmd.param);
+                }
+ 
             }
 
             if (start_rx and difi_packet.data) {
@@ -473,6 +548,7 @@ int main(int argc, char* argv[])
                 }
             }
         }
+        zmq_close(control);
         zmq_close(subscriber);
         zmq_ctx_destroy(context);
     }
