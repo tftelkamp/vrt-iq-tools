@@ -131,15 +131,23 @@ int main(int argc, char* argv[])
     std::vector<size_t> channel_nums = {0}; // single channel (0)
 
     std::string mdfilename;
+    std::fstream mdfile;
     mdfilename = file + ".sigmf-meta";
     file = file + ".sigmf-data";
 
-    if (not null)
+    if (not null) 
         for (size_t i = 0; i < channel_nums.size(); i++) {
             const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i]);
             outfiles.push_back(std::shared_ptr<std::ofstream>(
                 new std::ofstream(this_filename.c_str(), std::ofstream::binary)));
         }
+
+    if (not null) {
+        mdfile.open(mdfilename, std::ios::out);
+        if (!mdfile) {
+            std::cout << "SigMF metadata File not created!";
+        }
+    }
 
     // ZMQ
     void *context = zmq_ctx_new();
@@ -166,7 +174,8 @@ int main(int argc, char* argv[])
     uint64_t last_fractional_seconds_timestamp = 0;
 
     bool first_frame = true;
-    bool first_context = false;
+    bool first_context = true;
+    bool metadata_write = true;
 
     if (num_requested_samples == 0) {
         std::signal(SIGINT, &sig_int_handler);
@@ -186,9 +195,9 @@ int main(int argc, char* argv[])
             continue;
         }
 
-        if (not first_context and difi_packet.context) {
+        if (first_context and difi_packet.context) {
             difi_print_context(&difi_context);
-            first_context = true;   
+            first_context = false;   
         }
 
         if (difi_packet.data) {
@@ -221,6 +230,46 @@ int main(int argc, char* argv[])
                 difi_context.starttime_integer = difi_packet.integer_seconds_timestamp;
                 difi_context.starttime_fractional = difi_packet.fractional_seconds_timestamp;
                 first_frame = false;
+            }
+
+            if (not null and not first_frame and not first_context and metadata_write) {
+                metadata_write = false;
+                std::cout << "Writing SigMF metadata..." << std::endl;
+                if (!mdfile) {
+                    std::cout << "File not created?!";
+                } else {
+                    mdfile << boost::format("{ \n"
+                    "    \"global\": {\n"
+                    "        \"core:version\": \"1.0.0\",\n"
+                    "        \"core:recorder\": \"difi_to_sigmf\",\n"
+                    "        \"core:sample_rate\": %u,\n"
+                    "        \"core:datatype\": \"ci16_le\",\n"
+                    "        \"difi:rx_gain\": %i,\n"
+                    "        \"difi:bandwidth\": %u,\n"
+                    "        \"difi:reference\": \"%s\",\n"
+                    "        \"difi:time_source\": \"%s\",\n"
+                    "        \"difi:stream_id\": %u\n"
+                    "    },\n"
+                    "    \"captures\": [\n"
+                    "        {\n"
+                    "            \"core:sample_start\": 0,\n"
+                    "            \"core:frequency\": %u,\n"
+                    "            \"core:datetime\": \"%s.%06.0f\"\n"
+                    "        }\n"
+                    "    ]\n"
+                    "}\n")
+                    % difi_context.sample_rate
+                    % difi_context.gain
+                    % difi_context.bandwidth
+                    % (difi_context.reflock ? "external" : "internal")
+                    % (difi_context.time_cal ? "pps" : "internal")
+                    % difi_context.stream_id
+                    % difi_context.rf_freq
+                    % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(difi_context.starttime_integer)))
+                    % (double)(difi_context.starttime_fractional/1e6);
+                    mdfile << std::endl;
+                    mdfile.close();
+                }
             }
 
             for (size_t i = 0; i < outfiles.size(); i++) {
@@ -274,48 +323,6 @@ int main(int argc, char* argv[])
 
     zmq_close(subscriber);
     zmq_ctx_destroy(context);
-
-    if (not null) {
-        std::cout << "Writing SigMF metadata..." << std::endl;
-
-        std::fstream mdfile;
-        mdfile.open(mdfilename, std::ios::out);
-        if (!mdfile) {
-            std::cout << "File not created!";
-        } else {
-            mdfile << boost::format("{ \n"
-            "    \"global\": {\n"
-            "        \"core:version\": \"1.0.0\",\n"
-            "        \"core:recorder\": \"difi_to_sigmf\",\n"
-            "        \"core:sample_rate\": %u,\n"
-            "        \"core:datatype\": \"ci16_le\",\n"
-            "        \"difi:rx_gain\": %i,\n"
-            "        \"difi:bandwidth\": %u,\n"
-            "        \"difi:reference\": \"%s\",\n"
-            "        \"difi:time_source\": \"%s\",\n"
-            "        \"difi:stream_id\": %u\n"
-            "    },\n"
-            "    \"captures\": [\n"
-            "        {\n"
-            "            \"core:sample_start\": 0,\n"
-            "            \"core:frequency\": %u,\n"
-            "            \"core:datetime\": \"%s.%06.0f\"\n"
-            "        }\n"
-            "    ]\n"
-            "}\n")
-            % difi_context.sample_rate
-            % difi_context.gain
-            % difi_context.bandwidth
-            % (difi_context.reflock ? "external" : "internal")
-            % (difi_context.time_cal ? "pps" : "internal")
-            % difi_context.stream_id
-            % difi_context.rf_freq
-            % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(difi_context.starttime_integer)))
-            % (double)(difi_context.starttime_fractional/1e6);
-            mdfile << std::endl;
-            mdfile.close();
-        }
-    }
 
     return 0;
 
