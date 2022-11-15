@@ -77,8 +77,7 @@ int main(int argc, char* argv[])
 
     // variables to be set by po
     std::string file, type, zmq_address;
-    size_t num_requested_samples;
-    double total_time;
+    size_t num_requested_samples, total_time;
     uint16_t port;
     int hwm;
 
@@ -91,7 +90,7 @@ int main(int argc, char* argv[])
         ("file", po::value<std::string>(&file)->default_value("usrp_samples.dat"), "name of the file to write binary samples to")
         // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
-        ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
+        ("duration", po::value<size_t>(&total_time)->default_value(0), "total number of seconds to receive")
         ("progress", "periodically display short-term bandwidth")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
@@ -160,7 +159,6 @@ int main(int argc, char* argv[])
 
     // time keeping
     auto start_time = std::chrono::steady_clock::now();
-    auto stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
 
     // ZMQ buffer
     uint32_t buffer[ZMQ_BUFFER_SIZE];
@@ -183,8 +181,7 @@ int main(int argc, char* argv[])
     }
 
     while (not stop_signal_called
-           and (num_requested_samples > num_total_samps or num_requested_samples == 0)
-           and (total_time == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
+           and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
 
         int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
 
@@ -197,7 +194,10 @@ int main(int argc, char* argv[])
 
         if (first_context and difi_packet.context) {
             difi_print_context(&difi_context);
-            first_context = false;   
+            first_context = false; 
+
+            if (total_time > 0)  
+                num_requested_samples = total_time * difi_context.sample_rate;
         }
 
         if (difi_packet.data) {
@@ -215,7 +215,6 @@ int main(int argc, char* argv[])
                     int_second = false;
                     last_update = now; 
                     start_time = now;
-                    stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
                 }
             }
 
