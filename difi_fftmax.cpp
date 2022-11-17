@@ -70,12 +70,14 @@ int main(int argc, char* argv[])
     fftw_plan plan;
     uint32_t num_points = 0;
 
+    int32_t min_bin, max_bin;
+
     // variables to be set by po
     std::string file, type, zmq_address;
     uint16_t port;
     int hwm;
     size_t num_requested_samples;
-    double total_time;
+    double total_time, min_freq, max_freq;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -83,16 +85,16 @@ int main(int argc, char* argv[])
 
     desc.add_options()
         ("help", "help message")
-        // ("file", po::value<std::string>(&file)->default_value("usrp_samples.dat"), "name of the file to write binary samples to")
-        // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
+        ("min-freq", po::value<double>(&min_freq), "min. freq. offset to track")
+        ("max-freq", po::value<double>(&max_freq), "max. freq. offset to track")
         ("progress", "periodically display short-term bandwidth")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
-        ("ignore-dc", "Ignore 10 perc. of bins around DC")
+        // ("ignore-dc", "Ignore 10 perc. of bins around DC")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
@@ -117,7 +119,7 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
-    bool ignore_dc              = (bool)vm.count("ignore-dc");
+    // bool ignore_dc              = (bool)vm.count("ignore-dc");
 
     context_type difi_context;
     init_context(&difi_context);
@@ -171,6 +173,24 @@ int main(int argc, char* argv[])
             difi_print_context(&difi_context);
             start_rx = true;
             num_points = difi_context.sample_rate;
+
+            min_bin = 0;
+            max_bin = num_points;
+
+            if (vm.count("min-freq")) {
+                min_bin = min_freq+num_points/2;
+                min_bin = min_bin < 0 ? 0 : min_bin;
+                min_bin = min_bin > num_points ? num_points : min_bin;
+            }
+
+            if (vm.count("max-freq")) {
+                max_bin = max_freq+num_points/2;
+                max_bin = max_bin < 0 ? 0 : max_bin;
+                max_bin = max_bin > num_points ? num_points : max_bin;
+            }
+
+            printf("Min/Max bin: %i %i\n", min_bin, max_bin);
+
             signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
             plan = fftw_plan_dft_1d(num_points, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
@@ -222,7 +242,8 @@ int main(int argc, char* argv[])
                     double mag = sqrt(result[i][REAL] * result[i][REAL] +
                               result[i][IMAG] * result[i][IMAG]);
                     // ignore 10% of bins around DC (exp.)
-                    if ( (mag > max) and (not ignore_dc or (abs((int32_t)i-(int32_t)num_points/2) ) > num_points/10)  ) {
+                    // if ( (mag > max) and (not ignore_dc or (abs((int32_t)i-(int32_t)num_points/2) ) > num_points/10)  ) {
+                    if ( (mag > max) and (i >= min_bin) and (i <= max_bin)) {
                         max = mag;
                         max_i = i;
                     }
