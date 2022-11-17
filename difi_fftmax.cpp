@@ -189,8 +189,6 @@ int main(int argc, char* argv[])
                 max_bin = max_bin > num_points ? num_points : max_bin;
             }
 
-            printf("Min/Max bin: %i %i\n", min_bin, max_bin);
-
             signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_points);
             plan = fftw_plan_dft_1d(num_points, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
