@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
     uint16_t port;
     int hwm;
     size_t num_requested_samples;
-    double total_time, min_freq, max_freq;
+    double total_time, min_offset, max_offset;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -87,8 +87,8 @@ int main(int argc, char* argv[])
         ("help", "help message")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
-        ("min-freq", po::value<double>(&min_freq), "min. freq. offset to track")
-        ("max-freq", po::value<double>(&max_freq), "max. freq. offset to track")
+        ("min-offset", po::value<double>(&min_offset), "min. freq. offset to track")
+        ("max-offset", po::value<double>(&max_offset), "max. freq. offset to track")
         ("progress", "periodically display short-term bandwidth")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
@@ -177,14 +177,14 @@ int main(int argc, char* argv[])
             min_bin = 0;
             max_bin = num_points;
 
-            if (vm.count("min-freq")) {
-                min_bin = min_freq+num_points/2;
+            if (vm.count("min-offset")) {
+                min_bin = min_offset+num_points/2;
                 min_bin = min_bin < 0 ? 0 : min_bin;
                 min_bin = min_bin > num_points ? num_points : min_bin;
             }
 
-            if (vm.count("max-freq")) {
-                max_bin = max_freq+num_points/2;
+            if (vm.count("max-offset")) {
+                max_bin = max_offset+num_points/2;
                 max_bin = max_bin < 0 ? 0 : max_bin;
                 max_bin = max_bin > num_points ? num_points : max_bin;
             }
