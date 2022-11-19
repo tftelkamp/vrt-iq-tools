@@ -224,20 +224,30 @@ int main(int argc, char* argv[])
                 memcpy(&img, (char*)&buffer[difi_packet.offset+i]+2, 2);
                 signal[signal_pointer][REAL] = mult*re;
                 signal[signal_pointer][IMAG] = mult*img;
-                mult *= -1;
+                // mult *= -1;
             }
 
             if (signal_pointer >= num_points) {
 
                 signal_pointer = 0;
 
+                int mult = 1;
                 // double square signal
                 for (uint32_t i = 0; i < num_points; i++) {
-                    signal[i][REAL] = signal[i][REAL] * signal[i][REAL] - signal[i][IMAG] * signal[i][IMAG];
-                    signal[i][IMAG] = 2 * signal[i][REAL] * signal[i][IMAG];
+                    
+                    double real = signal[i][REAL];
+                    double imag = signal[i][IMAG];
 
-                    signal[i][REAL] = signal[i][REAL] * signal[i][REAL] - signal[i][IMAG] * signal[i][IMAG];
-                    signal[i][IMAG] = 2 * signal[i][REAL] * signal[i][IMAG];
+                    signal[i][REAL] = real * real - imag * imag;
+                    signal[i][IMAG] = 2 * real * imag;
+
+                    double real2 = signal[i][REAL];
+                    double imag2 = signal[i][IMAG];
+
+                    signal[i][REAL] = mult * (real2 * real2 - imag2 * imag2);
+                    signal[i][IMAG] = mult * 2 * real2 * imag2;
+
+                    mult *= -1;
                 }
 
                 fftw_execute(plan);
