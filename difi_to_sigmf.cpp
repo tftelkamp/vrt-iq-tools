@@ -249,6 +249,7 @@ int main(int argc, char* argv[])
                     "        \"difi:time_source\": \"%s\",\n"
                     "        \"difi:stream_id\": %u\n"
                     "    },\n"
+                    "    \"annotations\": [],\n"
                     "    \"captures\": [\n"
                     "        {\n"
                     "            \"core:sample_start\": 0,\n"
