@@ -69,6 +69,7 @@ int main(int argc, char* argv[])
     fftw_complex *signal, *result;
     fftw_plan plan;
     uint32_t num_points = 0;
+    uint32_t fft_len = 1;
 
     int32_t min_bin, max_bin;
 
@@ -89,6 +90,7 @@ int main(int argc, char* argv[])
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("min-offset", po::value<double>(&min_offset), "min. freq. offset to track")
         ("max-offset", po::value<double>(&max_offset), "max. freq. offset to track")
+        ("fft-duration", po::value<uint32_t>(&fft_len), "number of seconds to integrate")
         ("progress", "periodically display short-term bandwidth")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
@@ -172,7 +174,7 @@ int main(int argc, char* argv[])
         if (not start_rx and difi_packet.context) {
             difi_print_context(&difi_context);
             start_rx = true;
-            num_points = difi_context.sample_rate;
+            num_points = fft_len*difi_context.sample_rate;
 
             min_bin = 0;
             max_bin = num_points;
@@ -255,8 +257,8 @@ int main(int argc, char* argv[])
                     seconds++;
                 }
 
-                int64_t peak_hz = difi_context.rf_freq + max_i - difi_context.sample_rate/2;
-                printf("%lu.%09li, %li, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
+                double peak_hz = difi_context.rf_freq + (double)max_i/(double)fft_len - fft_len*difi_context.sample_rate/2;
+                printf("%lu.%09li, %.2f, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
                 fflush(stdout);
             }
 
