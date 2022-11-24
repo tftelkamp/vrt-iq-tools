@@ -257,7 +257,7 @@ int main(int argc, char* argv[])
                     seconds++;
                 }
 
-                double peak_hz = difi_context.rf_freq + (double)max_i/(double)fft_len - fft_len*difi_context.sample_rate/2;
+                double peak_hz = difi_context.rf_freq + (double)max_i/(double)fft_len - difi_context.sample_rate/2;
                 printf("%lu.%09li, %.2f, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
                 fflush(stdout);
             }
