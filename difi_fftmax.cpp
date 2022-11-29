@@ -96,7 +96,7 @@ int main(int argc, char* argv[])
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
-        // ("ignore-dc", "Ignore 10 perc. of bins around DC")
+        ("ignore-dc", "Ignore  DC bin")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
@@ -121,7 +121,7 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
-    // bool ignore_dc              = (bool)vm.count("ignore-dc");
+    bool ignore_dc              = (bool)vm.count("ignore-dc");
 
     context_type difi_context;
     init_context(&difi_context);
@@ -238,12 +238,14 @@ int main(int argc, char* argv[])
                 double max = 0;
                 int32_t max_i = -1;
 
+                uint32_t dc = num_points/2;
+
                for (uint32_t i = 0; i < num_points; ++i) {
                     double mag = sqrt(result[i][REAL] * result[i][REAL] +
                               result[i][IMAG] * result[i][IMAG]);
                     // ignore 10% of bins around DC (exp.)
                     // if ( (mag > max) and (not ignore_dc or (abs((int32_t)i-(int32_t)num_points/2) ) > num_points/10)  ) {
-                    if ( (mag > max) and (i >= min_bin) and (i <= max_bin)) {
+                    if ( (mag > max) and (i >= min_bin) and (i <= max_bin) and not (ignore_dc && i==dc)) {
                         max = mag;
                         max_i = i;
                     }
