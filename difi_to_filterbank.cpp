@@ -310,9 +310,7 @@ int main(int argc, char* argv[])
 
             int mult = 1;
             for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
-                signal_pointer++;
-                if (signal_pointer >= num_bins)  
-                    break;
+
                 int16_t re;
                 memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
                 int16_t img;
@@ -320,19 +318,21 @@ int main(int argc, char* argv[])
                 signal[signal_pointer][REAL] = mult*re;
                 signal[signal_pointer][IMAG] = mult*img;
                 mult *= -1;
-            }
 
-            if (signal_pointer >= num_bins) {
+                signal_pointer++;
 
-                signal_pointer = 0;
+                if (signal_pointer >= num_bins) { 
 
-                fftw_execute(plan);
+                    signal_pointer = 0;
 
-                // todo: make this an array instead of writing each value to file
-                for (uint32_t i = 0; i < num_bins; ++i) {
-                    float mag = sqrt(result[i][REAL] * result[i][REAL] +
-                              result[i][IMAG] * result[i][IMAG]);
-                    fwrite( &mag, sizeof(float), 1, write_ptr);
+                    fftw_execute(plan);
+
+                    // todo: make this an array instead of writing each value to file
+                    for (uint32_t i = 0; i < num_bins; ++i) {
+                        float mag = sqrt(result[i][REAL] * result[i][REAL] +
+                                  result[i][IMAG] * result[i][IMAG]);
+                        fwrite( &mag, sizeof(float), 1, write_ptr);
+                    }
                 }
             }
 
