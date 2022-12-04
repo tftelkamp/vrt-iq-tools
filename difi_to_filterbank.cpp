@@ -68,16 +68,20 @@ int main(int argc, char* argv[])
     // FFTW
     fftw_complex *signal, *result;
     fftw_plan plan;
-    uint32_t num_bins = 0;
+
+    float *magnitudes;
 
     FILE *write_ptr;
 
     // variables to be set by po
-    std::string file, type, zmq_address, source_name;
+    std::string file, type, zmq_address, source_name, coords;
     uint16_t port;
+    uint32_t integrations;
+    uint32_t num_bins = 0;
     int hwm;
     size_t num_requested_samples;
     double total_time;
+    float bin_size, integration_time;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -89,8 +93,12 @@ int main(int argc, char* argv[])
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("file", po::value<std::string>(&file)->default_value("difi.fil"), "name of the file to write binary filterbank data to")
         ("source-name", po::value<std::string>(&source_name)->default_value("not defined"), "Source name")
+        ("coordinates", po::value<std::string>(&coords), "Coordinates (ra,dec,az,el)")
         // ("fft-duration", po::value<uint32_t>(&fft_len), "number of seconds to integrate")
         ("num-bins", po::value<uint32_t>(&num_bins)->default_value(10000), "number of bins")
+        ("bin-size", po::value<float>(&bin_size), "size of bin in Hz")
+        ("integrations", po::value<uint32_t>(&integrations)->default_value(1), "number of integrations")
+        ("integration-time", po::value<float>(&integration_time), "integration time (seconds)")
         ("progress", "periodically display short-term bandwidth")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
@@ -108,7 +116,7 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("DIFI samples to fftmax %s") % desc << std::endl;
+        std::cout << boost::format("DIFI samples to filterbank %s") % desc << std::endl;
         std::cout << std::endl
                   << "This application processes data from a DIFI stream "
                      "to to filterbank format.\n"
@@ -123,6 +131,19 @@ int main(int argc, char* argv[])
     bool int_second             = (bool)vm.count("int-second");
     // bool ignore_dc              = (bool)vm.count("ignore-dc");
 
+    std::vector<std::string> coord_strings;
+    char *ptr;
+    if (vm.count("coordinates")) {
+        boost::split(coord_strings, coords, boost::is_any_of("\"', "));
+        if (coord_strings.size()!=4) {
+            printf("Incorrect number of coordinates. Exiting.\n");
+            exit(1);
+        }
+        // for (size_t ch = 0; ch < coord_strings.size(); ch++) {
+        //     // gains.push_back(std::stoi(gain_strings[ch]));
+        //     printf("val: %lf\n", strtod(coord_strings[ch].c_str(), &ptr) );
+        // }
+    }
 
     write_ptr = fopen(file.c_str(),"wb");  // w for write, b for binary
 
@@ -158,6 +179,7 @@ int main(int argc, char* argv[])
     uint64_t last_fractional_seconds_timestamp = 0;
 
     uint32_t signal_pointer = 0;
+    uint32_t integration_counter = 0;
 
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
@@ -174,7 +196,14 @@ int main(int argc, char* argv[])
         if (not start_rx and difi_packet.context) {
             difi_print_context(&difi_context);
             start_rx = true;
-            // num_points = fft_len*difi_context.sample_rate;
+
+            if (vm.count("bin-size")) {
+                num_bins = (uint32_t)((float)difi_context.sample_rate/(float)bin_size);
+            }
+
+            if (vm.count("integration-time")) {
+                integrations = (uint32_t)((double)integration_time/((double)num_bins/(double)difi_context.sample_rate));
+            }
 
             if (total_time > 0)  
                 num_requested_samples = total_time * difi_context.sample_rate;
@@ -182,6 +211,12 @@ int main(int argc, char* argv[])
             signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
             plan = fftw_plan_dft_1d(num_bins, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
+            magnitudes = (float*)malloc(num_bins * sizeof(float));
+            printf("# Filterbank parameters:\n");
+            printf("#    Bins: %u\n", num_bins);
+            printf("#    Bin size [Hz]: %.2f\n", ((double)difi_context.sample_rate)/((double)num_bins));
+            printf("#    Integrations: %u\n", integrations);
+            printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)difi_context.sample_rate);
         }
         
         if (start_rx and difi_packet.data) {
@@ -281,7 +316,7 @@ int main(int argc, char* argv[])
                 fwrite( &double_value, sizeof(double_value), 1, write_ptr);
 
                 keyword = "foff";
-                double_value = ((double)difi_context.sample_rate/1e6)/((double)num_bins-1);
+                double_value = ((double)difi_context.sample_rate/1e6)/((double)num_bins); // num_bins-1 ?
                 len = strlen(keyword);
                 fwrite( &len, sizeof(len), 1, write_ptr);
                 fwrite( (char*)keyword, len, 1, write_ptr);
@@ -295,11 +330,41 @@ int main(int argc, char* argv[])
                 fwrite( &double_value, sizeof(double_value), 1, write_ptr);
 
                 keyword = "tsamp";
-                double_value = (double)num_bins/(double)difi_context.sample_rate;
+                double_value = (double)integrations*(double)num_bins/(double)difi_context.sample_rate;
                 len = strlen(keyword);
                 fwrite( &len, sizeof(len), 1, write_ptr);
                 fwrite( (char*)keyword, len, 1, write_ptr);
                 fwrite( &double_value, sizeof(double_value), 1, write_ptr);
+
+                if (vm.count("coordinates")) {
+                    keyword = "src_raj";
+                    double_value = strtod(coord_strings[0].c_str(), &ptr);
+                    len = strlen(keyword);
+                    fwrite( &len, sizeof(len), 1, write_ptr);
+                    fwrite( (char*)keyword, len, 1, write_ptr);
+                    fwrite( &double_value, sizeof(double_value), 1, write_ptr);
+
+                    keyword = "src_dej";
+                    double_value = strtod(coord_strings[1].c_str(), &ptr);
+                    len = strlen(keyword);
+                    fwrite( &len, sizeof(len), 1, write_ptr);
+                    fwrite( (char*)keyword, len, 1, write_ptr);
+                    fwrite( &double_value, sizeof(double_value), 1, write_ptr);
+
+                    keyword = "az_start";
+                    double_value = strtod(coord_strings[2].c_str(), &ptr);
+                    len = strlen(keyword);
+                    fwrite( &len, sizeof(len), 1, write_ptr);
+                    fwrite( (char*)keyword, len, 1, write_ptr);
+                    fwrite( &double_value, sizeof(double_value), 1, write_ptr);
+
+                    keyword = "za_start";
+                    double_value = strtod(coord_strings[3].c_str(), &ptr);
+                    len = strlen(keyword);
+                    fwrite( &len, sizeof(len), 1, write_ptr);
+                    fwrite( (char*)keyword, len, 1, write_ptr);
+                    fwrite( &double_value, sizeof(double_value), 1, write_ptr);
+                }
 
                 keyword = "HEADER_END";
                 len = strlen(keyword);
@@ -327,11 +392,17 @@ int main(int argc, char* argv[])
 
                     fftw_execute(plan);
 
-                    // todo: make this an array instead of writing each value to file
                     for (uint32_t i = 0; i < num_bins; ++i) {
-                        float mag = sqrt(result[i][REAL] * result[i][REAL] +
+                        magnitudes[i] += sqrt(result[i][REAL] * result[i][REAL] +
                                   result[i][IMAG] * result[i][IMAG]);
-                        fwrite( &mag, sizeof(float), 1, write_ptr);
+                    }
+                    integration_counter++;
+                    if (integration_counter == integrations) {
+                        for (uint32_t i = 0; i < num_bins; ++i)
+                            magnitudes[i] /= (float)integrations;
+                        fwrite(magnitudes, num_bins*sizeof(float), 1, write_ptr);
+                        integration_counter = 0;
+                        memset(magnitudes, 0, num_bins*sizeof(float));
                     }
                 }
             }
