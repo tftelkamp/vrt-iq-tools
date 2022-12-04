@@ -90,8 +90,8 @@ int main(int argc, char* argv[])
     // clang-format off
     desc.add_options()
         ("help", "help message")
-        ("console", po::value<std::string>(&consolehost)->default_value("localhost"), "console hostname")
-        ("format", po::value<std::string>(&format)->default_value("hms"), "output format (hms, filterbank)")
+        ("console", po::value<std::string>(&consolehost)->default_value("console"), "console hostname")
+        ("format", po::value<std::string>(&format)->default_value("text"), "output format (text, hms, filterbank)")
         ("pointing", po::value<std::string>(&pointing)->default_value("actual"), "RaDec pointing (actual, setpoint)")
     ;
     // clang-format on
@@ -238,6 +238,11 @@ int main(int argc, char* argv[])
         printf("%s,", radec_values[dec_index].c_str());
         printf("%.3lf,", azimuth);
         printf("%.3lf\n", elevation);
+    } else if (format == "text") {
+        printf("Right Ascension: %s\n", radec_values[ra_index].c_str());
+        printf("Declination: %s\n", radec_values[dec_index].c_str());
+        printf("Azimuth: %.2lf\n", azimuth);
+        printf("Elevation: %.2lf\n", elevation);
     } else {
         printf ("unknown format\n");
     }
