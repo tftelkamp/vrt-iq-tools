@@ -1,10 +1,11 @@
 # DIFI IQ tools
-all: clients
+all: clients dt
 clients: difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf sigmf_to_difi difi_forwarder difi_spectrum difi_to_void control_difi difi_to_rtl_tcp difi_fftmax_quad difi_to_filterbank
 sdr: usrp_to_difi rfspace_to_difi rtlsdr_to_difi
 gnuradio: difi_to_gnuradio
 gpu: difi_gpu_fftmax
 dada: difi_to_dada
+dt: query_dt_console
 
 #INCLUDES = -I.
 #LIBS = -L.
@@ -80,6 +81,10 @@ rfspace_to_difi: rfspace_to_difi.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) rfspace_to_difi.cpp -o rfspace_to_difi \
 		$(BOOSTLIBS) -lzmq -lvrt
 
+query_dt_console: query_dt_console.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) query_dt_console.cpp -o query_dt_console \
+		$(BOOSTLIBS)
+
 sigmf_to_difi: sigmf_to_difi.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) sigmf_to_difi.cpp -o sigmf_to_difi \
 		$(BOOSTLIBS) -lzmq -lvrt
@@ -101,4 +106,4 @@ convenience.o: convenience.c
 		g++ -O3 -c $(INCLUDES) $(CFLAGS) -o convenience.o convenience.c
 
 clean:
-		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada difi_to_rtl_tcp difi_to_difi_quad difi_fftmax_quad difi_to_filterbank
+		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada difi_to_rtl_tcp difi_to_difi_quad difi_fftmax_quad difi_to_filterbank query_dt_console
