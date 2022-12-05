@@ -1,6 +1,11 @@
+# PREFIX is environment variable, but if it is not set, then set default value
+ifeq ($(PREFIX),)
+    PREFIX := /usr/local
+endif
+
 # DIFI IQ tools
 all: clients dt
-clients: difi_to_file difi_fftmax difi_gnuplot difi_to_sigmf sigmf_to_difi difi_forwarder difi_spectrum difi_to_void control_difi difi_to_rtl_tcp difi_fftmax_quad difi_to_filterbank
+clients: difi_fftmax difi_gnuplot difi_to_sigmf sigmf_to_difi difi_forwarder difi_spectrum difi_to_void control_difi difi_to_rtl_tcp difi_fftmax_quad difi_to_filterbank
 sdr: usrp_to_difi rfspace_to_difi rtlsdr_to_difi
 gnuradio: difi_to_gnuradio
 gpu: difi_gpu_fftmax
@@ -20,10 +25,6 @@ BOOSTLIBS = -lboost_system -lboost_program_options -lboost_chrono -lboost_filesy
 usrp_to_difi: usrp_to_difi.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) usrp_to_difi.cpp -o usrp_to_difi \
 		-luhd -lpthread -lzmq -lvrt $(BOOSTLIBS)
-
-difi_to_file: difi_to_file.cpp
-		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_to_file difi_to_file.cpp \
-		-lvrt -lzmq -lpthread $(BOOSTLIBS)
 
 difi_to_sigmf: difi_to_sigmf.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_to_sigmf difi_to_sigmf.cpp \
@@ -56,10 +57,6 @@ difi_to_filterbank: difi_to_filterbank.cpp
 difi_fftmax_quad: difi_fftmax_quad.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_fftmax_quad difi_fftmax_quad.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
-
-# difi_pll_track: difi_pll_track.cpp
-# 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_pll_track difi_pll_track.cpp \
-# 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
 
 difi_gnuplot: difi_gnuplot.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o difi_gnuplot difi_gnuplot.cpp \
@@ -105,5 +102,19 @@ difi_to_dada: difi_to_dada.cpp
 convenience.o: convenience.c
 		g++ -O3 -c $(INCLUDES) $(CFLAGS) -o convenience.o convenience.c
 
+install: all
+		install -m 755 difi_fftmax        $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 difi_gnuplot       $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 difi_to_sigmf      $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 sigmf_to_difi      $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 difi_forwarder     $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 difi_spectrum      $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 difi_to_void       $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 control_difi       $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 difi_to_rtl_tcp    $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 difi_fftmax_quad   $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 difi_to_filterbank $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 query_dt_console   $(DESTDIR)$(PREFIX)/bin/
+
 clean:
-		$(RM) usrp_to_difi difi_to_file difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada difi_to_rtl_tcp difi_to_difi_quad difi_fftmax_quad difi_to_filterbank query_dt_console
+		$(RM) usrp_to_difi difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada difi_to_rtl_tcp difi_to_difi_quad difi_fftmax_quad difi_to_filterbank query_dt_console
