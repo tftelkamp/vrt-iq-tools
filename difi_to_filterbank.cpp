@@ -79,6 +79,7 @@ int main(int argc, char* argv[])
     uint32_t integrations;
     uint32_t num_bins = 0;
     int hwm;
+    bool power2;
     size_t num_requested_samples;
     double total_time;
     float bin_size, integration_time;
@@ -97,6 +98,7 @@ int main(int argc, char* argv[])
         // ("fft-duration", po::value<uint32_t>(&fft_len), "number of seconds to integrate")
         ("num-bins", po::value<uint32_t>(&num_bins)->default_value(10000), "number of bins")
         ("bin-size", po::value<float>(&bin_size), "size of bin in Hz")
+        ("power2", po::value<bool>(&power2)->default_value(true), "Round number of bins to nearest power of two")
         ("integrations", po::value<uint32_t>(&integrations)->default_value(1), "number of integrations")
         ("integration-time", po::value<float>(&integration_time), "integration time (seconds)")
         ("progress", "periodically display short-term bandwidth")
@@ -198,7 +200,13 @@ int main(int argc, char* argv[])
             start_rx = true;
 
             if (vm.count("bin-size")) {
-                num_bins = (uint32_t)((float)difi_context.sample_rate/(float)bin_size);
+                if (power2) {
+                    num_bins = (uint32_t)((float)difi_context.sample_rate/(float)bin_size);
+                    uint32_t pow2 = (uint32_t)(log2(num_bins)+0.8);
+                    num_bins = pow(2,pow2);
+                } else {
+                    num_bins = (uint32_t)((float)difi_context.sample_rate/(float)bin_size);
+                }
             }
 
             if (vm.count("integration-time")) {
@@ -212,6 +220,7 @@ int main(int argc, char* argv[])
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
             plan = fftw_plan_dft_1d(num_bins, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
             magnitudes = (float*)malloc(num_bins * sizeof(float));
+            
             printf("# Filterbank parameters:\n");
             printf("#    Bins: %u\n", num_bins);
             printf("#    Bin size [Hz]: %.2f\n", ((double)difi_context.sample_rate)/((double)num_bins));
