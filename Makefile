@@ -11,6 +11,7 @@ gnuradio: difi_to_gnuradio
 gpu: difi_gpu_fftmax
 dada: difi_to_dada
 dt: query_dt_console
+strf: difi_rffft
 
 #INCLUDES = -I.
 #LIBS = -L.
@@ -99,6 +100,10 @@ difi_to_dada: difi_to_dada.cpp
 		-lvrt -lzmq $(BOOSTLIBS) -lpsrdada \
 		-I/home_local/camrasdemo/psrsoft/usr/include -L/home_local/camrasdemo/psrsoft/usr/lib
 
+difi_rffft: difi_rffft.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) difi_rffft.cpp -o difi_rffft \
+		$(BOOSTLIBS) -lzmq -lvrt -lfftw3f
+
 convenience.o: convenience.c
 		g++ -O3 -c $(INCLUDES) $(CFLAGS) -o convenience.o convenience.c
 
@@ -117,4 +122,4 @@ install: all
 		install -m 755 query_dt_console   $(DESTDIR)$(PREFIX)/bin/
 
 clean:
-		$(RM) usrp_to_difi difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada difi_to_rtl_tcp difi_to_difi_quad difi_fftmax_quad difi_to_filterbank query_dt_console
+		$(RM) usrp_to_difi difi_fftmax difi_gnuplot difi_to_gnuradio difi_to_sigmf convenience.o rtlsdr_to_difi rfspace_to_difi difi_forwarder difi_to_void difi_spectrum sigmf_to_difi difi_gpu_fftmax control_difi difi_to_dada difi_to_rtl_tcp difi_to_difi_quad difi_fftmax_quad difi_to_filterbank query_dt_console difi_rffft
