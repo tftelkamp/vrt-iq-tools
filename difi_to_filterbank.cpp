@@ -76,6 +76,7 @@ int main(int argc, char* argv[])
     // variables to be set by po
     std::string file, type, zmq_address, source_name, coords;
     uint16_t port;
+    uint32_t channel;
     uint32_t integrations;
     uint32_t num_bins = 0;
     int hwm;
@@ -93,6 +94,7 @@ int main(int argc, char* argv[])
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("file", po::value<std::string>(&file)->default_value("difi.fil"), "name of the file to write binary filterbank data to")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
         ("source-name", po::value<std::string>(&source_name)->default_value("not defined"), "Source name")
         ("coordinates", po::value<std::string>(&coords), "Coordinates (ra,dec,az,el)")
         // ("fft-duration", po::value<uint32_t>(&fft_len), "number of seconds to integrate")
@@ -154,7 +156,7 @@ int main(int argc, char* argv[])
 
     difi_packet_type difi_packet;
 
-    std::vector<size_t> channel_nums = {0}; // single channel (0)
+    difi_packet.channel_filt = 1<<channel;
 
     // ZMQ
     void *context = zmq_ctx_new();

@@ -49,6 +49,7 @@ int main(int argc, char* argv[])
     std::string file, type, zmq_address;
     uint16_t port;
     int hwm;
+    uint32_t channel;
     size_t num_requested_samples;
     double setup_time, freq, gain, lo_offset;
 
@@ -65,6 +66,7 @@ int main(int argc, char* argv[])
         // ("progress", "periodically display short-term bandwidth")
         // ("int-second", "align start of reception to integer second")
         // ("null", "run without writing to file")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
         ("setup", po::value<double>(&setup_time)->default_value(0.5), "seconds of setup time")
         ("freq", po::value<double>(&freq), "RF center frequency in Hz")
         ("gain", po::value<double>(&gain), "gain for the RF chain")
@@ -120,7 +122,7 @@ int main(int argc, char* argv[])
     /* DIFI Configure */
     difi_init_context_packet(&pc);
 
-    pc.fields.stream_id = 0;
+    pc.fields.stream_id = 1<<channel;
 
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);

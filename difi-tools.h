@@ -1,4 +1,4 @@
-/* DIFI tools helper functions */
+/* VRT tools helper functions */
 
 #ifndef _DIFITOOLS_H
 #define _DIFITOOLS_H
@@ -30,14 +30,16 @@ struct context_type {
     uint32_t stream_id;
     uint64_t starttime_integer;
     uint64_t starttime_fractional;
-    int8_t last_data_counter;
+    int32_t last_data_counter;
 };
 
 struct difi_packet_type {
     bool context;
     bool data;
-    uint32_t data_offset;
     bool lost_frame;
+    bool first_frame;
+    uint32_t stream_id;
+    uint32_t channel_filt;
     uint32_t num_rx_samps;
     uint32_t offset;
     uint64_t fractional_seconds_timestamp;
@@ -60,7 +62,9 @@ void init_context(context_type* context) {
 }
 
 bool check_packet_count(int8_t counter, context_type* difi_context) {
-    if ( (difi_context->last_data_counter > 0) and (counter != (difi_context->last_data_counter+1)%16) ) {
+    if ( (difi_context->last_data_counter > 0) and 
+            ( (counter != (difi_context->last_data_counter+1)%16) and 
+              (counter != (difi_context->last_data_counter  )%16) ) ) {
         printf("# Error: lost frame (expected %i, received %i)\n", difi_context->last_data_counter, counter);
         difi_context->last_data_counter = counter;
         return false;
@@ -72,13 +76,18 @@ bool check_packet_count(int8_t counter, context_type* difi_context) {
 
 void difi_print_context(context_type* difi_context) {
 
-    printf("# DIFI Context:\n");
+    uint32_t ch=0;
+    while(not (difi_context->stream_id & (1 << ch) ) )
+            ch++;
+
+    printf("# VRT Context:\n");
+    printf("#    Stream ID (channel): %u (%u)\n", difi_context->stream_id, ch);
     printf("#    Sample Rate [samples per second]: %i\n", difi_context->sample_rate);
     printf("#    RF Freq [Hz]: %li\n", difi_context->rf_freq);
     printf("#    Bandwidth [Hz]: %i\n", difi_context->bandwidth);
     printf("#    Gain [dB]: %i\n", difi_context->gain);
-    printf("#    Ref lock: %i\n", difi_context->reflock);
-    printf("#    Time cal: %i\n", difi_context->time_cal);
+    printf("#    Ref lock: %s\n", difi_context->reflock == 1 ? "external" : "internal");
+    printf("#    Time cal: %s\n", difi_context->time_cal == 1? "pps" : "internal");
 
 }
 
@@ -113,64 +122,65 @@ bool difi_process(uint32_t* buffer, uint32_t size, context_type* difi_context, d
 
         difi_context->stream_id = f.stream_id;
 
-        struct vrt_if_context c;
-        rv = vrt_read_if_context(buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
-        if (rv < 0) {
-            fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
-            return false;
+        if (f.stream_id & difi_packet->channel_filt) {
+            struct vrt_if_context c;
+            rv = vrt_read_if_context(buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
+            if (rv < 0) {
+                fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
+                return false;
+            }
+            if (c.has.sample_rate)
+                difi_context->sample_rate = (uint32_t)round(c.sample_rate);
+            
+            if (c.has.rf_reference_frequency)
+                difi_context->rf_freq = (int64_t)round(c.rf_reference_frequency);
+            
+            if (c.has.bandwidth)
+                difi_context->bandwidth = c.bandwidth;
+            
+            if (c.has.gain)
+                difi_context->gain = c.gain.stage1;
+            
+            if (c.state_and_event_indicators.has.reference_lock)
+                difi_context->reflock = c.state_and_event_indicators.reference_lock;
+            
+            if (c.state_and_event_indicators.has.calibrated_time)
+                difi_context->time_cal = c.state_and_event_indicators.calibrated_time;
+            
+            difi_context->context_changed = c.context_field_change_indicator;
+            difi_packet->context = true;
+            difi_context->context_received = true;
+            difi_packet->stream_id = f.stream_id;
         }
-        if (c.has.sample_rate) {
-            difi_context->sample_rate = (uint32_t)c.sample_rate;
-        } else {
-            printf("No Rate\n");
-        }
-        if (c.has.rf_reference_frequency) {
-            difi_context->rf_freq = (int64_t)round(c.rf_reference_frequency);
-        } else {
-            printf("No Freq\n");
-        }
-        if (c.has.bandwidth) {
-            difi_context->bandwidth = c.bandwidth;
-        } else {
-            printf("No Bandwidth\n");
-        }
-        if (c.has.gain) {
-            difi_context->gain = c.gain.stage1;
-        } else {
-            printf("No Gain\n");
-        }
-        if (c.state_and_event_indicators.has.reference_lock) {
-            difi_context->reflock = c.state_and_event_indicators.reference_lock;
-        } else {
-            printf("No Ref lock.\n");
-        }
-        if (c.state_and_event_indicators.has.calibrated_time) {
-            difi_context->time_cal = c.state_and_event_indicators.calibrated_time;
-        } else {
-            printf("No Time cal.\n");
-        }
-        difi_packet->context = true;
-        difi_context->context_received = true;
-
     } else if (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID) {
         // Data
-        if (not check_packet_count(h.packet_count, difi_context))
-            difi_packet->lost_frame = true;
-        else 
-            difi_packet->lost_frame = false;
-       /* Parse fields */
+        /* Parse fields */
         rv = vrt_read_fields(&h, buffer + offset, ZMQ_BUFFER_SIZE - offset, &f, true);
         if (rv < 0) {
             fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
             return false;
         }
         offset += rv;
+        if (f.stream_id & difi_packet->channel_filt) {
 
-        difi_packet->integer_seconds_timestamp = f.integer_seconds_timestamp;
-        difi_packet->fractional_seconds_timestamp = f.fractional_seconds_timestamp;
-        difi_packet->num_rx_samps = (h.packet_size-offset);
-        difi_packet->offset = offset;
-        difi_packet->data = true;
+            if (not check_packet_count(h.packet_count, difi_context))
+                difi_packet->lost_frame = true;
+            else 
+                difi_packet->lost_frame = false;
+
+            difi_packet->integer_seconds_timestamp = f.integer_seconds_timestamp;
+            difi_packet->fractional_seconds_timestamp = f.fractional_seconds_timestamp;
+            difi_packet->num_rx_samps = (h.packet_size-offset);
+            difi_packet->offset = offset;
+            difi_packet->stream_id = f.stream_id;
+            difi_packet->data = true;
+
+            if (difi_packet->first_frame) {
+                difi_context->starttime_integer = f.integer_seconds_timestamp;
+                difi_context->starttime_fractional = f.fractional_seconds_timestamp;
+                difi_packet->first_frame = false;
+            }
+        }
     }
 
     return true;
@@ -199,6 +209,11 @@ void difi_init_context_packet(struct vrt_packet* pc) {
 
 	pc->header.packet_type = VRT_PT_IF_CONTEXT;
     pc->header.has.class_id = true;
+
+    pc->fields.class_id.oui        = 0x6A621E; // DIFI OUI
+    pc->fields.class_id.information_class_code = 0;
+    pc->fields.class_id.packet_class_code = 0;
+
     pc->if_context.has.bandwidth   = true;
     pc->if_context.has.sample_rate = true;
     pc->if_context.has.reference_point_identifier = true;

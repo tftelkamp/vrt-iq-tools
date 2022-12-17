@@ -77,14 +77,19 @@ int main(int argc, char* argv[])
     cuFloatComplex *signal;
     float *d_mag;
     cufftHandle plan;
+
     uint32_t num_points = 0;
+    uint32_t fft_len = 1;
+
+    int32_t min_bin, max_bin;
 
     // variables to be set by po
     std::string file, type, zmq_address;
     uint16_t port;
+    uint32_t channel;
     int hwm;
     size_t num_requested_samples;
-    double total_time;
+    double total_time, min_offset, max_offset;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -96,6 +101,10 @@ int main(int argc, char* argv[])
         // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
+        ("min-offset", po::value<double>(&min_offset), "min. freq. offset to track")
+        ("max-offset", po::value<double>(&max_offset), "max. freq. offset to track")
+        ("fft-duration", po::value<uint32_t>(&fft_len), "number of seconds to integrate")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
         ("progress", "periodically display short-term bandwidth")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
@@ -133,7 +142,7 @@ int main(int argc, char* argv[])
 
     difi_packet_type difi_packet;
 
-    std::vector<size_t> channel_nums = {0}; // single channel (0)
+    difi_packet.channel_filt = 1<<channel;
 
     // CUDA
     cudaFree(0);
@@ -183,6 +192,21 @@ int main(int argc, char* argv[])
             start_rx = true;
             num_points = difi_context.sample_rate;
 
+            min_bin = 0;
+            max_bin = num_points;
+
+            if (vm.count("min-offset")) {
+                min_bin = min_offset+num_points/2;
+                min_bin = min_bin < 0 ? 0 : min_bin;
+                min_bin = min_bin > num_points ? num_points : min_bin;
+            }
+
+            if (vm.count("max-offset")) {
+                max_bin = max_offset+num_points/2;
+                max_bin = max_bin < 0 ? 0 : max_bin;
+                max_bin = max_bin > num_points ? num_points : max_bin;
+            }
+
             // FFT
             if (cufftPlan1d(&plan, num_points, CUFFT_C2C, 1) != CUFFT_SUCCESS) {
                 fprintf(stderr, "CUFFT error: Plan creation failed");
@@ -216,9 +240,7 @@ int main(int argc, char* argv[])
 
             int mult = 1;
             for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
-                signal_pointer++;
-                if (signal_pointer >= num_points)  
-                    break;
+                
                 int16_t re;
                 memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
                 int16_t img;
@@ -226,51 +248,54 @@ int main(int argc, char* argv[])
                 signal[signal_pointer].x = mult*re;
                 signal[signal_pointer].y = mult*img;
                 mult *= -1;
-            }
 
-            if (signal_pointer >= num_points) {
+                signal_pointer++;
 
-                signal_pointer = 0;
+                if (signal_pointer >= num_points) {
 
-                cudaStreamAttachMemAsync(NULL, signal, 0, cudaMemAttachGlobal);
-                cudaStreamAttachMemAsync(NULL, d_mag, 0, cudaMemAttachGlobal);
-                cudaStreamSynchronize(NULL);
+                    signal_pointer = 0;
 
-                if (cufftExecC2C(plan, signal, signal, CUFFT_FORWARD) != CUFFT_SUCCESS){
-                    fprintf(stderr, "CUFFT error: ExecC2C Forward failed");
-                    return 1;
-                }
+                    cudaStreamAttachMemAsync(NULL, signal, 0, cudaMemAttachGlobal);
+                    cudaStreamAttachMemAsync(NULL, d_mag, 0, cudaMemAttachGlobal);
+                    cudaStreamSynchronize(NULL);
 
-                cumag<<<(num_points+256-1)/256, 256>>>(signal, d_mag, num_points);
-
-                cudaDeviceSynchronize();
-
-                cudaStreamAttachMemAsync(NULL, signal, 0, cudaMemAttachHost);
-                cudaStreamAttachMemAsync(NULL, d_mag, 0, cudaMemAttachHost);
-                cudaStreamSynchronize(NULL);
-
-                double max = 0;
-                int32_t max_i = -1;
-
-               for (uint32_t i = 0; i < num_points; ++i) {
-                    // ignore 10% of bins around DC (exp.)
-                    if ( (d_mag[i] > max) and (not ignore_dc or (abs((int32_t)i-(int32_t)num_points/2) ) > num_points/10)  ) {
-                        max = d_mag[i];
-                        max_i = i;
+                    if (cufftExecC2C(plan, signal, signal, CUFFT_FORWARD) != CUFFT_SUCCESS){
+                        fprintf(stderr, "CUFFT error: ExecC2C Forward failed");
+                        return 1;
                     }
-                }
 
-                uint64_t seconds = difi_packet.integer_seconds_timestamp;
-                uint64_t frac_seconds = difi_packet.fractional_seconds_timestamp;
-                frac_seconds += 10000*1e12/difi_context.sample_rate;
-                if (frac_seconds > 1e12) {
-                    frac_seconds -= 1e12;
-                    seconds++;
-                }
+                    cumag<<<(num_points+256-1)/256, 256>>>(signal, d_mag, num_points);
 
-                int64_t peak_hz = difi_context.rf_freq + max_i - difi_context.sample_rate/2;
-                printf("%lu.%09li, %li, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
-                fflush(stdout);
+                    cudaDeviceSynchronize();
+
+                    cudaStreamAttachMemAsync(NULL, signal, 0, cudaMemAttachHost);
+                    cudaStreamAttachMemAsync(NULL, d_mag, 0, cudaMemAttachHost);
+                    cudaStreamSynchronize(NULL);
+
+                    double max = 0;
+                    int32_t max_i = -1;
+
+                    uint32_t dc = num_points/2;
+
+                    for (uint32_t i = 0; i < num_points; ++i) {
+                        if ( (d_mag[i] > max) and (i >= min_bin) and (i <= max_bin) and not (ignore_dc && i==dc)) {
+                            max = d_mag[i];
+                            max_i = i;
+                        }
+                    }
+
+                    uint64_t seconds = difi_packet.integer_seconds_timestamp;
+                    uint64_t frac_seconds = difi_packet.fractional_seconds_timestamp;
+                    frac_seconds += i*1e12/difi_context.sample_rate;
+                    if (frac_seconds > 1e12) {
+                        frac_seconds -= 1e12;
+                        seconds++;
+                    }
+
+                    int64_t peak_hz = difi_context.rf_freq + max_i - difi_context.sample_rate/2;
+                    printf("%lu.%09li, %li, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
+                    fflush(stdout);
+                }
             }
 
             num_total_samps += difi_packet.num_rx_samps;

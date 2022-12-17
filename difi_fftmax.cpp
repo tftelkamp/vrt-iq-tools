@@ -76,6 +76,7 @@ int main(int argc, char* argv[])
     // variables to be set by po
     std::string file, type, zmq_address;
     uint16_t port;
+    uint32_t channel;
     int hwm;
     size_t num_requested_samples;
     double total_time, min_offset, max_offset;
@@ -91,6 +92,7 @@ int main(int argc, char* argv[])
         ("min-offset", po::value<double>(&min_offset), "min. freq. offset to track")
         ("max-offset", po::value<double>(&max_offset), "max. freq. offset to track")
         ("fft-duration", po::value<uint32_t>(&fft_len), "number of seconds to integrate")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
         ("progress", "periodically display short-term bandwidth")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
@@ -117,7 +119,6 @@ int main(int argc, char* argv[])
     }
 
     bool progress               = vm.count("progress") > 0;
-    bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
@@ -128,8 +129,7 @@ int main(int argc, char* argv[])
 
     difi_packet_type difi_packet;
 
-    // std::vector<std::shared_ptr<std::ofstream>> outfiles;
-    std::vector<size_t> channel_nums = {0}; // single channel (0)
+    difi_packet.channel_filt = 1<<channel;
 
     // ZMQ
     void *context = zmq_ctx_new();
@@ -170,6 +170,11 @@ int main(int argc, char* argv[])
             printf("Not a Vita49 packet?\n");
             continue;
         }
+
+        // if (difi_context.context_changed) {
+        //     printf("Context changed\n");
+        //     break;
+        // }
 
         if (not start_rx and difi_packet.context) {
             difi_print_context(&difi_context);
@@ -217,9 +222,6 @@ int main(int argc, char* argv[])
 
             int mult = 1;
             for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
-                signal_pointer++;
-                if (signal_pointer >= num_points)  
-                    break;
                 int16_t re;
                 memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
                 int16_t img;
@@ -227,43 +229,44 @@ int main(int argc, char* argv[])
                 signal[signal_pointer][REAL] = mult*re;
                 signal[signal_pointer][IMAG] = mult*img;
                 mult *= -1;
-            }
 
-            if (signal_pointer >= num_points) {
+                signal_pointer++;
+                
+                if (signal_pointer >= num_points) {
 
-                signal_pointer = 0;
+                    signal_pointer = 0;
 
-                fftw_execute(plan);
+                    fftw_execute(plan);
 
-                double max = 0;
-                int32_t max_i = -1;
+                    double max = 0;
+                    int32_t max_i = -1;
 
-                uint32_t dc = num_points/2;
+                    uint32_t dc = num_points/2;
 
-               for (uint32_t i = 0; i < num_points; ++i) {
-                    double mag = sqrt(result[i][REAL] * result[i][REAL] +
-                              result[i][IMAG] * result[i][IMAG]);
-                    // ignore 10% of bins around DC (exp.)
-                    // if ( (mag > max) and (not ignore_dc or (abs((int32_t)i-(int32_t)num_points/2) ) > num_points/10)  ) {
-                    if ( (mag > max) and (i >= min_bin) and (i <= max_bin) and not (ignore_dc && i==dc)) {
-                        max = mag;
-                        max_i = i;
+                    for (uint32_t i = 0; i < num_points; ++i) {
+                        double mag = sqrt(result[i][REAL] * result[i][REAL] +
+                                  result[i][IMAG] * result[i][IMAG]);
+                        if ( (mag > max) and (i >= min_bin) and (i <= max_bin) and not (ignore_dc && i==dc)) {
+                            max = mag;
+                            max_i = i;
+                        }
                     }
-                }
 
-                uint64_t seconds = difi_packet.integer_seconds_timestamp;
-                uint64_t frac_seconds = difi_packet.fractional_seconds_timestamp;
-                frac_seconds += 10000*1e12/difi_context.sample_rate;
-                if (frac_seconds > 1e12) {
-                    frac_seconds -= 1e12;
-                    seconds++;
-                }
+                    uint64_t seconds = difi_packet.integer_seconds_timestamp;
+                    uint64_t frac_seconds = difi_packet.fractional_seconds_timestamp;
+                    frac_seconds += i*1e12/difi_context.sample_rate;
+                    if (frac_seconds > 1e12) {
+                        frac_seconds -= 1e12;
+                        seconds++;
+                    }
 
-                double peak_hz = difi_context.rf_freq + (double)max_i/(double)fft_len - difi_context.sample_rate/2;
-                printf("%lu.%09li, %.2f, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
-                fflush(stdout);
+                    double peak_hz = difi_context.rf_freq + (double)max_i/(double)fft_len - difi_context.sample_rate/2;
+                    printf("%lu.%09li, %.2f, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
+                    fflush(stdout);
+                }
             }
 
+            
             num_total_samps += difi_packet.num_rx_samps;
 
             if (start_rx and first_frame) {
@@ -296,8 +299,6 @@ int main(int argc, char* argv[])
                 uint32_t clip_i = 0;
 
                 double datatype_max = 32768.;
-                // if (cpu_format == "sc8" || cpu_format == "s8")
-                //     datatype_max = 128.;
 
                 for (int i=0; i<difi_packet.num_rx_samps; i++ ) {
                     auto sample_i = get_abs_val((std::complex<int16_t>)buffer[difi_packet.offset+i]);

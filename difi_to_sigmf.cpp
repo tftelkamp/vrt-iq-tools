@@ -76,7 +76,7 @@ int main(int argc, char* argv[])
 {
 
     // variables to be set by po
-    std::string file, type, zmq_address;
+    std::string file, type, zmq_address, channel_list;
     size_t num_requested_samples, total_time;
     uint16_t port;
     int hwm;
@@ -92,6 +92,7 @@ int main(int argc, char* argv[])
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<size_t>(&total_time)->default_value(0), "total number of seconds to receive")
         ("progress", "periodically display short-term bandwidth")
+        ("channel", po::value<std::string>(&channel_list)->default_value("0"), "which channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
@@ -125,12 +126,23 @@ int main(int argc, char* argv[])
     init_context(&difi_context);
 
     difi_packet_type difi_packet;
+    difi_packet.channel_filt = 0;
+
+    // detect which channels to use
+    std::vector<std::string> channel_strings;
+    std::vector<size_t> channel_nums;
+    boost::split(channel_strings, channel_list, boost::is_any_of("\"',"));
+    for (size_t ch = 0; ch < channel_strings.size(); ch++) {
+        size_t chan = std::stoi(channel_strings[ch]);
+        channel_nums.push_back(std::stoi(channel_strings[ch]));
+        difi_packet.channel_filt |= 1<<std::stoi(channel_strings[ch]);
+    }
 
     std::vector<std::shared_ptr<std::ofstream>> outfiles;
-    std::vector<size_t> channel_nums = {0}; // single channel (0)
+    std::vector<std::shared_ptr<std::ofstream>> metafiles;
 
     std::string mdfilename;
-    std::fstream mdfile;
+    std::ofstream mdfile;
     mdfilename = file + ".sigmf-meta";
     file = file + ".sigmf-data";
 
@@ -139,13 +151,10 @@ int main(int argc, char* argv[])
             const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i]);
             outfiles.push_back(std::shared_ptr<std::ofstream>(
                 new std::ofstream(this_filename.c_str(), std::ofstream::binary)));
-        }
-
-    if (not null) {
-        mdfile.open(mdfilename, std::ios::out);
-        if (!mdfile) {
-            std::cout << "SigMF metadata File not created!";
-        }
+            
+            const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i]);
+            metafiles.push_back(std::shared_ptr<std::ofstream>(
+                new std::ofstream(meta_filename.c_str())));
     }
 
     // ZMQ
@@ -172,8 +181,7 @@ int main(int argc, char* argv[])
     uint64_t last_fractional_seconds_timestamp = 0;
 
     bool first_frame = true;
-    bool first_context = true;
-    bool metadata_write = true;
+    uint32_t context_recv = 0;
 
     if (num_requested_samples == 0) {
         std::signal(SIGINT, &sig_int_handler);
@@ -181,7 +189,7 @@ int main(int argc, char* argv[])
     }
 
     while (not stop_signal_called
-           and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
+           and ( num_requested_samples*channel_nums.size() > num_total_samps or num_requested_samples == 0)) {
 
         int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
 
@@ -192,52 +200,24 @@ int main(int argc, char* argv[])
             continue;
         }
 
-        if (first_context and difi_packet.context) {
+        uint32_t ch = 0;
+        while(not (difi_packet.stream_id & (1 << channel_nums[ch]) ) )
+            ch++;
+
+        uint32_t channel = channel_nums[ch];
+
+        if ( not (context_recv & difi_packet.stream_id) and difi_packet.context and not first_frame) {
+
+            context_recv |= difi_packet.stream_id;
+
             difi_print_context(&difi_context);
-            first_context = false; 
 
-            if (total_time > 0)  
-                num_requested_samples = total_time * difi_context.sample_rate;
-        }
-
-        if (difi_packet.data) {
-
-            if (difi_packet.lost_frame)
-               if (not continue_on_bad_packet)
-                    break;
-
-            if (int_second) {
-                // check if fractional second has wrapped
-                if (difi_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
-                        last_fractional_seconds_timestamp = difi_packet.fractional_seconds_timestamp;
-                        continue;
-                } else {
-                    int_second = false;
-                    last_update = now; 
-                    start_time = now;
-                }
-            }
-
-            if (first_frame) {
-                std::cout << boost::format(
-                                 "First frame: %u samples, %u full secs, %.09f frac secs (counter %i)")
-                                 % difi_packet.num_rx_samps
-                                 % difi_packet.integer_seconds_timestamp
-                                 % ((double)difi_packet.fractional_seconds_timestamp/1e12)
-                                 % (int32_t)difi_context.last_data_counter
-                          << std::endl;
-                difi_context.starttime_integer = difi_packet.integer_seconds_timestamp;
-                difi_context.starttime_fractional = difi_packet.fractional_seconds_timestamp;
-                first_frame = false;
-            }
-
-            if (not null and not first_frame and not first_context and metadata_write) {
-                metadata_write = false;
-                std::cout << "Writing SigMF metadata..." << std::endl;
+            if (not null) {
+                // std::cout << "Writing SigMF metadata..." << std::endl;
                 if (!mdfile) {
                     std::cout << "File not created?!";
                 } else {
-                    mdfile << boost::format("{ \n"
+                    *metafiles[ch] << boost::format("{ \n"
                     "    \"global\": {\n"
                     "        \"core:version\": \"1.0.0\",\n"
                     "        \"core:recorder\": \"difi_to_sigmf\",\n"
@@ -247,7 +227,8 @@ int main(int argc, char* argv[])
                     "        \"difi:bandwidth\": %u,\n"
                     "        \"difi:reference\": \"%s\",\n"
                     "        \"difi:time_source\": \"%s\",\n"
-                    "        \"difi:stream_id\": %u\n"
+                    "        \"difi:stream_id\": %u,\n"
+                    "        \"difi:channel\": %u\n"
                     "    },\n"
                     "    \"annotations\": [],\n"
                     "    \"captures\": [\n"
@@ -264,18 +245,51 @@ int main(int argc, char* argv[])
                     % (difi_context.reflock ? "external" : "internal")
                     % (difi_context.time_cal ? "pps" : "internal")
                     % difi_context.stream_id
+                    % channel
                     % difi_context.rf_freq
                     % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(difi_context.starttime_integer)))
                     % (double)(difi_context.starttime_fractional/1e6);
-                    mdfile << std::endl;
-                    mdfile.close();
+                    *metafiles[ch] << std::endl;
+                    metafiles[ch]->close();
                 }
             }
 
-            for (size_t i = 0; i < outfiles.size(); i++) {
-                 outfiles[i]->write(
-                    (const char*)&buffer[difi_packet.offset], sizeof(uint32_t)*difi_packet.num_rx_samps);
-               }
+            if (total_time > 0)  
+                num_requested_samples = total_time * difi_context.sample_rate;
+        }
+
+        if (difi_packet.data) {
+
+            if (difi_packet.lost_frame)
+               if (not continue_on_bad_packet)
+                    break;
+
+            if (int_second) {
+                // check if fractional second has wrapped
+                if (difi_packet.fractional_seconds_timestamp >= last_fractional_seconds_timestamp ) {
+                        last_fractional_seconds_timestamp = difi_packet.fractional_seconds_timestamp;
+                        continue;
+                } else {
+                    int_second = false;
+                    last_update = now; 
+                    start_time = now;
+                }
+            }
+
+            if (first_frame) {
+                std::cout << boost::format(
+                                 "# First frame: %u samples, %u full secs, %.09f frac secs (counter %i)")
+                                 % difi_packet.num_rx_samps
+                                 % difi_packet.integer_seconds_timestamp
+                                 % ((double)difi_packet.fractional_seconds_timestamp/1e12)
+                                 % (int32_t)difi_context.last_data_counter
+                          << std::endl;
+                first_frame = false;
+            }
+
+            // Write to file
+            outfiles[ch]->write(
+                (const char*)&buffer[difi_packet.offset], sizeof(uint32_t)*difi_packet.num_rx_samps);
 
             num_total_samps += difi_packet.num_rx_samps;
         }
@@ -287,7 +301,7 @@ int main(int argc, char* argv[])
             if (time_since_last_update > std::chrono::seconds(1)) {
                 const double time_since_last_update_s =
                     std::chrono::duration<double>(time_since_last_update).count();
-                const double rate = double(last_update_samps) / time_since_last_update_s;
+                const double rate = (double(last_update_samps) / time_since_last_update_s) / (double)channel_nums.size();
                 std::cout << "\t" << (rate / 1e6) << " Msps, ";
                 
                 last_update_samps = 0;
@@ -314,13 +328,14 @@ int main(int argc, char* argv[])
                 std::cout << std::endl;
 
             }
+
         }
+
     }
 
-    for (size_t i = 0; i < outfiles.size(); i++) {
+    for (size_t i = 0; i < outfiles.size(); i++)
         outfiles[i]->close();
-    }
-
+        
     zmq_close(subscriber);
     zmq_ctx_destroy(context);
 

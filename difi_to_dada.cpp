@@ -73,6 +73,7 @@ int main(int argc, char* argv[])
     // variables to be set by po
     std::string file, type, zmq_address;
     uint16_t port;
+    uint32_t channel;
     int16_t scale;
     int hwm;
     size_t num_requested_samples;
@@ -89,6 +90,7 @@ int main(int argc, char* argv[])
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("progress", "periodically display short-term bandwidth")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
         ("int-second", "align start of reception to integer second")
         ("scale", po::value<int16_t>(&scale)->default_value(128), "scaling factor for 16 to 8 bit conversion (default 128)")
         ("null", "run without writing to file")
@@ -124,6 +126,8 @@ int main(int argc, char* argv[])
     init_context(&difi_context);
 
     difi_packet_type difi_packet;
+
+    difi_packet.channel_filt = 1<<channel;
 
     // DADA
     dada_hdu_t *dada_hdu;

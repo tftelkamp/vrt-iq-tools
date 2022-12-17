@@ -120,7 +120,7 @@ int main(int argc, char* argv[])
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
         ("skip-lo", "skip checking LO lock status")
-        ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
+        // ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
     ;
@@ -244,8 +244,7 @@ int main(int argc, char* argv[])
     /* DIFI init */
     difi_init_data_packet(&p);
     
-    if (!vm.count("stream-id"))
-    	p.fields.stream_id = (uint32_t)rand();
+    p.fields.stream_id = 1;
     
     // ZMQ
     void *zmq_server;

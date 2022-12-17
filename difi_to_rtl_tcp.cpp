@@ -139,6 +139,7 @@ int main(int argc, char* argv[])
     // variables to be set by po
     std::string file, type, zmq_address, rtl_address;
     uint16_t port, rtl_port, ctrl_port;
+    uint32_t channel;
     float scale;
     int hwm;
     size_t num_requested_samples;
@@ -155,6 +156,7 @@ int main(int argc, char* argv[])
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("progress", "periodically display short-term bandwidth")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
@@ -287,8 +289,7 @@ int main(int argc, char* argv[])
 
         difi_packet_type difi_packet;
 
-        // std::vector<std::shared_ptr<std::ofstream>> outfiles;
-        std::vector<size_t> channel_nums = {0}; // single channel (0)
+        difi_packet.channel_filt = 1<<channel;
 
         // ZMQ
         void *context = zmq_ctx_new();

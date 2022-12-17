@@ -107,7 +107,7 @@ int main(int argc, char* argv[])
         ("vrt", "publish IQ using VRT over ZeroMQ (PUB on port 50100")
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
-        ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
+        // ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
     ;
@@ -217,10 +217,8 @@ int main(int argc, char* argv[])
     /* DIFI init */
     difi_init_data_packet(&p);
     
-    if (!stream_id)
-    	p.fields.stream_id = (uint32_t)rand();
-    else
-        p.fields.stream_id = stream_id;
+    // p.fields.stream_id = stream_id;
+    p.fields.stream_id = 1;
     
     // ZMQ
     void *zmq_server;

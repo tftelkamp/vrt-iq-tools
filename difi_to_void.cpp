@@ -63,6 +63,7 @@ int main(int argc, char* argv[])
     // variables to be set by po
     std::string file, type, zmq_address;
     uint16_t port;
+    uint32_t channel;
     int hwm;
     size_t num_requested_samples;
     double total_time;
@@ -77,6 +78,7 @@ int main(int argc, char* argv[])
         // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
         ("progress", "periodically display short-term bandwidth")
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
@@ -111,8 +113,7 @@ int main(int argc, char* argv[])
 
     difi_packet_type difi_packet;
 
-    // std::vector<std::shared_ptr<std::ofstream>> outfiles;
-    std::vector<size_t> channel_nums = {0}; // single channel (0)
+    difi_packet.channel_filt = 1<<channel;
 
     // ZMQ
     void *context = zmq_ctx_new();
@@ -186,7 +187,10 @@ int main(int argc, char* argv[])
             // Assumes ci16_le
 
             for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
-                auto sample = (std::complex<int16_t>)buffer[difi_packet.offset+i];
+                int16_t re;
+                memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
+                int16_t img;
+                memcpy(&img, (char*)&buffer[difi_packet.offset+i]+2, 2);
                 // Do something
             }
 
@@ -197,7 +201,7 @@ int main(int argc, char* argv[])
 
             if (start_rx and first_frame) {
                 std::cout << boost::format(
-                                 "  First frame: %u samples, %u full secs, %.09f frac secs")
+                                 "# First frame: %u samples, %u full secs, %.09f frac secs")
                                  % difi_packet.num_rx_samps
                                  % difi_packet.integer_seconds_timestamp
                                  % ((double)difi_packet.fractional_seconds_timestamp/1e12)

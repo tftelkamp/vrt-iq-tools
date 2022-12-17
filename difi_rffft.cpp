@@ -149,7 +149,7 @@ int main(int argc, char* argv[])
 
   // print the help message
   if (vm.count("help")) {
-      std::cout << boost::format("VRT samples to STRF rffft %s") % desc << std::endl;
+      std::cout << boost::format("VRT samples to STRF rffft. %s") % desc << std::endl;
       std::cout << std::endl
                 << "This application streams data from a VRT stream "
                    "to rffft.\n"
@@ -168,7 +168,7 @@ int main(int argc, char* argv[])
 
   difi_packet_type difi_packet;
 
-  // difi_packet.channel_filt = 1<<channel;
+  difi_packet.channel_filt = 1<<channel;
 
   // ZMQ
   void *context = zmq_ctx_new();

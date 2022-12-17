@@ -29,6 +29,8 @@
 #include <vrt/vrt_types.h>
 #include <vrt/vrt_util.h>
 
+#include "difi-tools.h"
+
 // gnuradio pmt
 #include <pmt/pmt.h>
 
@@ -78,6 +80,7 @@ int main(int argc, char* argv[])
     size_t num_requested_samples;
     double total_time;
     uint16_t port;
+    uint32_t channel;
     int hwm;
 
     // setup the program options
@@ -91,6 +94,7 @@ int main(int argc, char* argv[])
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("progress", "periodically display short-term bandwidth")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
         // ("stats", "show average bandwidth on exit")
         // ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
@@ -120,8 +124,12 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
 
-    std::vector<std::shared_ptr<std::ofstream>> outfiles;
-    std::vector<size_t> channel_nums = {0}; // single channel (0)
+    context_type difi_context;
+    init_context(&difi_context);
+
+    difi_packet_type difi_packet;
+
+    difi_packet.channel_filt = 1<<channel;
 
     // ZMQ
 
@@ -159,12 +167,7 @@ int main(int argc, char* argv[])
     auto stop_time =
         start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
 
-    int8_t packet_count = -1;
-
-    uint32_t buffer[100000];
-
-    struct vrt_header h;
-    struct vrt_fields f;
+    uint32_t buffer[ZMQ_BUFFER_SIZE];
     
     unsigned long long num_total_samps = 0;
 
@@ -181,64 +184,36 @@ int main(int argc, char* argv[])
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
            and (total_time == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
 
-        int len = zmq_recv(subscriber, buffer, 100000, 0);
+        int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
 
         const auto now = std::chrono::steady_clock::now();
 
-        int32_t offset = 0;
-        int32_t rv = vrt_read_header(buffer + offset, 100000 - offset, &h, true);
-
-        /* Parse header */
-        if (rv < 0) {
-            fprintf(stderr, "Failed to parse header: %s\n", vrt_string_error(rv));
-            return EXIT_FAILURE;
+        if (not difi_process(buffer, sizeof(buffer), &difi_context, &difi_packet)) {
+            printf("Not a Vita49 packet?\n");
+            continue;
         }
-        offset += rv;
 
-        if (h.packet_type == VRT_PT_IF_CONTEXT) {
+        if (difi_packet.context) {
+            if (not start_rx)
+                difi_print_context(&difi_context);
+
+            start_rx = true;
 
             const auto time_since_last_forward = now - last_gnuradio_forward;
             if (!start_rx or time_since_last_forward > std::chrono::seconds(1)) {
 
                 last_gnuradio_forward = now;
 
-                printf("Packet type: %s\n", vrt_string_packet_type(h.packet_type));
-
-                /* Parse fields */
-                rv = vrt_read_fields(&h, buffer + offset, 100000 - offset, &f, true);
-                if (rv < 0) {
-                    fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
-                    return EXIT_FAILURE;
-                }
-                offset += rv;
-
-                struct vrt_if_context c;
-                rv = vrt_read_if_context(buffer + offset, 100000 - offset, &c, true);
-                if (rv < 0) {
-                    fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
-                    return EXIT_FAILURE;
-                }
-                if (c.has.sample_rate) {
-                    printf("Sample Rate [samples per second]: %.0f\n", c.sample_rate);
-                } else {
-                    printf("No Rate\n");
-                }
-                if (c.has.rf_reference_frequency) {
-                    printf("RF Freq [Hz]: %.0f\n", c.rf_reference_frequency);
-                } else {
-                    printf("No Freq\n");
-                }
-
                 // Workaround to prevent GR 3.10 from crashing...
                 if (alternate) {
                     pmt::pmt_t P_str = pmt::intern("freq");
-                    pmt::pmt_t P_double = pmt::from_double(c.rf_reference_frequency);
+                    pmt::pmt_t P_double = pmt::from_double(difi_context.rf_freq);
                     pmt::pmt_t P_pair = pmt::cons(P_str, P_double);
                     std::string str = pmt::serialize_str(P_pair);
                     zmq_send (zmq_gr_freq, str.c_str(), str.size(), 0);
                 } else {
                     pmt::pmt_t P_str = pmt::intern("sample_rate");
-                    pmt::pmt_t P_double = pmt::from_double(c.sample_rate);
+                    pmt::pmt_t P_double = pmt::from_double(difi_context.sample_rate);
                     pmt::pmt_t P_pair = pmt::cons(P_str, P_double);
                     std::string str = pmt::serialize_str(P_pair);
                     zmq_send (zmq_gr_rate, str.c_str(), str.size(), 0);
@@ -248,47 +223,28 @@ int main(int argc, char* argv[])
             }
         }
 
-        if (start_rx and (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID)) {
+        if (start_rx and difi_packet.data) {
 
-            if (not first_frame and (h.packet_count != (packet_count+1)%16) ) {
-                printf("Error: lost frame (expected %i, received %i)\n", packet_count, h.packet_count);
-                if (not continue_on_bad_packet)
+            if (difi_packet.lost_frame)
+               if (not continue_on_bad_packet)
                     break;
-                else
-                    packet_count = h.packet_count;
-            } else {
-                packet_count = h.packet_count;
-            }
 
-            /* Parse fields */
-            rv = vrt_read_fields(&h, buffer + offset, 100000 - offset, &f, true);
-            if (rv < 0) {
-                fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
-                return EXIT_FAILURE;
-            }
-            offset += rv;
-
-            uint32_t num_rx_samps = (h.packet_size-offset);
-
-
-            zmq_send(zmq_gr_data, (const char*)&buffer[offset], sizeof(uint32_t)*h.packet_size-sizeof(uint32_t)*offset, 0);
-
-
-            num_total_samps += num_rx_samps;
+            zmq_send(zmq_gr_data, (const char*)&buffer[difi_packet.offset], sizeof(uint32_t)*difi_packet.num_rx_samps, 0);
 
             if (start_rx and first_frame) {
                 std::cout << boost::format(
-                                 "First frame: %u samples, %u full secs, %.09f frac secs")
-                                 % num_rx_samps
-                                 % f.integer_seconds_timestamp
-                                 % ((double)f.fractional_seconds_timestamp/1e12)
+                                 "# First frame: %u samples, %u full secs, %.09f frac secs")
+                                 % difi_packet.num_rx_samps
+                                 % difi_packet.integer_seconds_timestamp
+                                 % ((double)difi_packet.fractional_seconds_timestamp/1e12)
                           << std::endl;
                 first_frame = false;
             }
         }
 
         if (progress) {
-            last_update_samps += (h.packet_size-offset);
+            if (difi_packet.data)
+                last_update_samps += difi_packet.num_rx_samps;
             const auto time_since_last_update = now - last_update;
             if (time_since_last_update > std::chrono::seconds(1)) {
                 const double time_since_last_update_s =
@@ -298,27 +254,23 @@ int main(int argc, char* argv[])
                 
                 last_update_samps = 0;
                 last_update       = now;
-
-                uint32_t num_rx_samps = (h.packet_size-offset);
     
                 float sum_i = 0;
                 uint32_t clip_i = 0;
 
                 double datatype_max = 32768.;
-                // if (cpu_format == "sc8" || cpu_format == "s8")
-                //     datatype_max = 128.;
 
-                for (int i=0; i<num_rx_samps; i++ ) {
-                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[offset+i]);
+                for (int i=0; i<difi_packet.num_rx_samps; i++ ) {
+                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[difi_packet.offset+i]);
                     sum_i += sample_i;
                     if (sample_i > datatype_max*0.99)
                         clip_i++;
                 }
-                sum_i = sum_i/num_rx_samps;
+                sum_i = sum_i/difi_packet.num_rx_samps;
                 std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
                 std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
                 std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/num_rx_samps) << "% I clip, ";
+                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/difi_packet.num_rx_samps) << "% I clip, ";
                 std::cout << std::endl;
 
             }

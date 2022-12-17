@@ -2,7 +2,7 @@
 // Copyright 2010-2011,2014 Ettus Research LLC
 // Copyright 2018 Ettus Research, a National Instruments Company
 //
-// Copyright 2021/2022 by Thomas Telkamp and Tammo Jan Dijkema
+// Copyright 2021/2022 by Thomas Telkamp
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
@@ -126,6 +126,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     uint32_t stream_id;
     double rate, freq, bw, total_time, setup_time, lo_offset;
 
+    bool context_changed = false;
+
     // recv_frame_size=1024, num_recv_frames=1024, recv_buff_size
     std::string stdargs = "num_recv_frames=1024";
     std::string args;
@@ -157,14 +159,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("progress", "periodically display short-term bandwidth")
         ("stats", "show average bandwidth on exit")
         ("pps", "use external pps signal")
-        ("vrt", "publish IQ using VRT over ZeroMQ (PUB on port 50100")
-        // ("zmq", "publish IQ using ZeroMQ (PUB on port 50200 en 50201 (metadata)")
+        // ("vrt", "publish IQ using VRT over ZeroMQ (PUB on port 50100")
         ("int-second", "align start of reception to integer second")
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
         ("skip-lo", "skip checking LO lock status")
         ("int-n", "tune USRP with integer-N tuning")
-        ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
+        // ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
     ;
@@ -186,12 +187,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool bw_summary             = vm.count("progress") > 0;
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
-    bool continue_on_bad_packet = vm.count("continue") > 0;
-    bool vrt                    = vm.count("vrt") > 0;
-    bool zmq                    = vm.count("zmq") > 0;
+    bool continue_on_bad_packet = vm.count("continue") > 0; 
     bool enable_udp             = vm.count("udp") > 0;
-
-    vrt = true;
 
     struct vrt_packet p;
     vrt_init_packet(&p);
@@ -204,28 +201,29 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     /* DIFI init */
     difi_init_data_packet(&p);
     
-    if (!vm.count("stream-id"))
-        p.fields.stream_id = (uint32_t)rand();
+    // if (!vm.count("stream-id"))
+    //     p.fields.stream_id = (uint32_t)rand();
+    p.fields.stream_id = 0;
 
     // ZMQ
     void *zmq_server;
     void *zmq_control;
-    if (vrt) {
-        void *context = zmq_ctx_new();
-        void *responder = zmq_socket(context, ZMQ_PUB);
-        int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
-        assert(rc == 0);
-        std::string connect_string = "tcp://*:" + std::to_string(port);
-        rc = zmq_bind(responder, connect_string.c_str());
-        assert (rc == 0);
-        zmq_server = responder;
 
-        responder = zmq_socket(context, ZMQ_SUB);
-        rc = zmq_bind(responder, "tcp://*:50300");
-        assert (rc == 0);
-        zmq_control = responder;
-        zmq_setsockopt(zmq_control, ZMQ_SUBSCRIBE, "", 0);
-    }
+    void *context = zmq_ctx_new();
+    void *responder = zmq_socket(context, ZMQ_PUB);
+    int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
+    assert(rc == 0);
+    std::string connect_string = "tcp://*:" + std::to_string(port);
+    rc = zmq_bind(responder, connect_string.c_str());
+    assert (rc == 0);
+    zmq_server = responder;
+
+    responder = zmq_socket(context, ZMQ_SUB);
+    rc = zmq_bind(responder, "tcp://*:50300");
+    assert (rc == 0);
+    zmq_control = responder;
+    zmq_setsockopt(zmq_control, ZMQ_SUBSCRIBE, "", 0);
+    
 
     // UDP DI-FI
 
@@ -284,18 +282,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     std::cout << boost::format("Using Device: %s") % usrp->get_pp_string() << std::endl;
 
-    // set the sample rate
-    if (rate <= 0.0) {
-        std::cerr << "Please specify a valid sample rate" << std::endl;
-        return ~0;
-    }
-    std::cout << boost::format("Setting RX Rate: %f Msps...") % (rate / 1e6) << std::endl;
-    usrp->set_rx_rate(rate);
-    std::cout << boost::format("Actual RX Rate: %f Msps...")
-                     % (usrp->get_rx_rate() / 1e6)
-              << std::endl
-              << std::endl;
-
     // detect which channels to use
     std::vector<std::string> channel_strings;
     std::vector<size_t> channel_nums;
@@ -307,6 +293,23 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         } else
             channel_nums.push_back(std::stoi(channel_strings[ch]));
     }
+
+    // Create a temporary rx_stream before we set the freq and time.
+    uhd::stream_args_t tmp_stream_args("sc16", "sc16");
+    tmp_stream_args.channels             = channel_nums;
+    uhd::rx_streamer::sptr tmp_rx_stream = usrp->get_rx_stream(tmp_stream_args);
+
+    // set the sample rate
+    if (rate <= 0.0) {
+        std::cerr << "Please specify a valid sample rate" << std::endl;
+        return ~0;
+    }
+    std::cout << boost::format("Setting RX Rate: %f Msps...") % (rate / 1e6) << std::endl;
+    usrp->set_rx_rate(rate);
+    std::cout << boost::format("Actual RX Rate: %f Msps...")
+                     % (usrp->get_rx_rate() / 1e6)
+              << std::endl
+              << std::endl;
 
     std::vector<size_t> gains;
     if (vm.count("gain")) {
@@ -423,11 +426,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 setup_time);
         }
     }
-
-    // Create a temporary rx_stream before we set the time.
-    uhd::stream_args_t tmp_stream_args("sc16", "sc16");
-    tmp_stream_args.channels             = channel_nums;
-    uhd::rx_streamer::sptr tmp_rx_stream = usrp->get_rx_stream(tmp_stream_args);
 
     // reset usrp time to prepare for transmit/receive
     std::cout << boost::format("Setting device timestamp to current time...") << std::endl;
@@ -560,7 +558,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     auto last_context                    = start_time;
     unsigned long long last_update_samps = 0;
 
-
     if (int_second) {
         stop_time += std::chrono::milliseconds(int64_t(1000.0*(double)(stream_cmd.time_spec.get_real_secs()-usrp->get_time_now().get_real_secs())));
     }
@@ -618,40 +615,121 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
    
         num_total_samps += num_rx_samps;
 
-        p.body = (char*)buff_ptrs[0];
-        p.header.packet_count = (uint8_t)frame_count%16;
         p.fields.integer_seconds_timestamp = md.time_spec.get_full_secs();
         p.fields.fractional_seconds_timestamp = (uint64_t)1e12 * md.time_spec.get_frac_secs();
+        p.header.packet_count = (uint8_t)frame_count%16;
 
-        zmq_msg_t msg;
-        int rc = zmq_msg_init_size (&msg, DIFI_DATA_PACKET_SIZE*4);
+        for (size_t i = 0; i < buffs.size(); i++) {
+            size_t channel = channel_nums[i];
+            p.body = (char*)buff_ptrs[i];
+            p.fields.stream_id = 1<<i;
+            zmq_msg_t msg;
+            int rc = zmq_msg_init_size (&msg, DIFI_DATA_PACKET_SIZE*4);
+            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE, true);
 
-        int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE, true);
-
-        frame_count++;
-
-        // UDP
-        if (enable_udp) {
-            if (sendto(sockfd, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE*4, 0,
-                         (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
-            {
-               printf("UDP fail\n");
+            // VRT
+            zmq_msg_send(&msg, zmq_server, 0);
+            zmq_msg_close(&msg);
+       
+            // UDP
+            if (enable_udp) {
+                if (sendto(sockfd, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE*4, 0,
+                             (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+                {
+                   printf("UDP fail\n");
+                }
             }
         }
 
-        // VRT
-        if (vrt) {
-            zmq_msg_send(&msg, zmq_server, 0);
-        }
+        frame_count++;
 
-        zmq_msg_close(&msg);
+        // Control 
+        int len = zmq_recv(zmq_control, buffer, 100000, ZMQ_NOBLOCK);
+        if (len > 0) {
+            printf("-> Control context received\n");
+
+            struct vrt_header h;
+            struct vrt_fields f;
+
+            int32_t offset = 0;
+            int32_t size = ZMQ_BUFFER_SIZE;
+            int32_t rv = vrt_read_header(buffer + offset, size - offset, &h, true);
+
+            /* Parse header */
+            if (rv < 0) {
+                fprintf(stderr, "Failed to parse header: %s\n", vrt_string_error(rv));
+                break;
+            }
+            offset += rv;
+
+            if (h.packet_type == VRT_PT_IF_CONTEXT) {
+                // Context
+
+                /* Parse fields */
+                rv = vrt_read_fields(&h, buffer + offset, size - offset, &f, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
+                    break;
+                }
+                offset += rv;
+
+                struct vrt_if_context c;
+                rv = vrt_read_if_context(buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
+                    break;
+                }
+
+                // Channel
+                uint32_t ch = 0;
+                while(not (f.stream_id & (1 << channel_nums[ch]) ) )
+                    ch++;
+
+                uint32_t control_channel = channel_nums[ch];
+
+                printf("    Channel: %u\n", control_channel);
+
+                if (c.has.if_band_offset) {
+                    lo_offset = c.if_band_offset;
+                }
+
+                if (c.has.rf_reference_frequency || c.has.if_band_offset) {
+                    if (c.has.rf_reference_frequency)
+                        freq = (double)round(c.rf_reference_frequency);
+                    std::cout << boost::format("    Setting RX Freq: %f MHz...") % (freq / 1e6)
+                              << std::endl;
+                    std::cout << boost::format("    Setting RX LO Offset: %f MHz...") % (lo_offset / 1e6)
+                              << std::endl;
+                    uhd::tune_request_t tune_request(freq, lo_offset);
+                    if (vm.count("int-n"))
+                        tune_request.args = uhd::device_addr_t("mode_n=integer");
+                    usrp->set_rx_freq(tune_request, control_channel);
+                    std::cout << boost::format("    Actual RX Freq: %f MHz...")
+                                     % (usrp->get_rx_freq(control_channel) / 1e6)
+                              << std::endl;
+                }
+                if (c.has.gain) {
+                    double gain = c.gain.stage1;
+                    std::cout << boost::format("    Setting RX Gain: %f dB...") % gain << std::endl;
+                    usrp->set_rx_gain(gain, control_channel);
+                    std::cout << boost::format("    Actual RX Gain: %f dB...")
+                                     % usrp->get_rx_gain(control_channel)
+                              << std::endl;
+                }
+
+                last_context = start_time - std::chrono::milliseconds(400); // Trigger context update (next)
+
+                context_changed = true;
+
+            }
+        }
 
         const auto time_since_last_context = now - last_context;
         if (time_since_last_context > std::chrono::milliseconds(200)) {
 
             last_context = now;
 
-            // VITA 49.2
+            // VITA 49
             /* Initialize to reasonable values */
             struct vrt_packet pc;
             vrt_init_packet(&pc);
@@ -660,43 +738,51 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             /* DIFI Configure. Note that context packets cannot have a trailer word. */
             difi_init_context_packet(&pc);
 
-            pc.fields.stream_id = p.fields.stream_id;
-
             pc.fields.integer_seconds_timestamp = md.time_spec.get_full_secs();
             pc.fields.fractional_seconds_timestamp = (uint64_t)1e12 * md.time_spec.get_frac_secs();
 
-            pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
-            pc.if_context.sample_rate                       = usrp->get_rx_rate();
-            pc.if_context.rf_reference_frequency            = usrp->get_rx_freq();
-            pc.if_context.rf_reference_frequency_offset     = 0;
-            pc.if_context.if_reference_frequency            = 0; // Zero-IF
-            pc.if_context.if_band_offset                    = lo_offset;
-            pc.if_context.gain.stage1                       = usrp->get_rx_gain();
-            pc.if_context.gain.stage2                       = 0;
+            for (size_t ch = 0; ch < channel_nums.size(); ch++) {
+                size_t channel = channel_nums[ch];
 
-            pc.if_context.state_and_event_indicators.has.reference_lock = true;
-            pc.if_context.state_and_event_indicators.reference_lock = ((ref == "external") or (ref=="gpsdo"));
+                if (context_changed)
+                    pc.if_context.context_field_change_indicator = true;
+                else
+                    pc.if_context.context_field_change_indicator = false;
 
-            pc.if_context.state_and_event_indicators.has.calibrated_time = true;
-            pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (ref=="gpsdo"));
 
-            int32_t rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
-            if (rv < 0) {
-                fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
-            }
+                pc.fields.stream_id = 1<<channel;
+                pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(channel); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
+                pc.if_context.sample_rate                       = usrp->get_rx_rate(channel);
+                pc.if_context.rf_reference_frequency            = usrp->get_rx_freq(channel);
+                pc.if_context.rf_reference_frequency_offset     = 0;
+                pc.if_context.if_reference_frequency            = 0; // Zero-IF
+                pc.if_context.if_band_offset                    = lo_offset;  //todo
+                pc.if_context.gain.stage1                       = usrp->get_rx_gain(channel);
+                pc.if_context.gain.stage2                       = 0;
 
-            // ZMQ
-            if (vrt) {
-                  zmq_send (zmq_server, buffer, rv*4, 0);
-            }
+                pc.if_context.state_and_event_indicators.has.reference_lock = true;
+                pc.if_context.state_and_event_indicators.reference_lock = ((ref == "external") or (ref=="gpsdo"));
 
-            if (enable_udp) {
-                if (sendto(sockfd, buffer, rv*4, 0,
-                     (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
-                {
-                   printf("UDP fail\n");
+                pc.if_context.state_and_event_indicators.has.calibrated_time = true;
+                pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (ref=="gpsdo"));
+
+                int32_t rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
+                }
+
+                // ZMQ
+                zmq_send (zmq_server, buffer, rv*4, 0);
+
+                if (enable_udp) {
+                    if (sendto(sockfd, buffer, rv*4, 0,
+                         (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+                    {
+                       printf("UDP fail\n");
+                    }
                 }
             }
+            context_changed = false;
         }
 
         if (bw_summary) {
@@ -732,73 +818,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 std::cout << "" << boost::format("%.0f") % (100.0*clip_i/num_rx_samps) << "% I clip.";
                 std::cout << std::endl;
 
-            }
-        }
-
-        // Control 
-        int len = zmq_recv(zmq_control, buffer, 100000, ZMQ_NOBLOCK);
-        if (len > 0) {
-            printf("-> Control context received\n");
-
-            struct vrt_header h;
-            struct vrt_fields f;
-
-            int32_t offset = 0;
-            int32_t size = ZMQ_BUFFER_SIZE;
-            int32_t rv = vrt_read_header(buffer + offset, size - offset, &h, true);
-
-            /* Parse header */
-            if (rv < 0) {
-                fprintf(stderr, "Failed to parse header: %s\n", vrt_string_error(rv));
-                break;
-            }
-            offset += rv;
-
-            if (h.packet_type == VRT_PT_IF_CONTEXT) {
-            // Context
-
-                /* Parse fields */
-                rv = vrt_read_fields(&h, buffer + offset, size - offset, &f, true);
-                if (rv < 0) {
-                    fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
-                    break;
-                }
-                offset += rv;
-
-                struct vrt_if_context c;
-                rv = vrt_read_if_context(buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
-                if (rv < 0) {
-                    fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
-                    break;
-                }
-
-                if (c.has.if_band_offset) {
-                    lo_offset = c.if_band_offset;
-                }
-
-                if (c.has.rf_reference_frequency || c.has.if_band_offset) {
-                    if (c.has.rf_reference_frequency)
-                        freq = (double)round(c.rf_reference_frequency);
-                    std::cout << boost::format("    Setting RX Freq: %f MHz...") % (freq / 1e6)
-                              << std::endl;
-                    std::cout << boost::format("    Setting RX LO Offset: %f MHz...") % (lo_offset / 1e6)
-                              << std::endl;
-                    uhd::tune_request_t tune_request(freq, lo_offset);
-                    if (vm.count("int-n"))
-                        tune_request.args = uhd::device_addr_t("mode_n=integer");
-                    usrp->set_rx_freq(tune_request, channel);
-                    std::cout << boost::format("    Actual RX Freq: %f MHz...")
-                                     % (usrp->get_rx_freq(channel) / 1e6)
-                              << std::endl;
-                }
-                if (c.has.gain) {
-                    double gain = c.gain.stage1;
-                    std::cout << boost::format("    Setting RX Gain: %f dB...") % gain << std::endl;
-                    usrp->set_rx_gain(gain, channel);
-                    std::cout << boost::format("    Actual RX Gain: %f dB...")
-                                     % usrp->get_rx_gain(channel)
-                              << std::endl;
-                }
             }
         }
     }
