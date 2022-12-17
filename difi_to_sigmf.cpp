@@ -200,7 +200,7 @@ int main(int argc, char* argv[])
             continue;
         }
 
-        if (not first_frame and not continue_on_bad_packet and difi_context.context_changed) {
+        if (difi_packet.context and not first_frame and not continue_on_bad_packet and difi_context.context_changed) {
             printf("Context changed, exiting.\n");
             break;
         }
