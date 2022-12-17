@@ -138,13 +138,12 @@ int main(int argc, char* argv[])
     std::vector<std::string> coord_strings;
     char *ptr;
     if (vm.count("coordinates")) {
-        boost::split(coord_strings, coords, boost::is_any_of("\"', "));
+        boost::split(coord_strings, coords, boost::is_any_of(", "),boost::token_compress_on);
         if (coord_strings.size()!=4) {
             printf("Incorrect number of coordinates. Exiting.\n");
             exit(1);
         }
         // for (size_t ch = 0; ch < coord_strings.size(); ch++) {
-        //     // gains.push_back(std::stoi(gain_strings[ch]));
         //     printf("val: %lf\n", strtod(coord_strings[ch].c_str(), &ptr) );
         // }
     }
