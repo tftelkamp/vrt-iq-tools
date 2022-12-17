@@ -231,7 +231,7 @@ int main(int argc, char* argv[])
                                   result[i][IMAG] * result[i][IMAG]);
                         avg += mag/(double)integrate;
                         if (i % integrate == integrate-1) {
-                            printf("%.3f, %.3f\n", (double)(difi_context.rf_freq + i - difi_context.sample_rate/2)/1e6, 20*log10(avg/(double)num_points));
+                            printf("%.3f, %.3f\n", (double)(difi_context.rf_freq + i - (double)difi_context.sample_rate/2)/1e6, 20*log10(avg/(double)num_points));
                             avg = 0;
                         }
                     }
