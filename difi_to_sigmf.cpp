@@ -200,6 +200,11 @@ int main(int argc, char* argv[])
             continue;
         }
 
+        if (not first_frame and not continue_on_bad_packet and difi_context.context_changed) {
+            printf("Context changed, exiting.\n");
+            break;
+        }
+
         uint32_t ch = 0;
         while(not (difi_packet.stream_id & (1 << channel_nums[ch]) ) )
             ch++;
