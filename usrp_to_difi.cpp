@@ -555,7 +555,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     // Track time and samps between updating the BW summary
     auto last_update                     = start_time;
-    auto last_context                    = start_time;
+    auto last_context                    = start_time - std::chrono::milliseconds(2*VRT_CONTEXT_INTERVAL);
     unsigned long long last_update_samps = 0;
 
     if (int_second) {
@@ -609,9 +609,70 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                              % md.time_spec.get_frac_secs()
                       << std::endl;
             first_frame = false;
+            stream_cmd.stream_now = false;
+            last_update = now;
         }
 
-        stream_cmd.stream_now = false;
+        const auto time_since_last_context = now - last_context;
+        if (time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL)) {
+
+            last_context = now;
+
+            // VITA 49
+            /* Initialize to reasonable values */
+            struct vrt_packet pc;
+            vrt_init_packet(&pc);
+
+
+            /* DIFI Configure. Note that context packets cannot have a trailer word. */
+            difi_init_context_packet(&pc);
+
+            pc.fields.integer_seconds_timestamp = md.time_spec.get_full_secs();
+            pc.fields.fractional_seconds_timestamp = (uint64_t)1e12 * md.time_spec.get_frac_secs();
+
+            for (size_t ch = 0; ch < channel_nums.size(); ch++) {
+                size_t channel = channel_nums[ch];
+
+                if (context_changed)
+                    pc.if_context.context_field_change_indicator = true;
+                else
+                    pc.if_context.context_field_change_indicator = false;
+
+
+                pc.fields.stream_id = 1<<channel;
+                pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(channel); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
+                pc.if_context.sample_rate                       = usrp->get_rx_rate(channel);
+                pc.if_context.rf_reference_frequency            = usrp->get_rx_freq(channel);
+                pc.if_context.rf_reference_frequency_offset     = 0;
+                pc.if_context.if_reference_frequency            = 0; // Zero-IF
+                pc.if_context.if_band_offset                    = lo_offset;  //todo
+                pc.if_context.gain.stage1                       = usrp->get_rx_gain(channel);
+                pc.if_context.gain.stage2                       = 0;
+
+                pc.if_context.state_and_event_indicators.has.reference_lock = true;
+                pc.if_context.state_and_event_indicators.reference_lock = ((ref == "external") or (ref=="gpsdo"));
+
+                pc.if_context.state_and_event_indicators.has.calibrated_time = true;
+                pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (ref=="gpsdo"));
+
+                int32_t rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
+                }
+
+                // ZMQ
+                zmq_send (zmq_server, buffer, rv*4, 0);
+
+                if (enable_udp) {
+                    if (sendto(sockfd, buffer, rv*4, 0,
+                         (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+                    {
+                       printf("UDP fail\n");
+                    }
+                }
+            }
+            context_changed = false;
+        }
    
         num_total_samps += num_rx_samps;
 
@@ -717,72 +778,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                               << std::endl;
                 }
 
-                last_context = start_time - std::chrono::milliseconds(400); // Trigger context update (next)
+                last_context = start_time - std::chrono::milliseconds(2*VRT_CONTEXT_INTERVAL); // Trigger context update (next)
 
                 context_changed = true;
 
             }
-        }
-
-        const auto time_since_last_context = now - last_context;
-        if (time_since_last_context > std::chrono::milliseconds(200)) {
-
-            last_context = now;
-
-            // VITA 49
-            /* Initialize to reasonable values */
-            struct vrt_packet pc;
-            vrt_init_packet(&pc);
-
-
-            /* DIFI Configure. Note that context packets cannot have a trailer word. */
-            difi_init_context_packet(&pc);
-
-            pc.fields.integer_seconds_timestamp = md.time_spec.get_full_secs();
-            pc.fields.fractional_seconds_timestamp = (uint64_t)1e12 * md.time_spec.get_frac_secs();
-
-            for (size_t ch = 0; ch < channel_nums.size(); ch++) {
-                size_t channel = channel_nums[ch];
-
-                if (context_changed)
-                    pc.if_context.context_field_change_indicator = true;
-                else
-                    pc.if_context.context_field_change_indicator = false;
-
-
-                pc.fields.stream_id = 1<<channel;
-                pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(channel); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
-                pc.if_context.sample_rate                       = usrp->get_rx_rate(channel);
-                pc.if_context.rf_reference_frequency            = usrp->get_rx_freq(channel);
-                pc.if_context.rf_reference_frequency_offset     = 0;
-                pc.if_context.if_reference_frequency            = 0; // Zero-IF
-                pc.if_context.if_band_offset                    = lo_offset;  //todo
-                pc.if_context.gain.stage1                       = usrp->get_rx_gain(channel);
-                pc.if_context.gain.stage2                       = 0;
-
-                pc.if_context.state_and_event_indicators.has.reference_lock = true;
-                pc.if_context.state_and_event_indicators.reference_lock = ((ref == "external") or (ref=="gpsdo"));
-
-                pc.if_context.state_and_event_indicators.has.calibrated_time = true;
-                pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (ref=="gpsdo"));
-
-                int32_t rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
-                if (rv < 0) {
-                    fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
-                }
-
-                // ZMQ
-                zmq_send (zmq_server, buffer, rv*4, 0);
-
-                if (enable_udp) {
-                    if (sendto(sockfd, buffer, rv*4, 0,
-                         (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
-                    {
-                       printf("UDP fail\n");
-                    }
-                }
-            }
-            context_changed = false;
         }
 
         if (bw_summary) {
@@ -840,6 +840,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         const double rate = (double)num_total_samps / actual_duration_seconds;
         std::cout << (rate / 1e6) << " Msps" << std::endl;
     }
+
+    // wait for ZMQ a bit
+    std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
   
     // finished
     std::cout << std::endl << "Done!" << std::endl << std::endl;

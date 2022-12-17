@@ -10,6 +10,9 @@
 
 #define ZMQ_BUFFER_SIZE 100000
 
+// Context update interval in ms
+#define VRT_CONTEXT_INTERVAL 200
+
 // VRT
 #include <vrt/vrt_init.h>
 #include <vrt/vrt_string.h>
