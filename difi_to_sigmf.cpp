@@ -214,7 +214,7 @@ int main(int argc, char* argv[])
 
             if (not null) {
                 // std::cout << "Writing SigMF metadata..." << std::endl;
-                if (!mdfile) {
+                if (!metafiles[ch]) {
                     std::cout << "File not created?!";
                 } else {
                     *metafiles[ch] << boost::format("{ \n"
@@ -285,11 +285,14 @@ int main(int argc, char* argv[])
                                  % (int32_t)difi_context.last_data_counter
                           << std::endl;
                 first_frame = false;
+                last_update = now;
             }
 
             // Write to file
-            outfiles[ch]->write(
-                (const char*)&buffer[difi_packet.offset], sizeof(uint32_t)*difi_packet.num_rx_samps);
+            if (not null) {
+                outfiles[ch]->write(
+                    (const char*)&buffer[difi_packet.offset], sizeof(uint32_t)*difi_packet.num_rx_samps);
+            }
 
             num_total_samps += difi_packet.num_rx_samps;
         }
