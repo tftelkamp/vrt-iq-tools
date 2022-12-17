@@ -126,7 +126,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     uint32_t stream_id;
     double rate, freq, bw, total_time, setup_time, lo_offset;
 
-    bool context_changed = false;
+    bool context_changed = true;
 
     // recv_frame_size=1024, num_recv_frames=1024, recv_buff_size
     std::string stdargs = "num_recv_frames=1024";
