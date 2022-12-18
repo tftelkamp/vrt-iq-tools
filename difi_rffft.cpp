@@ -317,7 +317,7 @@ int main(int argc, char* argv[])
                 // gettimeofday(&start,0);
                 uint64_t seconds = difi_packet.integer_seconds_timestamp;
                 uint64_t frac_seconds = difi_packet.fractional_seconds_timestamp;
-                frac_seconds += i*1e12/difi_context.sample_rate;
+                frac_seconds += (i+1)*1e12/difi_context.sample_rate;
                 if (frac_seconds > 1e12) {
                     frac_seconds -= 1e12;
                     seconds++;
@@ -359,7 +359,7 @@ int main(int argc, char* argv[])
                     // gettimeofday(&end,0);
                     uint64_t seconds = difi_packet.integer_seconds_timestamp;
                     uint64_t frac_seconds = difi_packet.fractional_seconds_timestamp;
-                    frac_seconds += i*1e12/difi_context.sample_rate;
+                    frac_seconds += (i+1)*1e12/difi_context.sample_rate;
                     if (frac_seconds > 1e12) {
                         frac_seconds -= 1e12;
                         seconds++;
