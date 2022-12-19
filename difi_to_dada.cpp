@@ -196,7 +196,7 @@ int main(int argc, char* argv[])
               "INSTRUMENT DWL\n"
               "SOURCE UNDEFINED\n"
               "NBIT " + "8\n" +
-              "NDIM " + "1\n" +
+              "NDIM " + "2\n" +
               "NPOL " + "1\n" +
               "RESOLUTION 1\n"
               "OBS_OFFSET 0\n"
