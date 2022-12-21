@@ -74,7 +74,7 @@ int main(int argc, char* argv[])
     std::string file, type, zmq_address;
     uint16_t port;
     uint32_t channel;
-    int16_t scale;
+    // int16_t scale;
     int hwm;
     size_t num_requested_samples;
     double total_time;
@@ -92,7 +92,7 @@ int main(int argc, char* argv[])
         ("progress", "periodically display short-term bandwidth")
         ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
         ("int-second", "align start of reception to integer second")
-        ("scale", po::value<int16_t>(&scale)->default_value(128), "scaling factor for 16 to 8 bit conversion (default 128)")
+        // ("scale", po::value<int16_t>(&scale)->default_value(128), "scaling factor for 16 to 8 bit conversion (default 128)")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
@@ -133,7 +133,7 @@ int main(int argc, char* argv[])
     dada_hdu_t *dada_hdu;
     multilog_t *dada_log;
     std::string dada_header;
-    std::complex<int8_t> dadabuffer[DIFI_SAMPLES_PER_PACKET] __attribute((aligned(32)));
+    std::complex<float> dadabuffer[DIFI_SAMPLES_PER_PACKET] __attribute((aligned(32)));
 
     // ZMQ
     void *context = zmq_ctx_new();
@@ -165,8 +165,7 @@ int main(int argc, char* argv[])
     uint32_t signal_pointer = 0;
 
     while (not stop_signal_called
-           and (num_requested_samples > num_total_samps or num_requested_samples == 0)
-           and (total_time == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
+           and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
 
         int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
 
@@ -180,6 +179,10 @@ int main(int argc, char* argv[])
         if (not start_rx and difi_packet.context) {
             difi_print_context(&difi_context);
             start_rx = true;
+
+            if (total_time > 0)  
+                num_requested_samples = total_time * difi_context.sample_rate;
+
             // Possibly do something with context here
             // DADA
             // if (wirefmt != "sc8") throw std::runtime_error("Dada requires --wirefmt==sc8");
@@ -192,10 +195,10 @@ int main(int argc, char* argv[])
               "FREQ " + std::to_string(difi_context.rf_freq/1e6) + "\n"
               "BW " + std::to_string(int(difi_context.sample_rate/1e6)) + "\n"
               "TELESCOPE DWL\n"
-              "RECEIVER DWL\n"
-              "INSTRUMENT DWL\n"
+              "RECEIVER VRT\n"
+              "INSTRUMENT dspsr\n"
               "SOURCE UNDEFINED\n"
-              "NBIT " + "8\n" +
+              "NBIT " + "32\n" +
               "NDIM " + "2\n" +
               "NPOL " + "1\n" +
               "RESOLUTION 1\n"
@@ -237,11 +240,16 @@ int main(int argc, char* argv[])
             // Assumes ci16_le
 
             for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
-                auto sample = (std::complex<int16_t>)buffer[difi_packet.offset+i];
+                // auto sample = (std::complex<int16_t>)buffer[difi_packet.offset+i];
+                int16_t re;
+                memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
+                int16_t img;
+                memcpy(&img, (char*)&buffer[difi_packet.offset+i]+2, 2);
                 // Convert ci16_le to cs8
-                dadabuffer[i] = sample/scale;
+                std::complex<float>sample(re,img);
+                dadabuffer[i] = sample;
             }
-            if (ipcio_write(dada_hdu->data_block, (char*)dadabuffer, difi_packet.num_rx_samps*sizeof(std::complex<int8_t>)) < 0)
+            if (ipcio_write(dada_hdu->data_block, (char*)dadabuffer, difi_packet.num_rx_samps*sizeof(std::complex<float>)) < 0)
                throw std::runtime_error("Error writing buffer to DADA");
 
             // data: (const char*)&buffer[difi_packet.offset]
