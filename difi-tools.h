@@ -10,6 +10,8 @@
 
 #define ZMQ_BUFFER_SIZE 100000
 
+#define MAX_CHANNELS    4
+
 // Context update interval in ms
 #define VRT_CONTEXT_INTERVAL 200
 
