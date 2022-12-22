@@ -12,11 +12,11 @@
 #include <boost/thread/thread.hpp>
 
 #include <chrono>
-// #include <complex>
 #include <csignal>
 #include <fstream>
 #include <iostream>
 #include <thread>
+#include <complex>
 
 // VRT
 #include <stdbool.h>
@@ -29,7 +29,7 @@
 #include <vrt/vrt_types.h>
 #include <vrt/vrt_util.h>
 
-#include <complex.h>
+// #include <complex.h>
 
 // DADA
 #include <sstream>
@@ -69,15 +69,14 @@ inline float get_abs_val(std::complex<int8_t> t)
 
 int main(int argc, char* argv[])
 {
-
     // variables to be set by po
-    std::string file, type, zmq_address;
+    std::string zmq_address, channel_list;
     uint16_t port;
     uint32_t channel;
-    // int16_t scale;
     int hwm;
     size_t num_requested_samples;
     double total_time;
+    float amplitude, phase;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -85,14 +84,13 @@ int main(int argc, char* argv[])
 
     desc.add_options()
         ("help", "help message")
-        // ("file", po::value<std::string>(&file)->default_value("usrp_samples.dat"), "name of the file to write binary samples to")
-        // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
+        ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
+        ("phase", po::value<float>(&phase)->default_value(0), "phase shift on second channel [0-1]")
         ("progress", "periodically display short-term bandwidth")
-        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
+        ("channel", po::value<std::string>(&channel_list)->default_value("0"), "which VRT channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         ("int-second", "align start of reception to integer second")
-        // ("scale", po::value<int16_t>(&scale)->default_value(128), "scaling factor for 16 to 8 bit conversion (default 128)")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
@@ -122,18 +120,32 @@ int main(int argc, char* argv[])
 
     if (!vm.count("int-second")) throw std::runtime_error("Dada requires --int-second");
 
+    std::complex<float> z(0,-2*(float)M_PI*phase);
+    std::complex<float> a(amplitude,0);
+    std::complex<float> correction = a*exp(z);
+
     context_type difi_context;
     init_context(&difi_context);
 
     difi_packet_type difi_packet;
 
-    difi_packet.channel_filt = 1<<channel;
+    difi_packet.channel_filt = 0;
+
+     // detect which channels to use
+    std::vector<std::string> channel_strings;
+    std::vector<size_t> channel_nums;
+    boost::split(channel_strings, channel_list, boost::is_any_of("\"',"));
+    for (size_t ch = 0; ch < channel_strings.size(); ch++) {
+        size_t chan = std::stoi(channel_strings[ch]);
+        channel_nums.push_back(std::stoi(channel_strings[ch]));
+        difi_packet.channel_filt |= 1<<std::stoi(channel_strings[ch]);
+    }
 
     // DADA
     dada_hdu_t *dada_hdu;
     multilog_t *dada_log;
     std::string dada_header;
-    std::complex<float> dadabuffer[DIFI_SAMPLES_PER_PACKET] __attribute((aligned(32)));
+    std::complex<float> dadabuffer[DIFI_SAMPLES_PER_PACKET*MAX_CHANNELS] __attribute((aligned(32)));
 
     // ZMQ
     void *context = zmq_ctx_new();
@@ -165,7 +177,7 @@ int main(int argc, char* argv[])
     uint32_t signal_pointer = 0;
 
     while (not stop_signal_called
-           and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
+           and (num_requested_samples*channel_nums.size() > num_total_samps or num_requested_samples == 0)) {
 
         int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
 
@@ -176,6 +188,12 @@ int main(int argc, char* argv[])
             continue;
         }
 
+        uint32_t ch = 0;
+        while(not (difi_packet.stream_id & (1 << channel_nums[ch]) ) )
+            ch++;
+
+        uint32_t channel = channel_nums[ch];
+
         if (not start_rx and difi_packet.context) {
             difi_print_context(&difi_context);
             start_rx = true;
@@ -185,9 +203,6 @@ int main(int argc, char* argv[])
 
             // Possibly do something with context here
             // DADA
-            // if (wirefmt != "sc8") throw std::runtime_error("Dada requires --wirefmt==sc8");
-            // if (type != "char") throw std::runtime_error("Dada requires --type==char");
-            // TODO dada multiple polarizations!
             dada_header = 
               "HEADER DADA\n"
               "HDR_VERSION 1.0\n"
@@ -200,7 +215,7 @@ int main(int argc, char* argv[])
               "SOURCE UNDEFINED\n"
               "NBIT " + "32\n" +
               "NDIM " + "2\n" +
-              "NPOL " + "1\n" +
+              "NPOL " + std::to_string(channel_nums.size()) + "\n" +
               "RESOLUTION 1\n"
               "OBS_OFFSET 0\n"
               "TSAMP " + std::to_string(1e6/difi_context.sample_rate) + "\n";
@@ -240,17 +255,27 @@ int main(int argc, char* argv[])
             // Assumes ci16_le
 
             for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
-                // auto sample = (std::complex<int16_t>)buffer[difi_packet.offset+i];
                 int16_t re;
                 memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
                 int16_t img;
                 memcpy(&img, (char*)&buffer[difi_packet.offset+i]+2, 2);
-                // Convert ci16_le to cs8
+                // Convert ci16_le to float
                 std::complex<float>sample(re,img);
-                dadabuffer[i] = sample;
+                if (channel_nums.size() > 1) {
+                    if (ch==1)
+                        dadabuffer[i*channel_nums.size()+ch] = correction*sample;
+                    else 
+                        dadabuffer[i*channel_nums.size()+ch] = sample;
+                } else {
+                    dadabuffer[i] = sample; 
+                }
             }
-            if (ipcio_write(dada_hdu->data_block, (char*)dadabuffer, difi_packet.num_rx_samps*sizeof(std::complex<float>)) < 0)
-               throw std::runtime_error("Error writing buffer to DADA");
+
+            // send when all channels have been received
+            if (ch == channel_nums.size()-1) {
+                if (ipcio_write(dada_hdu->data_block, (char*)dadabuffer, channel_nums.size()*difi_packet.num_rx_samps*sizeof(std::complex<float>)) < 0)
+                    throw std::runtime_error("Error writing buffer to DADA");
+            }
 
             // data: (const char*)&buffer[difi_packet.offset]
             // size (bytes): sizeof(uint32_t)*difi_packet.num_rx_samps

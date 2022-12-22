@@ -92,6 +92,7 @@ int main(int argc, char* argv[])
     double rate, freq, bw, total_time, setup_time, lo_offset;
 
     FILE *read_ptr;
+    FILE *read_ptr_2;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -101,13 +102,11 @@ int main(int argc, char* argv[])
         ("file", po::value<std::string>(&file)->default_value("samples.sigmf-meta"), "name of the SigMF meta file")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
         ("datarate", po::value<double>(&datarate)->default_value(0), "rate of outgoing samples")
-        ("udp", po::value<std::string>(&udp_forward), "DIFI UDP forward address")
+        ("dual-chan", "use two SigMF files for dual channel stream (chan0+chan1)")
         ("progress", "periodically display short-term bandwidth")
         ("stats", "show average bandwidth on exit")
-        ("vrt", "publish IQ using VRT over ZeroMQ (PUB on port 50100")
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
-        // ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
     ;
@@ -130,11 +129,7 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
-    bool vrt                    = vm.count("vrt") > 0;
-    bool zmq                    = vm.count("zmq") > 0;
-    bool enable_udp             = vm.count("udp") > 0;
-
-    vrt = true;
+    bool dual_chan              = vm.count("dual-chan") > 0;
 
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
@@ -197,6 +192,13 @@ int main(int argc, char* argv[])
     if (data_filename.c_str())
         read_ptr = fopen(data_filename.c_str(),"rb");  // r for read, b for binary
 
+    if (dual_chan) {
+        std::string data_filename_2(data_filename);
+        boost::replace_all(data_filename_2,"chan0","chan1");
+        printf("Second SigMF Data Filename: %s\n", data_filename_2.c_str());
+        read_ptr_2 = fopen(data_filename_2.c_str(),"rb");  // r for read, b for binary
+    }
+
 	size_t samps_per_buff = DIFI_SAMPLES_PER_PACKET;
 
 	unsigned long long num_requested_samples = total_num_samps;
@@ -218,44 +220,19 @@ int main(int argc, char* argv[])
     difi_init_data_packet(&p);
     
     // p.fields.stream_id = stream_id;
-    p.fields.stream_id = 1;
     
     // ZMQ
     void *zmq_server;
-    if (vrt) {
-        void *context = zmq_ctx_new();
-        void *responder = zmq_socket(context, ZMQ_PUB);
-        int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
-        assert(rc == 0);
+  
+    void *context = zmq_ctx_new();
+    void *responder = zmq_socket(context, ZMQ_PUB);
+    int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
+    assert(rc == 0);
 
-        std::string connect_string = "tcp://*:" + std::to_string(port);
-        rc = zmq_bind(responder, connect_string.c_str());
-        assert (rc == 0);
-        zmq_server = responder;
-    }
-
-    // UDP DI-FI
-
-    int difi_sockfd; 
-    struct sockaddr_in difi_servaddr, difi_cliaddr; 
-    if (enable_udp) {
-
-        printf("Enable UDP\n");
-            
-        // Creating socket file descriptor 
-        if ( (difi_sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
-            perror("socket creation failed"); 
-            exit(EXIT_FAILURE); 
-        } 
-            
-        memset(&difi_servaddr, 0, sizeof(difi_servaddr)); 
-        memset(&difi_cliaddr, 0, sizeof(difi_cliaddr)); 
-            
-        // Filling server information 
-        difi_servaddr.sin_family    = AF_INET; // IPv4 
-        difi_servaddr.sin_addr.s_addr = inet_addr(udp_forward.c_str()); /* Server's Address   */
-        difi_servaddr.sin_port = htons(50000);  // 4991?
-    }
+    std::string connect_string = "tcp://*:" + std::to_string(port);
+    rc = zmq_bind(responder, connect_string.c_str());
+    assert (rc == 0);
+    zmq_server = responder;
 
     // Sleep setup time
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
@@ -296,7 +273,7 @@ int main(int argc, char* argv[])
     auto difi_time = time_first_sample;
 
     // trigger context update
-    last_context -= std::chrono::seconds(1);
+    last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
 
     int update_interval = 1e6*samps_per_buff/datarate;
 
@@ -312,7 +289,7 @@ int main(int argc, char* argv[])
         std::this_thread::sleep_for(wait_time);   
 
         const auto time_since_last_context = now - last_context;
-        if (time_since_last_context > std::chrono::milliseconds(200)) {
+        if (time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL)) {
 
             last_context = now;
 
@@ -327,7 +304,7 @@ int main(int argc, char* argv[])
             pc.fields.integer_seconds_timestamp = difi_time.tv_sec;
             pc.fields.fractional_seconds_timestamp = 1e3*difi_time.tv_usec;
 
-            pc.fields.stream_id = p.fields.stream_id;
+            pc.fields.stream_id = 1;
 
             pc.if_context.bandwidth                         = bw;
             pc.if_context.sample_rate                       = rate;
@@ -345,19 +322,18 @@ int main(int argc, char* argv[])
             if (rv < 0) {
                 fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
             }
+            zmq_send (zmq_server, buffer, rv*4, 0);
 
-            // ZMQ
-            if (vrt) {
-                  zmq_send (zmq_server, buffer, rv*4, 0);
-            }
-
-            if (enable_udp) {
-                if (sendto(difi_sockfd, buffer, rv*4, 0,
-                     (struct sockaddr *)&difi_servaddr, sizeof(difi_servaddr)) < 0)
-                {
-                   printf("UDP fail\n");
+            if (dual_chan) {
+                // duplicate context of channel 0 on channel 1
+                pc.fields.stream_id = 2;
+                rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
                 }
+                zmq_send (zmq_server, buffer, rv*4, 0);   
             }
+
         }
 
         // Read
@@ -384,6 +360,7 @@ int main(int argc, char* argv[])
                 first_frame = false;
             }
 
+            p.fields.stream_id = 1;
             p.body = samples;
             p.header.packet_count = (uint8_t)frame_count%16;
             p.fields.integer_seconds_timestamp = difi_time.tv_sec;
@@ -394,21 +371,29 @@ int main(int argc, char* argv[])
 
             int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE, true);
 
-            // UDP
-            if (enable_udp) {
-                if (sendto(sockfd, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE*4, 0,
-                             (struct sockaddr *)&difi_servaddr, sizeof(difi_servaddr)) < 0)
-                {
-                   printf("UDP fail\n");
-                }
-            }
-
-            // VRT
-            if (vrt) {
-                zmq_msg_send(&msg, zmq_server, 0);
-            }
-
+            zmq_msg_send(&msg, zmq_server, 0);
             zmq_msg_close(&msg);
+
+            if (dual_chan) {
+                if (fread(samples, sizeof(samples), 1, read_ptr_2) == 1) {
+                    p.fields.stream_id = 2;
+                    p.body = samples;
+                    p.header.packet_count = (uint8_t)frame_count%16;
+                    p.fields.integer_seconds_timestamp = difi_time.tv_sec;
+                    p.fields.fractional_seconds_timestamp = 1e6*difi_time.tv_usec;
+            
+                    zmq_msg_t msg;
+                    int rc = zmq_msg_init_size (&msg, DIFI_DATA_PACKET_SIZE*4);
+
+                    int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE, true);
+
+                    zmq_msg_send(&msg, zmq_server, 0);
+                    zmq_msg_close(&msg);
+                } else {
+                    break;
+                }
+
+            }
 
             frame_count++;
 
@@ -468,6 +453,9 @@ int main(int argc, char* argv[])
   
     /* clean up */
     fclose(read_ptr);
+
+    // Sleep setup time
+    std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
   
     // finished
     std::cout << std::endl << "Done!" << std::endl << std::endl;
