@@ -538,10 +538,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     //     start_time + std::chrono::milliseconds(int64_t(1000 * time_requested));
 
     // setup streaming
-    uhd::stream_cmd_t stream_cmd((num_requested_samples == 0)
-                                     ? uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS
-                                     : uhd::stream_cmd_t::STREAM_MODE_NUM_SAMPS_AND_DONE);
-    stream_cmd.num_samps  = size_t(num_requested_samples);
+    // uhd::stream_cmd_t stream_cmd((num_requested_samples == 0)
+    //                                  ? uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS
+    //                                  : uhd::stream_cmd_t::STREAM_MODE_NUM_SAMPS_AND_DONE);
+    // stream_cmd.num_samps  = size_t(num_requested_samples);
+    uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
+    
     if (int_second || channel_nums.size() > 1) {
         stream_cmd.time_spec  = usrp->get_time_now().get_full_secs() + 1; 
         stream_cmd.stream_now = false;
