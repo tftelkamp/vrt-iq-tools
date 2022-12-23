@@ -126,10 +126,12 @@ int main(int argc, char* argv[])
 
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
 
+#if __linux__
     int ret = fcntl(fd, F_SETPIPE_SZ, 1024 * 1024);
     if (ret < 0) {
         perror("set pipe size failed.");
     }
+#endif
 
     write_ptr = fdopen(fd, "wb");
 
