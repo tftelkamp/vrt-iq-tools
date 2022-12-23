@@ -115,7 +115,7 @@ int main(int argc, char* argv[])
     // bool null                   = vm.count("null") > 0;
     bool delete_fifo            = vm.count("delete") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
-    // bool int_second             = (bool)vm.count("int-second");
+    bool int_second             = (bool)vm.count("int-second");
 
     // if no fifo, create
     struct stat st;
