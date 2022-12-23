@@ -141,7 +141,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         // ("file", po::value<std::string>(&file)->default_value("usrp_samples.dat"), "name of the file to write binary samples to")
         // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&total_num_samps)->default_value(0), "total number of samples to receive")
-        // ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
+        ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         // ("spb", po::value<size_t>(&spb)->default_value(10000), "samples per buffer")
         ("rate", po::value<double>(&rate)->default_value(1e6), "rate of incoming samples")
         ("freq", po::value<double>(&freq)->default_value(0.0), "RF center frequency in Hz")
@@ -507,7 +507,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     const std::string& wire_format = wirefmt;
     
     unsigned long long num_requested_samples = total_num_samps;
-    double time_requested = total_time;
     bool int_second             = (bool)vm.count("int-second");
 
     // fixed buffer size
@@ -535,8 +534,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     // time keeping
     auto start_time = std::chrono::steady_clock::now();
-    auto stop_time =
-        start_time + std::chrono::milliseconds(int64_t(1000 * time_requested));
+    // auto stop_time =
+    //     start_time + std::chrono::milliseconds(int64_t(1000 * time_requested));
 
     // setup streaming
     uhd::stream_cmd_t stream_cmd((num_requested_samples == 0)
@@ -558,9 +557,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     auto last_context                    = start_time - std::chrono::milliseconds(2*VRT_CONTEXT_INTERVAL);
     unsigned long long last_update_samps = 0;
 
-    if (int_second) {
-        stop_time += std::chrono::milliseconds(int64_t(1000.0*(double)(stream_cmd.time_spec.get_real_secs()-usrp->get_time_now().get_real_secs())));
-    }
+    // if (int_second) {
+    //     stop_time += std::chrono::milliseconds(int64_t(1000.0*(double)(stream_cmd.time_spec.get_real_secs()-usrp->get_time_now().get_real_secs())));
+    // }
+
+    if (total_time > 0)  
+        num_requested_samples = total_time * rate;
 
     // Run this loop until either time expired (if a duration was given), until
     // the requested number of samples were collected (if such a number was
@@ -569,7 +571,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     uint32_t frame_count = 0;
 
     while (not stop_signal_called 
-           and (num_requested_samples != num_total_samps or num_requested_samples == 0)) {
+           and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
            // and (time_requested == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
         const auto now = std::chrono::steady_clock::now();
 
