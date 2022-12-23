@@ -193,6 +193,9 @@ int main(int argc, char* argv[])
 
         int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
 
+        if (stop_signal_called)
+            break;
+
         const auto now = std::chrono::steady_clock::now();
 
         if (not difi_process(buffer, sizeof(buffer), &difi_context, &difi_packet)) {
