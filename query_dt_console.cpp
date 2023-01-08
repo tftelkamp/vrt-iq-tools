@@ -139,7 +139,7 @@ int main(int argc, char* argv[])
 
     if ((host = gethostbyname(consolehost.c_str())) == NULL)
     {
-        printf("SDR hostname not known.\n");
+        printf("console hostname not known.\n");
         exit(0);
     }
  
