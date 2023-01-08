@@ -316,7 +316,7 @@ int main(int argc, char* argv[])
 
             pc.if_context.state_and_event_indicators.reference_lock = (bool)(ref=="external") ? true : false;
 
-            pc.if_context.state_and_event_indicators.calibrated_time = (bool)(time_cal=="external") ? true : false;
+            pc.if_context.state_and_event_indicators.calibrated_time = (bool)(time_cal=="external" || time_cal=="pps") ? true : false;
 
             int32_t rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
             if (rv < 0) {
