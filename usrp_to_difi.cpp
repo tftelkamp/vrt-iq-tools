@@ -643,7 +643,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                     pc.if_context.context_field_change_indicator = false;
 
 
-                pc.fields.stream_id = 1<<channel;
+                pc.fields.stream_id = 1<<ch;
                 pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(channel); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
                 pc.if_context.sample_rate                       = usrp->get_rx_rate(channel);
                 pc.if_context.rf_reference_frequency            = usrp->get_rx_freq(channel);
