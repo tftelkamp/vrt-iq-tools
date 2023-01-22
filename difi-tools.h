@@ -88,7 +88,7 @@ void difi_print_context(context_type* difi_context) {
     printf("# VRT Context:\n");
     printf("#    Stream ID (channel): %u (%u)\n", difi_context->stream_id, ch);
     printf("#    Sample Rate [samples per second]: %i\n", difi_context->sample_rate);
-    printf("#    RF Freq [Hz]: %li\n", difi_context->rf_freq);
+    printf("#    RF Freq [Hz]: %lli\n", difi_context->rf_freq);
     printf("#    Bandwidth [Hz]: %i\n", difi_context->bandwidth);
     printf("#    Gain [dB]: %i\n", difi_context->gain);
     printf("#    Ref lock: %s\n", difi_context->reflock == 1 ? "external" : "internal");
