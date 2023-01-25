@@ -88,19 +88,19 @@ int main(int argc, char* argv[])
 {
 
     // FFTW
-    fftw_complex *signal, *result;
-    fftw_plan plan;
-    float *magnitudes;
-    float *mean_freq;
-    float *mean_time;
-    float **data_block;
+    fftw_complex **signal, *result;
+    fftw_plan plan[2];
+
+    float **mean_freq;
+    float **mean_time;
+    float ***data_block;
 
     float *median_freq;
     float *median_time;
 
-    float *dedisp;
+    float **dedisp;
     int *dispersion;
-    float *plotbuffer;
+    float **plotbuffer;
 
     FILE *audio_pipe;
 
@@ -113,7 +113,7 @@ int main(int argc, char* argv[])
     float t_threshold;
 
     // variables to be set by po
-    std::string file, type, zmq_address;
+    std::string file, type, zmq_address, channel_list;
     size_t num_requested_samples;
     uint32_t bins;
     double total_time;
@@ -121,10 +121,11 @@ int main(int argc, char* argv[])
     uint32_t channel;
     int hwm;
     float dm, period, agg_time;
-    uint64_t seqno;
+    uint64_t seqno[] = {0, 0};
+    float mean_block[] = {0, 0};
     int time_integrations;
     int buffer_size;
-    float period_samples_float;
+    float period_samples_float, amplitude;
     int period_samples_int;
 
     // setup the program options
@@ -136,15 +137,18 @@ int main(int argc, char* argv[])
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("progress", "periodically display short-term bandwidth")
-        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
+        // ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
+        ("channel", po::value<std::string>(&channel_list)->default_value("0"), "which VRT channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         ("int-second", "align start of reception to integer second")
         ("num-bins", po::value<uint32_t>(&num_bins)->default_value(2000), "number of bins")
-        ("block-time", po::value<float>(&block_time)->default_value(0.2), "block time (seconds)")
+        ("block-time", po::value<float>(&block_time)->default_value(0.1), "block time (seconds)")
         ("f-threshold", po::value<float>(&f_threshold)->default_value(1.15), "frequency cut threshold")
         ("t-threshold", po::value<float>(&t_threshold)->default_value(1.2), "time cut threshold")
         ("dm", po::value<float>(&dm)->default_value(26.8), "PSR Dispersion Measure")
         ("period", po::value<float>(&period)->default_value(0.7145197), "PSR Period")
         ("agg-time", po::value<float>(&agg_time)->default_value(1), "Aggregation time in milliseconds")
+        ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
+        ("sum", "sum polarizations")
         ("audio", "enable audio")
         ("gnuplot", "enable gnuplot mode")
         ("null", "run without writing to file")
@@ -174,6 +178,7 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool audio                  = vm.count("audio") > 0;
     bool gnuplot                = vm.count("gnuplot") > 0;
+    bool sum                    = vm.count("sum") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
 
@@ -182,7 +187,22 @@ int main(int argc, char* argv[])
 
     difi_packet_type difi_packet;
 
-    difi_packet.channel_filt = 1<<channel;
+    difi_packet.channel_filt = 0;
+
+     // detect which channels to use
+    std::vector<std::string> channel_strings;
+    std::vector<size_t> channel_nums;
+    boost::split(channel_strings, channel_list, boost::is_any_of("\"',"));
+    for (size_t ch = 0; ch < channel_strings.size(); ch++) {
+        size_t chan = std::stoi(channel_strings[ch]);
+        channel_nums.push_back(std::stoi(channel_strings[ch]));
+        difi_packet.channel_filt |= 1<<std::stoi(channel_strings[ch]);
+    }
+
+    if (channel_nums.size() > 2) {
+        printf("More than 2 channels not supported.\n");
+        exit(1);
+    }
 
     // FILE *write_ptr;
     // write_ptr = fopen("dedisp.fc32","wb");  // w for write, b for binary
@@ -215,9 +235,9 @@ int main(int argc, char* argv[])
     bool start_rx = false;
     uint64_t last_fractional_seconds_timestamp = 0;
 
-    uint32_t signal_pointer = 0;
-    uint32_t block_counter = 0;
-    uint32_t integration_counter = 0;
+    uint32_t signal_pointer[] = {0, 0};
+    uint32_t block_counter[] = {0, 0};
+    uint32_t integration_counter[] = {0, 0};
 
     bool first_block = true;
 
@@ -233,6 +253,16 @@ int main(int argc, char* argv[])
             continue;
         }
 
+        if (not difi_packet.context and not difi_packet.data)
+            continue;
+
+        uint32_t ch = 0;
+        for(ch = 0; ch<channel_nums.size(); ch++)
+            if (difi_packet.stream_id & (1 << channel_nums[ch]) )
+                break;
+
+        uint32_t channel = channel_nums[ch];
+
         if (not start_rx and difi_packet.context) {
             difi_print_context(&difi_context);
             start_rx = true;
@@ -244,30 +274,50 @@ int main(int argc, char* argv[])
 
             time_integrations = agg_time*(difi_context.sample_rate/num_bins)/1000; 
 
-            signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
+            signal = (fftw_complex **)malloc(sizeof(fftw_complex*)*channel_nums.size());
+
+            for (size_t ch=0; ch < channel_nums.size(); ch++)
+                signal[ch] = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
+            
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
-            plan = fftw_plan_dft_1d(num_bins, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
 
-            data_block = (float **)malloc(sizeof(float *)*num_bins);
+            for (size_t ch=0; ch < channel_nums.size(); ch++)
+                plan[ch] = fftw_plan_dft_1d(num_bins, signal[ch], result, FFTW_FORWARD, FFTW_ESTIMATE);
 
-            for(size_t i=0; i < num_bins; i++) {
-                data_block[i] = (float *)malloc( 2 * sizeof(float)*block_size); 
+            data_block = (float ***)malloc(sizeof(float *)*channel_nums.size());
+            
+            for (size_t ch=0; ch < channel_nums.size(); ch++) {
+                data_block[ch] = (float **)malloc(sizeof(float *)*num_bins);
+
+                for(size_t i=0; i < num_bins; i++) {
+                    data_block[ch][i] = (float *)malloc( 2 * sizeof(float)*block_size); 
+                }
             }
 
-            magnitudes = (float*)malloc(num_bins * sizeof(float));
-            mean_freq = (float*)malloc(num_bins * sizeof(float));
-            mean_time = (float*)malloc(block_size * sizeof(float));
-            median_freq = (float*)malloc(num_bins * sizeof(float));
-            median_time = (float*)malloc(block_size * sizeof(float));
+            mean_freq = (float **)malloc(sizeof(float *)*channel_nums.size());
+            mean_time = (float **)malloc(sizeof(float *)*channel_nums.size());
 
-            dedisp = (float*)malloc( (block_size/time_integrations) * sizeof(float));
+            for (size_t ch=0; ch < channel_nums.size(); ch++) {
+                mean_freq[ch] = (float*)malloc(num_bins * sizeof(float));
+                mean_time[ch] = (float*)malloc(block_size * sizeof(float));
+            }
+
+            median_freq = (float*)malloc(num_bins * sizeof(float));
+            median_time = (float*)malloc(block_size * sizeof(float));         
+
+            dedisp = (float **)malloc(sizeof(float *)*channel_nums.size());
+
+            for (size_t ch=0; ch < channel_nums.size(); ch++) 
+                dedisp[ch] = (float*)malloc( (block_size/time_integrations) * sizeof(float));
 
             dispersion = (int*)malloc(num_bins*sizeof(int));
 
             // gnuplot
-            buffer_size = 5 * (1000.0/agg_time)*period; // 5 intervals
-            seqno = 0; //buffer_size;
-            plotbuffer = (float*)malloc(buffer_size * sizeof(float));
+            buffer_size = 4 * (1000.0/agg_time); // 4 seconds
+
+            plotbuffer = (float **)malloc(sizeof(float *)*channel_nums.size());
+            for (size_t ch=0; ch < channel_nums.size(); ch++) 
+                plotbuffer[ch] = (float*)malloc(buffer_size * sizeof(float));
 
             // data
             period_samples_float = (1000.0/agg_time)*period;
@@ -291,7 +341,7 @@ int main(int argc, char* argv[])
 
             // Gnuplot
             if (gnuplot)
-                printf("set terminal x11; unset mouse; set grid;\n");
+                printf("set terminal qt noraise; unset mouse; set grid;\n");
             // set terminal x11; 
             // set yrange [0:200000000] set xtics 1; set ytics 1;
 
@@ -299,7 +349,9 @@ int main(int argc, char* argv[])
 
                 uint32_t audio_rate = round(1000.0/agg_time);
 
-                std::string sox_command = "play -q -r " + std::to_string(audio_rate) + " --buffer 200 -c 1 -b 16 -e signed-integer -v 30 -t raw - lowpass 40 gain 10";
+                uint32_t num_chans = sum ? 1 : channel_nums.size();
+
+                std::string sox_command = "play -q -r " + std::to_string(audio_rate) + " --buffer 200 -c "+ std::to_string(num_chans) +" -b 16 -e signed-integer -v 30 -t raw - lowpass 40 gain 10";
         
                 audio_pipe = popen(sox_command.c_str(), "w");
             
@@ -329,6 +381,12 @@ int main(int argc, char* argv[])
                 }
             }
 
+            if (first_block and (ch!=0) ) {
+                continue;
+            } else {
+                first_block = false;
+            }
+
             int mult = 1;
             for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
 
@@ -336,17 +394,22 @@ int main(int argc, char* argv[])
                 memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
                 int16_t img;
                 memcpy(&img, (char*)&buffer[difi_packet.offset+i]+2, 2);
-                signal[signal_pointer][REAL] = mult*re;
-                signal[signal_pointer][IMAG] = mult*img;
+                if (ch==1) {
+                    signal[ch][signal_pointer[ch]][REAL] = amplitude*mult*re;
+                    signal[ch][signal_pointer[ch]][IMAG] = amplitude*mult*img;
+                } else {
+                    signal[ch][signal_pointer[ch]][REAL] = mult*re;
+                    signal[ch][signal_pointer[ch]][IMAG] = mult*img;
+                }
                 mult *= -1; // fftshift
 
-                signal_pointer++;
+                signal_pointer[ch]++;
 
-                if (signal_pointer >= num_bins) { 
+                if (signal_pointer[ch] >= num_bins) { 
 
-                    signal_pointer = 0;
+                    signal_pointer[ch] = 0;
 
-                    fftw_execute(plan);
+                    fftw_execute(plan[ch]);
 
                     uint64_t seconds = difi_packet.integer_seconds_timestamp;
                     uint64_t frac_seconds = difi_packet.fractional_seconds_timestamp;
@@ -360,19 +423,19 @@ int main(int argc, char* argv[])
                     for (uint32_t i = 0; i < num_bins; ++i) {
                         float mag = sqrt(result[i][REAL] * result[i][REAL] +
                                             result[i][IMAG] * result[i][IMAG]);
-                        data_block[i][block_size+block_counter] = mag;
-                        mean_freq[i] += mag/(float)block_size;
+                        data_block[ch][i][block_size+block_counter[ch]] = mag;
+                        mean_freq[ch][i] += mag/(float)block_size;
                         sum_channels += mag;
                     }
 
-                    mean_time[block_counter] = sum_channels/(float)num_bins;
+                    mean_time[ch][block_counter[ch]] = sum_channels/(float)num_bins;
 
-                    block_counter++;
+                    block_counter[ch]++;
 
-                    if (block_counter == block_size) {
+                    if (block_counter[ch] == block_size) {
                         // mow the lawn!
-                        memcpy(median_freq, mean_freq, num_bins * sizeof(float));
-                        memcpy(median_time, mean_time, block_size * sizeof(float));
+                        memcpy(median_freq, mean_freq[ch], num_bins * sizeof(float));
+                        memcpy(median_time, mean_time[ch], block_size * sizeof(float));
                         sort(median_freq,num_bins);
                         sort(median_time,block_size);
 
@@ -386,13 +449,13 @@ int main(int argc, char* argv[])
 
                         for (size_t chan = 0; chan < num_bins; chan++)
                             for (size_t block = 0; block < block_size; block++) {
-                                if ( mean_freq[chan] > thresh_freq ) {
-                                    data_block[chan][block_size+block] = freq_med;
+                                if ( mean_freq[ch][chan] > thresh_freq ) {
+                                    data_block[ch][chan][block_size+block] = freq_med;
                                     clean++;
                                     continue;
                                 }
-                                if ( mean_time[block] > thresh_time) {
-                                    data_block[chan][block_size+block] = time_med;
+                                if ( mean_time[ch][block] > thresh_time) {
+                                    data_block[ch][chan][block_size+block] = time_med;
                                     clean++;
                                 }
                             }
@@ -401,13 +464,13 @@ int main(int argc, char* argv[])
                         // dedisperse and aggregate
 
                         for (size_t index = 0; index < block_size/time_integrations; index++) {
-                            dedisp[index] = 0;
+                            dedisp[ch][index] = 0;
                         }
 
                         for(size_t chan=0; chan < num_bins; chan++) {
                             for (size_t index = 0; index < block_size/time_integrations; index++) {
                                 for (size_t j=0; j<time_integrations; j++) {
-                                     dedisp[index] += data_block[chan][block_size+index*time_integrations+j+dispersion[chan]];
+                                     dedisp[ch][index] += data_block[ch][chan][block_size+index*time_integrations+j+dispersion[chan]];
                                 }   
                             }
                         }
@@ -415,32 +478,61 @@ int main(int argc, char* argv[])
                         // for data analysis:
                         // fwrite(dedisp,sizeof(float)*block_size/time_integrations,1,write_ptr); 
 
-                        float mean_block = 0;
                         float max_block = 0;
+                        mean_block[ch] = 0;
 
                         for (size_t index = 0; index < block_size/time_integrations; index++) {
                             // sum to avg 
-                            dedisp[index] /= num_bins*(block_size/time_integrations);
+                            dedisp[ch][index] /= num_bins*(block_size/time_integrations);
                             // mean of block
-                            mean_block += dedisp[index];
-                            if (dedisp[index]>max_block)
-                                max_block = dedisp[index];
+                            mean_block[ch] += dedisp[ch][index];
+                            if (dedisp[ch][index]>max_block)
+                                max_block = dedisp[ch][index];
                         }
-                        mean_block = mean_block/(block_size/time_integrations);
+                        mean_block[ch] = mean_block[ch]/(block_size/time_integrations);
 
-                        if (!first_block) {
+                        // if (!first_block) {
                             for (size_t index = 0; index < block_size/time_integrations; index++) {
-                                plotbuffer[seqno % buffer_size] = dedisp[index];
-                                if (!gnuplot)
-                                    printf("%i %i %f\n",period_samples_int,(int)floor(fmod(seqno,period_samples_float)),dedisp[index]);
-                                if (audio){
-                                    int16_t sample = 2*32768.0* (dedisp[index]-mean_block)/mean_block;
-                                    fwrite(&sample, sizeof(sample), 1, audio_pipe);
+                                plotbuffer[ch][seqno[ch] % buffer_size] = dedisp[ch][index];
+                                if (!gnuplot) {
+                                    if (channel_nums.size()==2) {
+                                        if (ch==1) {
+                                            if (sum) {
+                                                printf("%i %i %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[0][index] + dedisp[1][index]);
+                                            } else {
+                                                printf("%i %i %f %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[0][index], dedisp[1][index]);
+                                            }
+                                        }
+                                    } else {
+                                        printf("%i %i %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[ch][index]);
+                                    }
                                 }
-                                seqno++;
+                                if (audio){
+                                    if (channel_nums.size()==2) {
+                                        if (ch==1) {
+                                            if (sum) {
+                                                // write sum on single channel
+                                                int16_t sample = 32768.0*(dedisp[0][index]-mean_block[0])/mean_block[0] + 
+                                                                 32768.0*(dedisp[1][index]-mean_block[1])/mean_block[1]; 
+                                                fwrite(&sample, sizeof(sample), 1, audio_pipe);
+                                            } else {
+                                                // write 2 channels
+                                                int16_t sample = 32768.0*(dedisp[0][index]-mean_block[0])/mean_block[0]; 
+                                                fwrite(&sample, sizeof(sample), 1, audio_pipe);
+                                                sample = 32768.0*(dedisp[1][index]-mean_block[1])/mean_block[1]; 
+                                                fwrite(&sample, sizeof(sample), 1, audio_pipe);
+                                            }
+                                        }
+                                    } else {
+                                        // single channel
+                                        int16_t sample = 32768.0* (dedisp[ch][index]-mean_block[ch])/mean_block[ch];
+                                        fwrite(&sample, sizeof(sample), 1, audio_pipe);
+                                    }
+                                }
+                                seqno[ch]++;
                             }
-                        }
-                        first_block = false;
+                        // }
+                        // first_block = false;
 
                         if (audio)
                             fflush(audio_pipe);
@@ -448,24 +540,43 @@ int main(int argc, char* argv[])
 
                         // copy current data block to first position (for dedispersion of the next block)
                         for(size_t i=0; i < num_bins; i++) {
-                            memcpy(&data_block[i][0], &data_block[i][block_size], sizeof(float)*block_size);
+                            memcpy(&data_block[ch][i][0], &data_block[ch][i][block_size], sizeof(float)*block_size);
                         }
 
                         // gnuplot
                         if (gnuplot) {
-                            printf("set xrange [%.0lf:%.0lf];\n",seqno/period, (seqno + buffer_size)/period);
-                            printf("plot '-' notitle w l\n");
 
+                            float mean_plot_buffer = 0;
                             for (i = 0; i< buffer_size; i++) {
-                                // integration_counter = (seqno-BUFFER_SIZE+i)/BUFFER_SIZE;
-                                printf("%lf\t%lf\n",(seqno+i)/period, plotbuffer[(seqno +i)% buffer_size] );
+                                mean_plot_buffer += plotbuffer[ch][i];
                             }
-                            printf("e\n");
+                            mean_plot_buffer /= buffer_size;
+
+                            float time_per_sample = difi_context.sample_rate/(num_bins*time_integrations);
+
+                            if (channel_nums.size()==2) {
+                                if (seqno[0] == seqno[1]) {
+                                    printf("set xrange [%.2lf:%.2lf];\n", seqno[0]/time_per_sample, (seqno[0] + buffer_size)/time_per_sample);
+                                    printf("set yrange [%.2lf:%.2lf];\n", mean_plot_buffer*0.97, mean_plot_buffer*1.5);
+                                    printf("plot '-' u 1:2 notitle w l, '-' u 1:3 notitle w l\n");
+                                    for (i = 0; i< buffer_size; i++) {
+                                        printf("%lf\t%lf\t%lf\n",(seqno[0]+i)/time_per_sample, plotbuffer[0][(seqno[0]+i)%buffer_size], plotbuffer[1][(seqno[1]+i)%buffer_size] );
+                                    }
+                                    printf("e\n");
+                                }   
+                            } else {
+                                printf("set xrange [%.2lf:%.2lf];\n",seqno[ch]/time_per_sample, (seqno[ch] + buffer_size)/time_per_sample);
+                                printf("set yrange [%.2lf:%.2lf];\n", mean_plot_buffer*0.97, mean_plot_buffer*1.5);
+                                printf("plot '-' u 1:2 notitle w l\n"); 
+                                for (i = 0; i< buffer_size; i++)
+                                    printf("%lf\t%lf\n",(seqno[ch]+i)/time_per_sample, plotbuffer[ch][(seqno[ch]+i)%buffer_size]);
+                                printf("e\n");
+                            }
                         }
 
                         // clean-up
-                        memset(mean_freq, 0 , num_bins * sizeof(float));
-                        block_counter = 0;
+                        memset(mean_freq[ch], 0 , num_bins * sizeof(float));
+                        block_counter[ch] = 0;
                     }
 
                 }
