@@ -209,8 +209,9 @@ int main(int argc, char* argv[])
         }
 
         uint32_t ch = 0;
-        while(not (difi_packet.stream_id & (1 << channel_nums[ch]) ) )
-            ch++;
+        for(ch = 0; ch<channel_nums.size(); ch++)
+            if (difi_packet.stream_id & (1 << channel_nums[ch]) )
+                break;
 
         uint32_t channel = channel_nums[ch];
 
