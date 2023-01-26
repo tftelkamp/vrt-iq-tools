@@ -49,8 +49,8 @@
 // Short alias for this namespace
 namespace pt = boost::property_tree;
 
-// DIFI tools functions
-#include "difi-tools.h"
+// VRT tools functions
+#include "vrt-tools.h"
 
 unsigned long long num_total_samps = 0;
 
@@ -107,8 +107,8 @@ int main(int argc, char* argv[])
         ("stats", "show average bandwidth on exit")
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
-        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
     po::variables_map vm;
@@ -144,12 +144,12 @@ int main(int argc, char* argv[])
     pt::read_json(file, root);
 
     rate = root.get<double>("global.core:sample_rate", 0);
-    bw = root.get<double>("global.difi:bandwidth", 0);
-    gain = root.get<int>("global.difi:rx_gain", 0);
-    ref = root.get<std::string>("global.difi:reference", "");
-    time_cal = root.get<std::string>("global.difi:time_source", "");
+    bw = root.get<double>("global.vrt:bandwidth", 0);
+    gain = root.get<int>("global.vrt:rx_gain", 0);
+    ref = root.get<std::string>("global.vrt:reference", "");
+    time_cal = root.get<std::string>("global.vrt:time_source", "");
     type = root.get<std::string>("global.core:datatype", "");
-    stream_id = root.get<uint32_t>("global.difi:stream_id", 0);
+    stream_id = root.get<uint32_t>("global.vrt:stream_id", 0);
 
     for (auto& item : root.get_child("captures")) {
         freq = item.second.get<double>("core:frequency");
@@ -199,12 +199,12 @@ int main(int argc, char* argv[])
         read_ptr_2 = fopen(data_filename_2.c_str(),"rb");  // r for read, b for binary
     }
 
-	size_t samps_per_buff = DIFI_SAMPLES_PER_PACKET;
+	size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
 
 	unsigned long long num_requested_samples = total_num_samps;
     double time_requested = total_time;
 
-    uint32_t buffer[DIFI_DATA_PACKET_SIZE];
+    uint32_t buffer[VRT_DATA_PACKET_SIZE];
    
     bool first_frame = true;
 
@@ -216,8 +216,8 @@ int main(int argc, char* argv[])
         printf("Warning: little endian support is work in progress.\n");
     }
 
-    /* DIFI init */
-    difi_init_data_packet(&p);
+    /* VRT init */
+    vrt_init_data_packet(&p);
     
     // p.fields.stream_id = stream_id;
     
@@ -270,7 +270,7 @@ int main(int argc, char* argv[])
     time_first_sample.tv_sec = integer_time_first_sample;
     time_first_sample.tv_usec = fractional_sec.total_microseconds();
 
-    auto difi_time = time_first_sample;
+    auto vrt_time = time_first_sample;
 
     // trigger context update
     last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
@@ -298,11 +298,11 @@ int main(int argc, char* argv[])
             struct vrt_packet pc;
             vrt_init_packet(&pc);
 
-            /* DIFI Configure. Note that context packets cannot have a trailer word. */
-            difi_init_context_packet(&pc);
+            /* VRT Configure. Note that context packets cannot have a trailer word. */
+            vrt_init_context_packet(&pc);
 
-            pc.fields.integer_seconds_timestamp = difi_time.tv_sec;
-            pc.fields.fractional_seconds_timestamp = 1e3*difi_time.tv_usec;
+            pc.fields.integer_seconds_timestamp = vrt_time.tv_sec;
+            pc.fields.fractional_seconds_timestamp = 1e3*vrt_time.tv_usec;
 
             pc.fields.stream_id = 1;
 
@@ -318,7 +318,7 @@ int main(int argc, char* argv[])
 
             pc.if_context.state_and_event_indicators.calibrated_time = (bool)(time_cal=="external" || time_cal=="pps") ? true : false;
 
-            int32_t rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
+            int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
             if (rv < 0) {
                 fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
             }
@@ -327,7 +327,7 @@ int main(int argc, char* argv[])
             if (dual_chan) {
                 // duplicate context of channel 0 on channel 1
                 pc.fields.stream_id = 2;
-                rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
+                rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
                 if (rv < 0) {
                     fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
                 }
@@ -349,13 +349,13 @@ int main(int argc, char* argv[])
             interval_time.tv_sec = (time_t)interval;
             interval_time.tv_usec = (interval-(time_t)interval)*1e6;
 
-            timeradd(&time_first_sample, &interval_time, &difi_time);
+            timeradd(&time_first_sample, &interval_time, &vrt_time);
 
             if (first_frame) {
                 std::cout << boost::format(
                                  "First frame: %u samples, %u full secs, %.09f frac secs")
-                                 % (num_words_read) % difi_time.tv_sec
-                                 % (difi_time.tv_usec/1e6)
+                                 % (num_words_read) % vrt_time.tv_sec
+                                 % (vrt_time.tv_usec/1e6)
                           << std::endl;
                 first_frame = false;
             }
@@ -363,13 +363,13 @@ int main(int argc, char* argv[])
             p.fields.stream_id = 1;
             p.body = samples;
             p.header.packet_count = (uint8_t)frame_count%16;
-            p.fields.integer_seconds_timestamp = difi_time.tv_sec;
-            p.fields.fractional_seconds_timestamp = 1e6*difi_time.tv_usec;
+            p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
+            p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
     
             zmq_msg_t msg;
-            int rc = zmq_msg_init_size (&msg, DIFI_DATA_PACKET_SIZE*4);
+            int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
 
-            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE, true);
+            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE, true);
 
             zmq_msg_send(&msg, zmq_server, 0);
             zmq_msg_close(&msg);
@@ -379,13 +379,13 @@ int main(int argc, char* argv[])
                     p.fields.stream_id = 2;
                     p.body = samples;
                     p.header.packet_count = (uint8_t)frame_count%16;
-                    p.fields.integer_seconds_timestamp = difi_time.tv_sec;
-                    p.fields.fractional_seconds_timestamp = 1e6*difi_time.tv_usec;
+                    p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
+                    p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
             
                     zmq_msg_t msg;
-                    int rc = zmq_msg_init_size (&msg, DIFI_DATA_PACKET_SIZE*4);
+                    int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
 
-                    int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE, true);
+                    int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE, true);
 
                     zmq_msg_send(&msg, zmq_server, 0);
                     zmq_msg_close(&msg);

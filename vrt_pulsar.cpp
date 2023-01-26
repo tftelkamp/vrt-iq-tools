@@ -32,7 +32,7 @@
 #include <complex.h>
 #include <fftw3.h>
 
-#include "difi-tools.h"
+#include "vrt-tools.h"
 
 namespace po = boost::program_options;
 
@@ -137,7 +137,7 @@ int main(int argc, char* argv[])
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("progress", "periodically display short-term bandwidth")
-        // ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
+        // ("channel", po::value<uint32_t>(&channel)->default_value(0), "VRT channel")
         ("channel", po::value<std::string>(&channel_list)->default_value("0"), "which VRT channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         ("int-second", "align start of reception to integer second")
         ("num-bins", po::value<uint32_t>(&num_bins)->default_value(2000), "number of bins")
@@ -153,9 +153,9 @@ int main(int argc, char* argv[])
         ("gnuplot", "enable gnuplot mode")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
-        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
-        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
+        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
 
     ;
     // clang-format on
@@ -182,12 +182,12 @@ int main(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
 
-    context_type difi_context;
-    init_context(&difi_context);
+    context_type vrt_context;
+    init_context(&vrt_context);
 
-    difi_packet_type difi_packet;
+    packet_type vrt_packet;
 
-    difi_packet.channel_filt = 0;
+    vrt_packet.channel_filt = 0;
 
      // detect which channels to use
     std::vector<std::string> channel_strings;
@@ -196,7 +196,7 @@ int main(int argc, char* argv[])
     for (size_t ch = 0; ch < channel_strings.size(); ch++) {
         size_t chan = std::stoi(channel_strings[ch]);
         channel_nums.push_back(std::stoi(channel_strings[ch]));
-        difi_packet.channel_filt |= 1<<std::stoi(channel_strings[ch]);
+        vrt_packet.channel_filt |= 1<<std::stoi(channel_strings[ch]);
     }
 
     if (channel_nums.size() > 2) {
@@ -248,31 +248,31 @@ int main(int argc, char* argv[])
 
         const auto now = std::chrono::steady_clock::now();
 
-        if (not difi_process(buffer, sizeof(buffer), &difi_context, &difi_packet)) {
+        if (not vrt_process(buffer, sizeof(buffer), &vrt_context, &vrt_packet)) {
             printf("Not a Vita49 packet?\n");
             continue;
         }
 
-        if (not difi_packet.context and not difi_packet.data)
+        if (not vrt_packet.context and not vrt_packet.data)
             continue;
 
         uint32_t ch = 0;
         for(ch = 0; ch<channel_nums.size(); ch++)
-            if (difi_packet.stream_id & (1 << channel_nums[ch]) )
+            if (vrt_packet.stream_id & (1 << channel_nums[ch]) )
                 break;
 
         uint32_t channel = channel_nums[ch];
 
-        if (not start_rx and difi_packet.context) {
-            difi_print_context(&difi_context);
+        if (not start_rx and vrt_packet.context) {
+            vrt_print_context(&vrt_context);
             start_rx = true;
 
             if (total_time > 0)  
-                num_requested_samples = total_time * difi_context.sample_rate;
+                num_requested_samples = total_time * vrt_context.sample_rate;
 
-            block_size = block_time*difi_context.sample_rate/num_bins;
+            block_size = block_time*vrt_context.sample_rate/num_bins;
 
-            time_integrations = agg_time*(difi_context.sample_rate/num_bins)/1000; 
+            time_integrations = agg_time*(vrt_context.sample_rate/num_bins)/1000; 
 
             signal = (fftw_complex **)malloc(sizeof(fftw_complex*)*channel_nums.size());
 
@@ -324,18 +324,18 @@ int main(int argc, char* argv[])
             period_samples_int = floor(period_samples_float);
 
             // create dispersion table
-            float freq_bin0 = (double)(difi_context.rf_freq - difi_context.sample_rate/2);
-            float disp_bin0 = dm_time(dm,freq_bin0/1e6) * (float)difi_context.sample_rate/(float(num_bins));
+            float freq_bin0 = (double)(vrt_context.rf_freq - vrt_context.sample_rate/2);
+            float disp_bin0 = dm_time(dm,freq_bin0/1e6) * (float)vrt_context.sample_rate/(float(num_bins));
 
             for(size_t chan=0; chan < num_bins; chan++) {
-                float freq = (double)(difi_context.rf_freq + (chan*(double)difi_context.sample_rate/(double)num_bins) - difi_context.sample_rate/2);
-                float disp = dm_time(dm,freq/1e6) * (float)difi_context.sample_rate/(float(num_bins)) - disp_bin0;
+                float freq = (double)(vrt_context.rf_freq + (chan*(double)vrt_context.sample_rate/(double)num_bins) - vrt_context.sample_rate/2);
+                float disp = dm_time(dm,freq/1e6) * (float)vrt_context.sample_rate/(float(num_bins)) - disp_bin0;
                 dispersion[chan] = (int)disp;
             }
 
             printf("# Spectrum parameters:\n");
             printf("#    Bins: %u\n", num_bins);
-            printf("#    Bin size [Hz]: %.2f\n", ((double)difi_context.sample_rate)/((double)num_bins));
+            printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
             printf("#    Block size: %u\n", block_size);
             printf("#    Aggregations: %u\n", time_integrations);
 
@@ -363,16 +363,16 @@ int main(int argc, char* argv[])
             }
         }
 
-        if (start_rx and difi_packet.data) {
+        if (start_rx and vrt_packet.data) {
 
-            if (difi_packet.lost_frame)
+            if (vrt_packet.lost_frame)
                if (not continue_on_bad_packet)
                     break;
 
             if (int_second) {
                 // check if fractional second has wrapped
-                if (difi_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
-                        last_fractional_seconds_timestamp = difi_packet.fractional_seconds_timestamp;
+                if (vrt_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
+                        last_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
                         continue;
                 } else {
                     int_second = false;
@@ -388,12 +388,12 @@ int main(int argc, char* argv[])
             }
 
             int mult = 1;
-            for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
+            for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
 
                 int16_t re;
-                memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
+                memcpy(&re, (char*)&buffer[vrt_packet.offset+i], 2);
                 int16_t img;
-                memcpy(&img, (char*)&buffer[difi_packet.offset+i]+2, 2);
+                memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
                 if (ch==1) {
                     signal[ch][signal_pointer[ch]][REAL] = amplitude*mult*re;
                     signal[ch][signal_pointer[ch]][IMAG] = amplitude*mult*img;
@@ -411,9 +411,9 @@ int main(int argc, char* argv[])
 
                     fftw_execute(plan[ch]);
 
-                    uint64_t seconds = difi_packet.integer_seconds_timestamp;
-                    uint64_t frac_seconds = difi_packet.fractional_seconds_timestamp;
-                    frac_seconds += (i+1)*1e12/difi_context.sample_rate;
+                    uint64_t seconds = vrt_packet.integer_seconds_timestamp;
+                    uint64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
+                    frac_seconds += (i+1)*1e12/vrt_context.sample_rate;
                     if (frac_seconds > 1e12) {
                         frac_seconds -= 1e12;
                         seconds++;
@@ -552,7 +552,7 @@ int main(int argc, char* argv[])
                             }
                             mean_plot_buffer /= buffer_size;
 
-                            float time_per_sample = difi_context.sample_rate/(num_bins*time_integrations);
+                            float time_per_sample = vrt_context.sample_rate/(num_bins*time_integrations);
 
                             if (channel_nums.size()==2) {
                                 if (seqno[0] == seqno[1]) {
@@ -582,13 +582,13 @@ int main(int argc, char* argv[])
                 }
             }
 
-            num_total_samps += difi_packet.num_rx_samps;
+            num_total_samps += vrt_packet.num_rx_samps;
 
         }
 
         if (progress) {
-            if (difi_packet.data)
-                last_update_samps += difi_packet.num_rx_samps;
+            if (vrt_packet.data)
+                last_update_samps += vrt_packet.num_rx_samps;
             const auto time_since_last_update = now - last_update;
             if (time_since_last_update > std::chrono::seconds(1)) {
                 const double time_since_last_update_s =
@@ -604,17 +604,17 @@ int main(int argc, char* argv[])
 
                 double datatype_max = 32768.;
   
-                for (int i=0; i<difi_packet.num_rx_samps; i++ ) {
-                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[difi_packet.offset+i]);
+                for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
+                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
                     sum_i += sample_i;
                     if (sample_i > datatype_max*0.99)
                         clip_i++;
                 }
-                sum_i = sum_i/difi_packet.num_rx_samps;
+                sum_i = sum_i/vrt_packet.num_rx_samps;
                 std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
                 std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
                 std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/difi_packet.num_rx_samps) << "% I clip, ";
+                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/vrt_packet.num_rx_samps) << "% I clip, ";
                 std::cout << std::endl;
 
             }

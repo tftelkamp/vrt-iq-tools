@@ -38,7 +38,7 @@
 
 #include <complex.h>
 
-#include "difi-tools.h"
+#include "vrt-tools.h"
 
 namespace po = boost::program_options;
 
@@ -163,12 +163,12 @@ int main(int argc, char* argv[])
   bool useoutput              = vm.count("output") > 0;
   bool quiet                  = vm.count("quiet") > 0;
 
-  context_type difi_context;
-  init_context(&difi_context);
+  context_type vrt_context;
+  init_context(&vrt_context);
 
-  difi_packet_type difi_packet;
+  packet_type vrt_packet;
 
-  difi_packet.channel_filt = 1<<channel;
+  vrt_packet.channel_filt = 1<<channel;
 
   // ZMQ
   void *context = zmq_ctx_new();
@@ -209,17 +209,17 @@ int main(int argc, char* argv[])
 
       const auto now = std::chrono::steady_clock::now();
 
-      if (not difi_process(buffer, sizeof(buffer), &difi_context, &difi_packet)) {
+      if (not vrt_process(buffer, sizeof(buffer), &vrt_context, &vrt_packet)) {
           printf("Not a Vita49 packet?\n");
           continue;
       }
 
-      if (not start_rx and difi_packet.context) {
-          difi_print_context(&difi_context);
+      if (not start_rx and vrt_packet.context) {
+          vrt_print_context(&vrt_context);
           start_rx = true;
 
-          samp_rate = difi_context.sample_rate;
-          freq = difi_context.rf_freq;
+          samp_rate = vrt_context.sample_rate;
+          freq = vrt_context.rf_freq;
 
           // Ensure integer number of spectra per subintegration
           tint=ceil(fchan*tint)/fchan;
@@ -270,16 +270,16 @@ int main(int argc, char* argv[])
 
       }
       
-      if (start_rx and difi_packet.data) {
+      if (start_rx and vrt_packet.data) {
 
-          if (difi_packet.lost_frame)
+          if (vrt_packet.lost_frame)
              if (not continue_on_bad_packet)
                   break;
 
           if (int_second) {
               // check if fractional second has wrapped
-              if (difi_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
-                      last_fractional_seconds_timestamp = difi_packet.fractional_seconds_timestamp;
+              if (vrt_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
+                      last_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
                       continue;
               } else {
                   int_second = false;
@@ -292,13 +292,13 @@ int main(int argc, char* argv[])
           if (start_rx and first_frame) {
               std::cout << boost::format(
                                "# First frame: %u samples, %u full secs, %.09f frac secs")
-                               % difi_packet.num_rx_samps
-                               % difi_packet.integer_seconds_timestamp
-                               % ((double)difi_packet.fractional_seconds_timestamp/1e12)
+                               % vrt_packet.num_rx_samps
+                               % vrt_packet.integer_seconds_timestamp
+                               % ((double)vrt_packet.fractional_seconds_timestamp/1e12)
                         << std::endl;
               first_frame = false;
               // STRF Create prefix
-              start.tv_sec = difi_packet.integer_seconds_timestamp;
+              start.tv_sec = vrt_packet.integer_seconds_timestamp;
               strftime(prefix,30,"%Y-%m-%dT%T",gmtime(&start.tv_sec));
               
               // File name
@@ -311,13 +311,13 @@ int main(int argc, char* argv[])
           }
 
           // int mult = 1;
-          for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
+          for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
 
               if (signal_pointer==0 and nint_counter==0) {
                 // gettimeofday(&start,0);
-                uint64_t seconds = difi_packet.integer_seconds_timestamp;
-                uint64_t frac_seconds = difi_packet.fractional_seconds_timestamp;
-                frac_seconds += (i+1)*1e12/difi_context.sample_rate;
+                uint64_t seconds = vrt_packet.integer_seconds_timestamp;
+                uint64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
+                frac_seconds += (i+1)*1e12/vrt_context.sample_rate;
                 if (frac_seconds > 1e12) {
                     frac_seconds -= 1e12;
                     seconds++;
@@ -327,9 +327,9 @@ int main(int argc, char* argv[])
               }
 
               int16_t re;
-              memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
+              memcpy(&re, (char*)&buffer[vrt_packet.offset+i], 2);
               int16_t img;
-              memcpy(&img, (char*)&buffer[difi_packet.offset+i]+2, 2);
+              memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
               c[signal_pointer][REAL]=(float)(re/32768.0)*zw[signal_pointer];
               c[signal_pointer][IMAG]=(float)(img/32768.0)*zw[signal_pointer]*sign;
               // mult *= -1;
@@ -357,9 +357,9 @@ int main(int argc, char* argv[])
                   if (nint_counter >= nint) {
                     // Log end time
                     // gettimeofday(&end,0);
-                    uint64_t seconds = difi_packet.integer_seconds_timestamp;
-                    uint64_t frac_seconds = difi_packet.fractional_seconds_timestamp;
-                    frac_seconds += (i+1)*1e12/difi_context.sample_rate;
+                    uint64_t seconds = vrt_packet.integer_seconds_timestamp;
+                    uint64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
+                    frac_seconds += (i+1)*1e12/vrt_context.sample_rate;
                     if (frac_seconds > 1e12) {
                         frac_seconds -= 1e12;
                         seconds++;
@@ -435,13 +435,13 @@ int main(int argc, char* argv[])
 
           }
 
-          num_total_samps += difi_packet.num_rx_samps;
+          num_total_samps += vrt_packet.num_rx_samps;
 
       }
 
       if (progress) {
-          if (difi_packet.data)
-              last_update_samps += difi_packet.num_rx_samps;
+          if (vrt_packet.data)
+              last_update_samps += vrt_packet.num_rx_samps;
           const auto time_since_last_update = now - last_update;
           if (time_since_last_update > std::chrono::seconds(1)) {
               const double time_since_last_update_s =
@@ -457,17 +457,17 @@ int main(int argc, char* argv[])
 
               double datatype_max = 32768.;
 
-              for (int i=0; i<difi_packet.num_rx_samps; i++ ) {
-                  auto sample_i = get_abs_val((std::complex<int16_t>)buffer[difi_packet.offset+i]);
+              for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
+                  auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
                   sum_i += sample_i;
                   if (sample_i > datatype_max*0.99)
                       clip_i++;
               }
-              sum_i = sum_i/difi_packet.num_rx_samps;
+              sum_i = sum_i/vrt_packet.num_rx_samps;
               std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
               std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
               std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-              std::cout << "" << boost::format("%.0f") % (100.0*clip_i/difi_packet.num_rx_samps) << "% I clip, ";
+              std::cout << "" << boost::format("%.0f") % (100.0*clip_i/vrt_packet.num_rx_samps) << "% I clip, ";
               std::cout << std::endl;
 
           }

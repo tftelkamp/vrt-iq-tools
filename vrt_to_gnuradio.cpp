@@ -29,7 +29,7 @@
 #include <vrt/vrt_types.h>
 #include <vrt/vrt_util.h>
 
-#include "difi-tools.h"
+#include "vrt-tools.h"
 
 // gnuradio pmt
 #include <pmt/pmt.h>
@@ -94,14 +94,14 @@ int main(int argc, char* argv[])
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("progress", "periodically display short-term bandwidth")
-        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "VRT channel")
         // ("stats", "show average bandwidth on exit")
         // ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
-        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
-        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
+        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
 
     ;
     // clang-format on
@@ -124,12 +124,12 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
 
-    context_type difi_context;
-    init_context(&difi_context);
+    context_type vrt_context;
+    init_context(&vrt_context);
 
-    difi_packet_type difi_packet;
+    packet_type vrt_packet;
 
-    difi_packet.channel_filt = 1<<channel;
+    vrt_packet.channel_filt = 1<<channel;
 
     // ZMQ
 
@@ -188,14 +188,14 @@ int main(int argc, char* argv[])
 
         const auto now = std::chrono::steady_clock::now();
 
-        if (not difi_process(buffer, sizeof(buffer), &difi_context, &difi_packet)) {
+        if (not vrt_process(buffer, sizeof(buffer), &vrt_context, &vrt_packet)) {
             printf("Not a Vita49 packet?\n");
             continue;
         }
 
-        if (difi_packet.context) {
+        if (vrt_packet.context) {
             if (not start_rx)
-                difi_print_context(&difi_context);
+                vrt_print_context(&vrt_context);
 
             start_rx = true;
 
@@ -207,13 +207,13 @@ int main(int argc, char* argv[])
                 // Workaround to prevent GR 3.10 from crashing...
                 if (alternate) {
                     pmt::pmt_t P_str = pmt::intern("freq");
-                    pmt::pmt_t P_double = pmt::from_double(difi_context.rf_freq);
+                    pmt::pmt_t P_double = pmt::from_double(vrt_context.rf_freq);
                     pmt::pmt_t P_pair = pmt::cons(P_str, P_double);
                     std::string str = pmt::serialize_str(P_pair);
                     zmq_send (zmq_gr_freq, str.c_str(), str.size(), 0);
                 } else {
                     pmt::pmt_t P_str = pmt::intern("sample_rate");
-                    pmt::pmt_t P_double = pmt::from_double(difi_context.sample_rate);
+                    pmt::pmt_t P_double = pmt::from_double(vrt_context.sample_rate);
                     pmt::pmt_t P_pair = pmt::cons(P_str, P_double);
                     std::string str = pmt::serialize_str(P_pair);
                     zmq_send (zmq_gr_rate, str.c_str(), str.size(), 0);
@@ -223,28 +223,28 @@ int main(int argc, char* argv[])
             }
         }
 
-        if (start_rx and difi_packet.data) {
+        if (start_rx and vrt_packet.data) {
 
-            if (difi_packet.lost_frame)
+            if (vrt_packet.lost_frame)
                if (not continue_on_bad_packet)
                     break;
 
-            zmq_send(zmq_gr_data, (const char*)&buffer[difi_packet.offset], sizeof(uint32_t)*difi_packet.num_rx_samps, 0);
+            zmq_send(zmq_gr_data, (const char*)&buffer[vrt_packet.offset], sizeof(uint32_t)*vrt_packet.num_rx_samps, 0);
 
             if (start_rx and first_frame) {
                 std::cout << boost::format(
                                  "# First frame: %u samples, %u full secs, %.09f frac secs")
-                                 % difi_packet.num_rx_samps
-                                 % difi_packet.integer_seconds_timestamp
-                                 % ((double)difi_packet.fractional_seconds_timestamp/1e12)
+                                 % vrt_packet.num_rx_samps
+                                 % vrt_packet.integer_seconds_timestamp
+                                 % ((double)vrt_packet.fractional_seconds_timestamp/1e12)
                           << std::endl;
                 first_frame = false;
             }
         }
 
         if (progress) {
-            if (difi_packet.data)
-                last_update_samps += difi_packet.num_rx_samps;
+            if (vrt_packet.data)
+                last_update_samps += vrt_packet.num_rx_samps;
             const auto time_since_last_update = now - last_update;
             if (time_since_last_update > std::chrono::seconds(1)) {
                 const double time_since_last_update_s =
@@ -260,17 +260,17 @@ int main(int argc, char* argv[])
 
                 double datatype_max = 32768.;
 
-                for (int i=0; i<difi_packet.num_rx_samps; i++ ) {
-                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[difi_packet.offset+i]);
+                for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
+                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
                     sum_i += sample_i;
                     if (sample_i > datatype_max*0.99)
                         clip_i++;
                 }
-                sum_i = sum_i/difi_packet.num_rx_samps;
+                sum_i = sum_i/vrt_packet.num_rx_samps;
                 std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
                 std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
                 std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/difi_packet.num_rx_samps) << "% I clip, ";
+                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/vrt_packet.num_rx_samps) << "% I clip, ";
                 std::cout << std::endl;
 
             }

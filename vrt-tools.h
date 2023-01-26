@@ -1,12 +1,12 @@
 /* VRT tools helper functions */
 
-#ifndef _DIFITOOLS_H
-#define _DIFITOOLS_H
+#ifndef _VRTTOOLS_H
+#define _VRTTOOLS_H
 
-#define DIFI_SAMPLES_PER_PACKET 10000
+#define VRT_SAMPLES_PER_PACKET 10000
 
-#define SIZE (DIFI_SAMPLES_PER_PACKET+7)
-#define DIFI_DATA_PACKET_SIZE (DIFI_SAMPLES_PER_PACKET+7)
+#define SIZE (VRT_SAMPLES_PER_PACKET+7)
+#define VRT_DATA_PACKET_SIZE (VRT_SAMPLES_PER_PACKET+7)
 
 #define ZMQ_BUFFER_SIZE 100000
 
@@ -38,7 +38,7 @@ struct context_type {
     int32_t last_data_counter;
 };
 
-struct difi_packet_type {
+struct packet_type {
     bool context;
     bool data;
     bool lost_frame;
@@ -66,37 +66,37 @@ void init_context(context_type* context) {
     context->time_cal = false;
 }
 
-bool check_packet_count(int8_t counter, context_type* difi_context) {
-    if ( (difi_context->last_data_counter > 0) and 
-            ( (counter != (difi_context->last_data_counter+1)%16) and 
-              (counter != (difi_context->last_data_counter  )%16) ) ) {
-        printf("# Error: lost frame (expected %i, received %i)\n", difi_context->last_data_counter, counter);
-        difi_context->last_data_counter = counter;
+bool check_packet_count(int8_t counter, context_type* vrt_context) {
+    if ( (vrt_context->last_data_counter > 0) and 
+            ( (counter != (vrt_context->last_data_counter+1)%16) and 
+              (counter != (vrt_context->last_data_counter  )%16) ) ) {
+        printf("# Error: lost frame (expected %i, received %i)\n", vrt_context->last_data_counter, counter);
+        vrt_context->last_data_counter = counter;
         return false;
     } else {
-        difi_context->last_data_counter = counter;
+        vrt_context->last_data_counter = counter;
         return true;
     }
 }
 
-void difi_print_context(context_type* difi_context) {
+void vrt_print_context(context_type* vrt_context) {
 
     uint32_t ch=0;
-    while(not (difi_context->stream_id & (1 << ch) ) )
+    while(not (vrt_context->stream_id & (1 << ch) ) )
             ch++;
 
     printf("# VRT Context:\n");
-    printf("#    Stream ID (channel): %u (%u)\n", difi_context->stream_id, ch);
-    printf("#    Sample Rate [samples per second]: %i\n", difi_context->sample_rate);
-    printf("#    RF Freq [Hz]: %li\n", difi_context->rf_freq);
-    printf("#    Bandwidth [Hz]: %i\n", difi_context->bandwidth);
-    printf("#    Gain [dB]: %i\n", difi_context->gain);
-    printf("#    Ref lock: %s\n", difi_context->reflock == 1 ? "external" : "internal");
-    printf("#    Time cal: %s\n", difi_context->time_cal == 1? "pps" : "internal");
+    printf("#    Stream ID (channel): %u (%u)\n", vrt_context->stream_id, ch);
+    printf("#    Sample Rate [samples per second]: %i\n", vrt_context->sample_rate);
+    printf("#    RF Freq [Hz]: %li\n", vrt_context->rf_freq);
+    printf("#    Bandwidth [Hz]: %i\n", vrt_context->bandwidth);
+    printf("#    Gain [dB]: %i\n", vrt_context->gain);
+    printf("#    Ref lock: %s\n", vrt_context->reflock == 1 ? "external" : "internal");
+    printf("#    Time cal: %s\n", vrt_context->time_cal == 1? "pps" : "internal");
 
 }
 
-bool difi_process(uint32_t* buffer, uint32_t size, context_type* difi_context, difi_packet_type* difi_packet) {
+bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, packet_type* vrt_packet) {
 
     struct vrt_header h;
     struct vrt_fields f;
@@ -104,8 +104,8 @@ bool difi_process(uint32_t* buffer, uint32_t size, context_type* difi_context, d
     int32_t offset = 0;
     int32_t rv = vrt_read_header(buffer + offset, size - offset, &h, true);
 
-    difi_packet->context = false;
-    difi_packet->data = false;
+    vrt_packet->context = false;
+    vrt_packet->data = false;
 
     /* Parse header */
     if (rv < 0) {
@@ -125,9 +125,9 @@ bool difi_process(uint32_t* buffer, uint32_t size, context_type* difi_context, d
         }
         offset += rv;
 
-        difi_context->stream_id = f.stream_id;
+        vrt_context->stream_id = f.stream_id;
 
-        if (f.stream_id & difi_packet->channel_filt) {
+        if (f.stream_id & vrt_packet->channel_filt) {
             struct vrt_if_context c;
             rv = vrt_read_if_context(buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
             if (rv < 0) {
@@ -135,27 +135,27 @@ bool difi_process(uint32_t* buffer, uint32_t size, context_type* difi_context, d
                 return false;
             }
             if (c.has.sample_rate)
-                difi_context->sample_rate = (uint32_t)round(c.sample_rate);
+                vrt_context->sample_rate = (uint32_t)round(c.sample_rate);
             
             if (c.has.rf_reference_frequency)
-                difi_context->rf_freq = (int64_t)round(c.rf_reference_frequency);
+                vrt_context->rf_freq = (int64_t)round(c.rf_reference_frequency);
             
             if (c.has.bandwidth)
-                difi_context->bandwidth = c.bandwidth;
+                vrt_context->bandwidth = c.bandwidth;
             
             if (c.has.gain)
-                difi_context->gain = c.gain.stage1;
+                vrt_context->gain = c.gain.stage1;
             
             if (c.state_and_event_indicators.has.reference_lock)
-                difi_context->reflock = c.state_and_event_indicators.reference_lock;
+                vrt_context->reflock = c.state_and_event_indicators.reference_lock;
             
             if (c.state_and_event_indicators.has.calibrated_time)
-                difi_context->time_cal = c.state_and_event_indicators.calibrated_time;
+                vrt_context->time_cal = c.state_and_event_indicators.calibrated_time;
             
-            difi_context->context_changed = c.context_field_change_indicator;
-            difi_packet->context = true;
-            difi_context->context_received = true;
-            difi_packet->stream_id = f.stream_id;
+            vrt_context->context_changed = c.context_field_change_indicator;
+            vrt_packet->context = true;
+            vrt_context->context_received = true;
+            vrt_packet->stream_id = f.stream_id;
         }
     } else if (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID) {
         // Data
@@ -166,24 +166,24 @@ bool difi_process(uint32_t* buffer, uint32_t size, context_type* difi_context, d
             return false;
         }
         offset += rv;
-        if (f.stream_id & difi_packet->channel_filt) {
+        if (f.stream_id & vrt_packet->channel_filt) {
 
-            if (not check_packet_count(h.packet_count, difi_context))
-                difi_packet->lost_frame = true;
+            if (not check_packet_count(h.packet_count, vrt_context))
+                vrt_packet->lost_frame = true;
             else 
-                difi_packet->lost_frame = false;
+                vrt_packet->lost_frame = false;
 
-            difi_packet->integer_seconds_timestamp = f.integer_seconds_timestamp;
-            difi_packet->fractional_seconds_timestamp = f.fractional_seconds_timestamp;
-            difi_packet->num_rx_samps = (h.packet_size-offset);
-            difi_packet->offset = offset;
-            difi_packet->stream_id = f.stream_id;
-            difi_packet->data = true;
+            vrt_packet->integer_seconds_timestamp = f.integer_seconds_timestamp;
+            vrt_packet->fractional_seconds_timestamp = f.fractional_seconds_timestamp;
+            vrt_packet->num_rx_samps = (h.packet_size-offset);
+            vrt_packet->offset = offset;
+            vrt_packet->stream_id = f.stream_id;
+            vrt_packet->data = true;
 
-            if (difi_packet->first_frame) {
-                difi_context->starttime_integer = f.integer_seconds_timestamp;
-                difi_context->starttime_fractional = f.fractional_seconds_timestamp;
-                difi_packet->first_frame = false;
+            if (vrt_packet->first_frame) {
+                vrt_context->starttime_integer = f.integer_seconds_timestamp;
+                vrt_context->starttime_fractional = f.fractional_seconds_timestamp;
+                vrt_packet->first_frame = false;
             }
         }
     }
@@ -191,7 +191,7 @@ bool difi_process(uint32_t* buffer, uint32_t size, context_type* difi_context, d
     return true;
 }
 
-void difi_init_data_packet(struct vrt_packet* p) {
+void vrt_init_data_packet(struct vrt_packet* p) {
 
 	p->header.packet_type         = VRT_PT_IF_DATA_WITH_STREAM_ID;
 
@@ -200,22 +200,22 @@ void difi_init_data_packet(struct vrt_packet* p) {
     p->header.tsi                 = VRT_TSI_OTHER; // unix time
     p->header.tsf                 = VRT_TSF_REAL_TIME;
     p->fields.stream_id           = 0;
-    p->words_body                 = DIFI_SAMPLES_PER_PACKET;
+    p->words_body                 = VRT_SAMPLES_PER_PACKET;
 
     p->header.has.class_id        = true;
-    p->fields.class_id.oui        = 0x6A621E; // DIFI OUI
+    p->fields.class_id.oui        = 0x6A621E; // DIFI OUI TBC
     p->fields.class_id.information_class_code = 0;
     p->fields.class_id.packet_class_code = 0;
 
     p->header.has.trailer         = false;
 }
 
-void difi_init_context_packet(struct vrt_packet* pc) {
+void vrt_init_context_packet(struct vrt_packet* pc) {
 
 	pc->header.packet_type = VRT_PT_IF_CONTEXT;
     pc->header.has.class_id = true;
 
-    pc->fields.class_id.oui        = 0x6A621E; // DIFI OUI
+    pc->fields.class_id.oui        = 0x6A621E; // DIFI OUI TBC
     pc->fields.class_id.information_class_code = 0;
     pc->fields.class_id.packet_class_code = 0;
 

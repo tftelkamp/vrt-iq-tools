@@ -44,8 +44,8 @@
 
 #include <boost/thread/thread.hpp>
 
-// DIFI tools functions
-#include "difi-tools.h"
+// VRT tools functions
+#include "vrt-tools.h"
 
 unsigned long long num_total_samps = 0;
 
@@ -155,7 +155,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("ref", po::value<std::string>(&ref)->default_value("internal"), "reference source (internal, external, mimo, gpsdo)")
         ("wirefmt", po::value<std::string>(&wirefmt)->default_value("sc16"), "wire format (sc8, sc16 or s16)")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
-        ("udp", po::value<std::string>(&udp_forward), "DIFI UDP forward address")
+        ("udp", po::value<std::string>(&udp_forward), "VRT UDP forward address")
         ("progress", "periodically display short-term bandwidth")
         ("stats", "show average bandwidth on exit")
         ("pps", "use external pps signal")
@@ -165,9 +165,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("skip-lo", "skip checking LO lock status")
         ("int-n", "tune USRP with integer-N tuning")
-        // ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
-        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
+        // ("stream-id", po::value<uint32_t>(&stream_id), "VRT Stream ID")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
     po::variables_map vm;
@@ -198,8 +198,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         printf("Warning: little endian support is work in progress.\n");
     }
 
-    /* DIFI init */
-    difi_init_data_packet(&p);
+    /* VRT init */
+    vrt_init_data_packet(&p);
     
     // if (!vm.count("stream-id"))
     //     p.fields.stream_id = (uint32_t)rand();
@@ -510,9 +510,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool int_second             = (bool)vm.count("int-second");
 
     // fixed buffer size
-    size_t samps_per_buff = DIFI_SAMPLES_PER_PACKET; // spb
+    size_t samps_per_buff = VRT_SAMPLES_PER_PACKET; // spb
 
-    uint32_t buffer[DIFI_DATA_PACKET_SIZE];
+    uint32_t buffer[VRT_DATA_PACKET_SIZE];
 
     // create a receive streamer
     uhd::stream_args_t stream_args(cpu_format, wire_format);
@@ -628,8 +628,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             vrt_init_packet(&pc);
 
 
-            /* DIFI Configure. Note that context packets cannot have a trailer word. */
-            difi_init_context_packet(&pc);
+            /* VRT Configure. Note that context packets cannot have a trailer word. */
+            vrt_init_context_packet(&pc);
 
             pc.fields.integer_seconds_timestamp = md.time_spec.get_full_secs();
             pc.fields.fractional_seconds_timestamp = (uint64_t)1e12 * md.time_spec.get_frac_secs();
@@ -659,7 +659,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 pc.if_context.state_and_event_indicators.has.calibrated_time = true;
                 pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (ref=="gpsdo"));
 
-                int32_t rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
+                int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
                 if (rv < 0) {
                     fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
                 }
@@ -689,8 +689,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             p.body = (char*)buff_ptrs[i];
             p.fields.stream_id = 1<<i;
             zmq_msg_t msg;
-            int rc = zmq_msg_init_size (&msg, DIFI_DATA_PACKET_SIZE*4);
-            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE, true);
+            int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
+            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE, true);
 
             // VRT
             zmq_msg_send(&msg, zmq_server, 0);
@@ -698,7 +698,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
        
             // UDP
             if (enable_udp) {
-                if (sendto(sockfd, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE*4, 0,
+                if (sendto(sockfd, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE*4, 0,
                              (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
                 {
                    printf("UDP fail\n");

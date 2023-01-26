@@ -32,7 +32,7 @@
 #include <vrt/vrt_types.h>
 #include <vrt/vrt_util.h>
 
-#include "difi-tools.h"
+#include "vrt-tools.h"
 
 namespace po = boost::program_options;
 
@@ -97,9 +97,9 @@ int main(int argc, char* argv[])
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
-        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
-        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
+        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
     po::variables_map vm;
@@ -108,9 +108,9 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("DIFI samples to file %s") % desc << std::endl;
+        std::cout << boost::format("VRT samples to file %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application streams data from a DIFI stream "
+                  << "This application streams data from a VRT stream "
                      "to a file.\n"
                   << std::endl;
         return ~0;
@@ -122,11 +122,11 @@ int main(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = vm.count("int-second");
 
-    context_type difi_context;
-    init_context(&difi_context);
+    context_type vrt_context;
+    init_context(&vrt_context);
 
-    difi_packet_type difi_packet;
-    difi_packet.channel_filt = 0;
+    packet_type vrt_packet;
+    vrt_packet.channel_filt = 0;
 
     // detect which channels to use
     std::vector<std::string> channel_strings;
@@ -135,7 +135,7 @@ int main(int argc, char* argv[])
     for (size_t ch = 0; ch < channel_strings.size(); ch++) {
         size_t chan = std::stoi(channel_strings[ch]);
         channel_nums.push_back(std::stoi(channel_strings[ch]));
-        difi_packet.channel_filt |= 1<<std::stoi(channel_strings[ch]);
+        vrt_packet.channel_filt |= 1<<std::stoi(channel_strings[ch]);
     }
 
     std::vector<std::shared_ptr<std::ofstream>> outfiles;
@@ -198,28 +198,28 @@ int main(int argc, char* argv[])
 
         const auto now = std::chrono::steady_clock::now();
 
-        if (not difi_process(buffer, sizeof(buffer), &difi_context, &difi_packet)) {
+        if (not vrt_process(buffer, sizeof(buffer), &vrt_context, &vrt_packet)) {
             printf("Not a Vita49 packet?\n");
             continue;
         }
 
-        if (difi_packet.context and not first_frame and not continue_on_bad_packet and difi_context.context_changed) {
+        if (vrt_packet.context and not first_frame and not continue_on_bad_packet and vrt_context.context_changed) {
             printf("Context changed, exiting.\n");
             break;
         }
 
         uint32_t ch = 0;
         for(ch = 0; ch<channel_nums.size(); ch++)
-            if (difi_packet.stream_id & (1 << channel_nums[ch]) )
+            if (vrt_packet.stream_id & (1 << channel_nums[ch]) )
                 break;
 
         uint32_t channel = channel_nums[ch];
 
-        if ( not (context_recv & difi_packet.stream_id) and difi_packet.context and not first_frame) {
+        if ( not (context_recv & vrt_packet.stream_id) and vrt_packet.context and not first_frame) {
 
-            context_recv |= difi_packet.stream_id;
+            context_recv |= vrt_packet.stream_id;
 
-            difi_print_context(&difi_context);
+            vrt_print_context(&vrt_context);
 
             if (not null) {
                 // std::cout << "Writing SigMF metadata..." << std::endl;
@@ -229,15 +229,15 @@ int main(int argc, char* argv[])
                     *metafiles[ch] << boost::format("{ \n"
                     "    \"global\": {\n"
                     "        \"core:version\": \"1.0.0\",\n"
-                    "        \"core:recorder\": \"difi_to_sigmf\",\n"
+                    "        \"core:recorder\": \"vrt_to_sigmf\",\n"
                     "        \"core:sample_rate\": %u,\n"
                     "        \"core:datatype\": \"ci16_le\",\n"
-                    "        \"difi:rx_gain\": %i,\n"
-                    "        \"difi:bandwidth\": %u,\n"
-                    "        \"difi:reference\": \"%s\",\n"
-                    "        \"difi:time_source\": \"%s\",\n"
-                    "        \"difi:stream_id\": %u,\n"
-                    "        \"difi:channel\": %u\n"
+                    "        \"vrt:rx_gain\": %i,\n"
+                    "        \"vrt:bandwidth\": %u,\n"
+                    "        \"vrt:reference\": \"%s\",\n"
+                    "        \"vrt:time_source\": \"%s\",\n"
+                    "        \"vrt:stream_id\": %u,\n"
+                    "        \"vrt:channel\": %u\n"
                     "    },\n"
                     "    \"annotations\": [],\n"
                     "    \"captures\": [\n"
@@ -248,35 +248,35 @@ int main(int argc, char* argv[])
                     "        }\n"
                     "    ]\n"
                     "}\n")
-                    % difi_context.sample_rate
-                    % difi_context.gain
-                    % difi_context.bandwidth
-                    % (difi_context.reflock ? "external" : "internal")
-                    % (difi_context.time_cal ? "pps" : "internal")
-                    % difi_context.stream_id
+                    % vrt_context.sample_rate
+                    % vrt_context.gain
+                    % vrt_context.bandwidth
+                    % (vrt_context.reflock ? "external" : "internal")
+                    % (vrt_context.time_cal ? "pps" : "internal")
+                    % vrt_context.stream_id
                     % channel
-                    % difi_context.rf_freq
-                    % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(difi_context.starttime_integer)))
-                    % (double)(difi_context.starttime_fractional/1e6);
+                    % vrt_context.rf_freq
+                    % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(vrt_context.starttime_integer)))
+                    % (double)(vrt_context.starttime_fractional/1e6);
                     *metafiles[ch] << std::endl;
                     metafiles[ch]->close();
                 }
             }
 
             if (total_time > 0)  
-                num_requested_samples = total_time * difi_context.sample_rate;
+                num_requested_samples = total_time * vrt_context.sample_rate;
         }
 
-        if (difi_packet.data) {
+        if (vrt_packet.data) {
 
-            if (difi_packet.lost_frame)
+            if (vrt_packet.lost_frame)
                if (not continue_on_bad_packet)
                     break;
 
             if (int_second) {
                 // check if fractional second has wrapped
-                if (difi_packet.fractional_seconds_timestamp >= last_fractional_seconds_timestamp ) {
-                        last_fractional_seconds_timestamp = difi_packet.fractional_seconds_timestamp;
+                if (vrt_packet.fractional_seconds_timestamp >= last_fractional_seconds_timestamp ) {
+                        last_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
                         continue;
                 } else {
                     int_second = false;
@@ -288,10 +288,10 @@ int main(int argc, char* argv[])
             if (first_frame) {
                 std::cout << boost::format(
                                  "# First frame: %u samples, %u full secs, %.09f frac secs (counter %i)")
-                                 % difi_packet.num_rx_samps
-                                 % difi_packet.integer_seconds_timestamp
-                                 % ((double)difi_packet.fractional_seconds_timestamp/1e12)
-                                 % (int32_t)difi_context.last_data_counter
+                                 % vrt_packet.num_rx_samps
+                                 % vrt_packet.integer_seconds_timestamp
+                                 % ((double)vrt_packet.fractional_seconds_timestamp/1e12)
+                                 % (int32_t)vrt_context.last_data_counter
                           << std::endl;
                 first_frame = false;
                 last_update = now;
@@ -300,15 +300,15 @@ int main(int argc, char* argv[])
             // Write to file
             if (not null) {
                 outfiles[ch]->write(
-                    (const char*)&buffer[difi_packet.offset], sizeof(uint32_t)*difi_packet.num_rx_samps);
+                    (const char*)&buffer[vrt_packet.offset], sizeof(uint32_t)*vrt_packet.num_rx_samps);
             }
 
-            num_total_samps += difi_packet.num_rx_samps;
+            num_total_samps += vrt_packet.num_rx_samps;
         }
 
         if (progress and not int_second) {
-            if (difi_packet.data)
-                last_update_samps += difi_packet.num_rx_samps;
+            if (vrt_packet.data)
+                last_update_samps += vrt_packet.num_rx_samps;
             const auto time_since_last_update = now - last_update;
             if (time_since_last_update > std::chrono::seconds(1)) {
                 const double time_since_last_update_s =
@@ -326,17 +326,17 @@ int main(int argc, char* argv[])
                 // if (cpu_format == "sc8" || cpu_format == "s8")
                 //     datatype_max = 128.;
 
-                for (int i=0; i<difi_packet.num_rx_samps; i++ ) {
-                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[difi_packet.offset+i]);
+                for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
+                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
                     sum_i += sample_i;
                     if (sample_i > datatype_max*0.99)
                         clip_i++;
                 }
-                sum_i = sum_i/difi_packet.num_rx_samps;
+                sum_i = sum_i/vrt_packet.num_rx_samps;
                 std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
                 std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
                 std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/difi_packet.num_rx_samps) << "% I clip, ";
+                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/vrt_packet.num_rx_samps) << "% I clip, ";
                 std::cout << std::endl;
 
             }

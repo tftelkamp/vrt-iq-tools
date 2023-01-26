@@ -32,7 +32,7 @@
 #include <complex.h>
 // #include <fftw3.h>
 
-#include "difi-tools.h"
+#include "vrt-tools.h"
 
 namespace po = boost::program_options;
 
@@ -66,15 +66,15 @@ int main(int argc, char* argv[])
         // ("progress", "periodically display short-term bandwidth")
         // ("int-second", "align start of reception to integer second")
         // ("null", "run without writing to file")
-        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "VRT channel")
         ("setup", po::value<double>(&setup_time)->default_value(0.5), "seconds of setup time")
         ("freq", po::value<double>(&freq), "RF center frequency in Hz")
         ("gain", po::value<double>(&gain), "gain for the RF chain")
         ("lo-offset", po::value<double>(&lo_offset),"Offset for frontend LO in Hz (optional)")
         // ("continue", "don't abort on a bad packet")
-        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50300), "DIFI ZMQ port")
-        // ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
+        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
+        ("port", po::value<uint16_t>(&port)->default_value(50300), "VRT ZMQ port")
+        // ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
     po::variables_map vm;
@@ -83,9 +83,9 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("DIFI samples to nothing. %s") % desc << std::endl;
+        std::cout << boost::format("VRT samples to nothing. %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application streams data from a DIFI stream "
+                  << "This application streams data from a VRT stream "
                      "to nowhwere.\n"
                   << std::endl;
         return ~0;
@@ -97,8 +97,8 @@ int main(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
 
-    context_type difi_context;
-    init_context(&difi_context);
+    context_type vrt_context;
+    init_context(&vrt_context);
 
     // ZMQ
     void *context = zmq_ctx_new();
@@ -117,10 +117,10 @@ int main(int argc, char* argv[])
     struct vrt_packet pc;
     vrt_init_packet(&pc);
 
-    uint32_t buffer[DIFI_DATA_PACKET_SIZE];
+    uint32_t buffer[VRT_DATA_PACKET_SIZE];
 
-    /* DIFI Configure */
-    difi_init_context_packet(&pc);
+    /* VRT Configure */
+    vrt_init_context_packet(&pc);
 
     pc.fields.stream_id = 1<<channel;
 
@@ -160,7 +160,7 @@ int main(int argc, char* argv[])
         pc.if_context.if_band_offset = lo_offset;
     }
 
-    int32_t rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
+    int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
     if (rv < 0) {
         fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
     }

@@ -41,8 +41,8 @@
 #include "rtl-sdr.h"
 #include "convenience.h"
 
-// DIFI tools functions
-#include "difi-tools.h"
+// VRT tools functions
+#include "vrt-tools.h"
 
 #define DEFAULT_SAMPLE_RATE     1000000
 // #define DEFAULT_BUF_LENGTH      (16 * 16384)
@@ -112,7 +112,7 @@ int main(int argc, char* argv[])
         ("gain", po::value<std::string>(&gain_list), "gain(s) for the RF chain")
         ("bw", po::value<double>(&bw), "analog frontend filter bandwidth in Hz")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
-        ("udp", po::value<std::string>(&udp_forward), "DIFI UDP forward address")
+        ("udp", po::value<std::string>(&udp_forward), "VRT UDP forward address")
         ("progress", "periodically display short-term bandwidth")
         ("stats", "show average bandwidth on exit")
         ("vrt", "publish IQ using VRT over ZeroMQ (PUB on port 50100")
@@ -120,9 +120,9 @@ int main(int argc, char* argv[])
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
         ("skip-lo", "skip checking LO lock status")
-        // ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
-        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
+        // ("stream-id", po::value<uint32_t>(&stream_id), "VRT Stream ID")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
     po::variables_map vm;
@@ -241,8 +241,8 @@ int main(int argc, char* argv[])
         printf("Warning: little endian support is work in progress.\n");
     }
 
-    /* DIFI init */
-    difi_init_data_packet(&p);
+    /* VRT init */
+    vrt_init_data_packet(&p);
     
     p.fields.stream_id = 1;
     
@@ -394,8 +394,8 @@ int main(int argc, char* argv[])
 		            struct vrt_packet pc;
 		            vrt_init_packet(&pc);
 
-		            /* DIFI Configure. Note that context packets cannot have a trailer word. */
-		            difi_init_context_packet(&pc);
+		            /* VRT Configure. Note that context packets cannot have a trailer word. */
+		            vrt_init_context_packet(&pc);
 
 		            gettimeofday(&time_now, nullptr);
 		            pc.fields.integer_seconds_timestamp = time_now.tv_sec;

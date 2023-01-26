@@ -12,22 +12,10 @@
 #include <boost/thread/thread.hpp>
 
 #include <chrono>
-// #include <complex>
 #include <csignal>
 #include <fstream>
 #include <iostream>
 #include <thread>
-
-// VRT
-// #include <stdbool.h>
-// #include <stdint.h>
-// #include <stdio.h>
-// #include <stdlib.h>
-
-// #include <vrt/vrt_read.h>
-// #include <vrt/vrt_string.h>
-// #include <vrt/vrt_types.h>
-// #include <vrt/vrt_util.h>
 
 #include <complex.h>
 

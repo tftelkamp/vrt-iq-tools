@@ -34,7 +34,7 @@
 
 #include <complex.h>
 
-#include "difi-tools.h"
+#include "vrt-tools.h"
 
 #define SCALE_MAX 32768.0
 
@@ -85,15 +85,15 @@ int main(int argc, char* argv[])
         // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
-        ("channel", po::value<uint32_t>(&channel)->default_value(0), "DIFI channel")
+        ("channel", po::value<uint32_t>(&channel)->default_value(0), "VRT channel")
         ("progress", "periodically display short-term bandwidth")
         // ("int-second", "align start of reception to integer second")
         ("delete", "delete fifo on exit")
         // ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
-        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "DIFI ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
-        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
+        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
     po::variables_map vm;
@@ -102,9 +102,9 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("DIFI samples to nothing. %s") % desc << std::endl;
+        std::cout << boost::format("VRT samples to nothing. %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application streams data from a DIFI stream "
+                  << "This application streams data from a VRT stream "
                      "to nowhwere.\n"
                   << std::endl;
         return ~0;
@@ -135,14 +135,14 @@ int main(int argc, char* argv[])
 
     write_ptr = fdopen(fd, "wb");
 
-    std::complex<float> fifobuffer[DIFI_SAMPLES_PER_PACKET];
+    std::complex<float> fifobuffer[VRT_SAMPLES_PER_PACKET];
 
-    context_type difi_context;
-    init_context(&difi_context);
+    context_type vrt_context;
+    init_context(&vrt_context);
 
-    difi_packet_type difi_packet;
+    packet_type vrt_packet;
 
-    difi_packet.channel_filt = 1<<channel;
+    vrt_packet.channel_filt = 1<<channel;
 
     // ZMQ
     void *context = zmq_ctx_new();
@@ -184,28 +184,28 @@ int main(int argc, char* argv[])
 
         const auto now = std::chrono::steady_clock::now();
 
-        if (not difi_process(buffer, sizeof(buffer), &difi_context, &difi_packet)) {
+        if (not vrt_process(buffer, sizeof(buffer), &vrt_context, &vrt_packet)) {
             printf("Not a Vita49 packet?\n");
             continue;
         }
 
-        if (not start_rx and difi_packet.context) {
-            difi_print_context(&difi_context);
+        if (not start_rx and vrt_packet.context) {
+            vrt_print_context(&vrt_context);
             start_rx = true;
             // Possibly do something with context here
-            // difi_context
+            // vrt_context
         }
         
-        if (start_rx and difi_packet.data) {
+        if (start_rx and vrt_packet.data) {
 
-            if (difi_packet.lost_frame)
+            if (vrt_packet.lost_frame)
                if (not continue_on_bad_packet)
                     break;
 
             if (int_second) {
                 // check if fractional second has wrapped
-                if (difi_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
-                        last_fractional_seconds_timestamp = difi_packet.fractional_seconds_timestamp;
+                if (vrt_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
+                        last_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
                         continue;
                 } else {
                     int_second = false;
@@ -218,37 +218,37 @@ int main(int argc, char* argv[])
             // Process data here
             // Assumes ci16_le
 
-            for (uint32_t i = 0; i < difi_packet.num_rx_samps; i++) {
+            for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
                 int16_t re;
-                memcpy(&re, (char*)&buffer[difi_packet.offset+i], 2);
+                memcpy(&re, (char*)&buffer[vrt_packet.offset+i], 2);
                 int16_t img;
-                memcpy(&img, (char*)&buffer[difi_packet.offset+i]+2, 2);
+                memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
                 // Do something
                 std::complex<float>sample((float)re/SCALE_MAX,(float)img/SCALE_MAX);
                 fifobuffer[i] = sample;
             }
 
-            fwrite(fifobuffer, difi_packet.num_rx_samps*sizeof(std::complex<float>), 1, write_ptr);
+            fwrite(fifobuffer, vrt_packet.num_rx_samps*sizeof(std::complex<float>), 1, write_ptr);
 
-            // data: (const char*)&buffer[difi_packet.offset]
-            // size (bytes): sizeof(uint32_t)*difi_packet.num_rx_samps
+            // data: (const char*)&buffer[vrt_packet.offset]
+            // size (bytes): sizeof(uint32_t)*vrt_packet.num_rx_samps
              
-            num_total_samps += difi_packet.num_rx_samps;
+            num_total_samps += vrt_packet.num_rx_samps;
 
             if (start_rx and first_frame) {
                 std::cout << boost::format(
                                  "# First frame: %u samples, %u full secs, %.09f frac secs")
-                                 % difi_packet.num_rx_samps
-                                 % difi_packet.integer_seconds_timestamp
-                                 % ((double)difi_packet.fractional_seconds_timestamp/1e12)
+                                 % vrt_packet.num_rx_samps
+                                 % vrt_packet.integer_seconds_timestamp
+                                 % ((double)vrt_packet.fractional_seconds_timestamp/1e12)
                           << std::endl;
                 first_frame = false;
             }
         }
 
         if (progress) {
-            if (difi_packet.data)
-                last_update_samps += difi_packet.num_rx_samps;
+            if (vrt_packet.data)
+                last_update_samps += vrt_packet.num_rx_samps;
             const auto time_since_last_update = now - last_update;
             if (time_since_last_update > std::chrono::seconds(1)) {
                 const double time_since_last_update_s =
@@ -264,17 +264,17 @@ int main(int argc, char* argv[])
 
                 double datatype_max = 32768.;
 
-                for (int i=0; i<difi_packet.num_rx_samps; i++ ) {
-                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[difi_packet.offset+i]);
+                for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
+                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
                     sum_i += sample_i;
                     if (sample_i > datatype_max*0.99)
                         clip_i++;
                 }
-                sum_i = sum_i/difi_packet.num_rx_samps;
+                sum_i = sum_i/vrt_packet.num_rx_samps;
                 std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
                 std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
                 std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/difi_packet.num_rx_samps) << "% I clip, ";
+                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/vrt_packet.num_rx_samps) << "% I clip, ";
                 std::cout << std::endl;
 
             }

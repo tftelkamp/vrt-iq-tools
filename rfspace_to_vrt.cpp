@@ -41,8 +41,8 @@
 
 #include <boost/thread/thread.hpp>
 
-// DIFI tools functions
-#include "difi-tools.h"
+// VRT tools functions
+#include "vrt-tools.h"
 
 unsigned long long num_total_samps = 0;
 
@@ -138,7 +138,7 @@ int main(int argc, char* argv[])
         ("pps", "use external pps signal")
         ("ref", po::value<std::string>(&ref)->default_value("internal"), "reference source (internal, external)")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
-        ("udp", po::value<std::string>(&udp_forward), "DIFI UDP forward address")
+        ("udp", po::value<std::string>(&udp_forward), "VRT UDP forward address")
         ("progress", "periodically display short-term bandwidth")
         ("stats", "show average bandwidth on exit")
         // ("vrt", "publish IQ using VRT over ZeroMQ (PUB on port 50100")
@@ -147,9 +147,9 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("skip-lo", "skip checking LO lock status")
         ("sdr", po::value<std::string>(&sdrhost)->default_value("cloudsdr"), "RFSPACE SDR hostname")
-        // ("stream-id", po::value<uint32_t>(&stream_id), "DIFI Stream ID")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "DIFI ZMQ port")
-        ("hwm", po::value<int>(&hwm)->default_value(10000), "DIFI ZMQ HWM")
+        // ("stream-id", po::value<uint32_t>(&stream_id), "VRT Stream ID")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
     po::variables_map vm;
@@ -344,7 +344,7 @@ int main(int argc, char* argv[])
     double time_requested = total_time;
     bool int_second             = (bool)vm.count("int-second");
 
-    uint32_t buffer[DIFI_DATA_PACKET_SIZE];
+    uint32_t buffer[VRT_DATA_PACKET_SIZE];
    
     bool first_frame = true;
 
@@ -356,8 +356,8 @@ int main(int argc, char* argv[])
         printf("Warning: little endian support is work in progress.\n");
     }
 
-    /* DIFI init */
-    difi_init_data_packet(&p);
+    /* VRT init */
+    vrt_init_data_packet(&p);
     
     // Only 1 channel
     p.fields.stream_id = 1;
@@ -386,25 +386,25 @@ int main(int argc, char* argv[])
 
     // UDP DI-FI
 
-    int difi_sockfd; 
-    struct sockaddr_in difi_servaddr, difi_cliaddr; 
+    int vrt_sockfd; 
+    struct sockaddr_in vrt_servaddr, vrt_cliaddr; 
     if (enable_udp) {
 
         printf("Enable UDP\n");
             
         // Creating socket file descriptor 
-        if ( (difi_sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
+        if ( (vrt_sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
             perror("socket creation failed"); 
             exit(EXIT_FAILURE); 
         } 
             
-        memset(&difi_servaddr, 0, sizeof(difi_servaddr)); 
-        memset(&difi_cliaddr, 0, sizeof(difi_cliaddr)); 
+        memset(&vrt_servaddr, 0, sizeof(vrt_servaddr)); 
+        memset(&vrt_cliaddr, 0, sizeof(vrt_cliaddr)); 
             
         // Filling server information 
-        difi_servaddr.sin_family    = AF_INET; // IPv4 
-        difi_servaddr.sin_addr.s_addr = inet_addr(udp_forward.c_str()); /* Server's Address   */
-        difi_servaddr.sin_port = htons(50000);  // 4991?
+        vrt_servaddr.sin_family    = AF_INET; // IPv4 
+        vrt_servaddr.sin_addr.s_addr = inet_addr(udp_forward.c_str()); /* Server's Address   */
+        vrt_servaddr.sin_port = htons(50000);  // 4991?
     }
 
     // Sleep setup time
@@ -538,8 +538,8 @@ int main(int argc, char* argv[])
             struct vrt_packet pc;
             vrt_init_packet(&pc);
 
-            /* DIFI Configure. Note that context packets cannot have a trailer word. */
-            difi_init_context_packet(&pc);
+            /* VRT Configure. Note that context packets cannot have a trailer word. */
+            vrt_init_context_packet(&pc);
 
             if (context_changed)
                 pc.if_context.context_field_change_indicator = true;
@@ -564,7 +564,7 @@ int main(int argc, char* argv[])
 
             pc.if_context.state_and_event_indicators.calibrated_time = (bool)(vm.count("pps")) ? true : false;
 
-            int32_t rv = vrt_write_packet(&pc, buffer, DIFI_DATA_PACKET_SIZE, true);
+            int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
             if (rv < 0) {
                 fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
             }
@@ -573,7 +573,7 @@ int main(int argc, char* argv[])
             zmq_send (zmq_server, buffer, rv*4, 0);
 
             if (enable_udp) {
-                if (sendto(difi_sockfd, buffer, rv*4, 0,
+                if (sendto(vrt_sockfd, buffer, rv*4, 0,
                      (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
                 {
                    printf("UDP fail\n");
@@ -602,14 +602,14 @@ int main(int argc, char* argv[])
 
             num_words_read = samps_per_buff;
 
-            struct timeval interval_time, difi_time;
+            struct timeval interval_time, vrt_time;
             int64_t first_sample = sample_counter - cb.size()/2;
 
             double interval = (double)first_sample/(double)u32_rate;
             interval_time.tv_sec = (time_t)interval;
             interval_time.tv_usec = (interval-(time_t)interval)*1e6;
 
-            timeradd(&time_first_sample, &interval_time, &difi_time);
+            timeradd(&time_first_sample, &interval_time, &vrt_time);
 
 	        for (uint32_t i = 0; i < 2*samps_per_buff; i++) {
     			bodydata[i] = (int16_t)cb.front();
@@ -620,18 +620,18 @@ int main(int argc, char* argv[])
 
 	        p.body = bodydata;
 	        p.header.packet_count = (uint8_t)frame_count%16;
-	        p.fields.integer_seconds_timestamp = difi_time.tv_sec;
-	        p.fields.fractional_seconds_timestamp = 1e6*difi_time.tv_usec;
+	        p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
+	        p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
 	
 	        zmq_msg_t msg;
-	        int rc = zmq_msg_init_size (&msg, DIFI_DATA_PACKET_SIZE*4);
+	        int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
 
-	        int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE, true);
+	        int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE, true);
 
 	        // UDP
 	        if (enable_udp) {
-	            if (sendto(sockfd, zmq_msg_data(&msg), DIFI_DATA_PACKET_SIZE*4, 0,
-	                         (struct sockaddr *)&difi_servaddr, sizeof(difi_servaddr)) < 0)
+	            if (sendto(sockfd, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE*4, 0,
+	                         (struct sockaddr *)&vrt_servaddr, sizeof(vrt_servaddr)) < 0)
 	            {
 	               printf("UDP fail\n");
 	            }
