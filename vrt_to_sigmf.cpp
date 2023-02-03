@@ -295,6 +295,9 @@ int main(int argc, char* argv[])
                           << std::endl;
                 first_frame = false;
                 last_update = now;
+                // update context starttime in case of int_second
+                vrt_context.starttime_integer = vrt_packet.integer_seconds_timestamp;
+                vrt_context.starttime_fractional = vrt_packet.fractional_seconds_timestamp;
             }
 
             // Write to file
