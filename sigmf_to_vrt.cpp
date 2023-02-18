@@ -107,6 +107,7 @@ int main(int argc, char* argv[])
         ("stats", "show average bandwidth on exit")
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
+        ("repeat", "repeat the input file")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
@@ -130,6 +131,7 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool dual_chan              = vm.count("dual-chan") > 0;
+    bool repeat                 = vm.count("repeat") > 0;
 
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
@@ -390,7 +392,10 @@ int main(int argc, char* argv[])
                     zmq_msg_send(&msg, zmq_server, 0);
                     zmq_msg_close(&msg);
                 } else {
-                    break;
+                    if (repeat)
+                        rewind(read_ptr_2);
+                    else 
+                        break;
                 }
 
             }
@@ -431,8 +436,11 @@ int main(int argc, char* argv[])
                 }
             }
         } else {
-            // printf("no more samples in data file\n");
-            break;
+            printf("no more samples in data file\n");
+            if (repeat) 
+                rewind(read_ptr);
+            else
+                break;
         }
     }
 
