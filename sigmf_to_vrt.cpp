@@ -111,9 +111,13 @@ int main(int argc, char* argv[])
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
+
     // clang-format on
+    po::positional_options_description parser_positional;
+    parser_positional.add("file", -1);
+
     po::variables_map vm;
-    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::store(po::command_line_parser(argc, argv).options(desc).positional(parser_positional).run(), vm);
     po::notify(vm);
 
     // print the help message
@@ -143,7 +147,11 @@ int main(int argc, char* argv[])
     pt::ptree root;
 
     // Load the json file in this ptree
-    pt::read_json(file, root);
+    std::string meta_filename;
+    boost::filesystem::path base_fn_fp(file);
+    base_fn_fp.replace_extension(".sigmf-meta");
+    meta_filename = base_fn_fp.string();
+    pt::read_json(meta_filename, root);
 
     rate = root.get<double>("global.core:sample_rate", 0);
     bw = root.get<double>("global.vrt:bandwidth", 0);
@@ -185,7 +193,6 @@ int main(int argc, char* argv[])
     // Open data file
 
     std::string data_filename;
-    boost::filesystem::path base_fn_fp(file);
     base_fn_fp.replace_extension(".sigmf-data");
     data_filename = base_fn_fp.string();
 
