@@ -50,8 +50,8 @@ class VRTSubscriber:
         """Get the center frequency from the stream"""
         raise NotImplementedError()
 
-    def get_bandwidth(self):
-        """Get the bandwidth from the stream"""
+    def get_sample_rate(self):
+        """Get the sample rate from the stream"""
         raise NotImplementedError()
 
 
