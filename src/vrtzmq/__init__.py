@@ -26,7 +26,7 @@ class VRTSubscriber:
                 packet = self.zmq_subscriber.recv()
             except zmq.Again as e:
                 raise RuntimeError("Timed out connecting to VRT stream") from e
-            if packet[0] == 73:
+            if packet[0] >> 4 == 4:
                 return packet
 
     def get_time(self):
