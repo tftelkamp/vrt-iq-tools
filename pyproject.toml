@@ -1,0 +1,26 @@
+[project]
+name = "vrtzmq"
+version = "0.0.1"
+authors = [
+  { name="Thomas Telkamp", email="tf@telkamp.eu" },
+  { name="Tammo Jan Dijkema", email="T.J.Dijkema@gmail.com" },
+]
+description = "Python client for VRT (VITA 49) streams over ZMQ"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+]
+dependencies = [ "pyzmq" ]
+
+
+[project.urls]
+"Homepage" = "https://github.com/tftelkamp/vrt-iq-tools"
+"Bug Tracker" = "https://github.com/tftelkamp/vrt-iq-tools/issues"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
