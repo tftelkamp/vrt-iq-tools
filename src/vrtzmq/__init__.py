@@ -47,12 +47,14 @@ class VRTSubscriber:
         return abs((now - stream_time).seconds) < tolerance_s + 0.1
 
     def get_frequency(self):
-        """Get the center frequency from the stream"""
-        raise NotImplementedError()
+        """Get the center frequency (in Hz) from the stream"""
+        context_packet = self.get_context_packet()
+        return struct.unpack("!Q", context_packet[52:60])[0] / (0b1<<20)
 
     def get_sample_rate(self):
-        """Get the sample rate from the stream"""
-        raise NotImplementedError()
+        """Get the sample rate (in Hz) from the stream"""
+        context_packet = self.get_context_packet()
+        return struct.unpack("!Q", context_packet[76:84])[0] / (0b1<<20)
 
 
 if __name__ == "__main__":
