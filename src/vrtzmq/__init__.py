@@ -7,6 +7,8 @@ from datetime import datetime
 
 __all__ = ["VRTSubscriber"]
 
+VRT_RADIX_FREQUENCY = 20
+
 
 class VRTSubscriber:
     def __init__(self, host="127.0.0.1", port=50100, hwm=10000, timeout=1):
@@ -49,12 +51,16 @@ class VRTSubscriber:
     def get_frequency(self):
         """Get the center frequency (in Hz) from the stream"""
         context_packet = self.get_context_packet()
-        return struct.unpack("!Q", context_packet[52:60])[0] / (0b1<<20)
+        return struct.unpack("!Q", context_packet[52:60])[0] / (
+            0b1 << VRT_RADIX_FREQUENCY
+        )
 
     def get_sample_rate(self):
         """Get the sample rate (in Hz) from the stream"""
         context_packet = self.get_context_packet()
-        return struct.unpack("!Q", context_packet[76:84])[0] / (0b1<<20)
+        return struct.unpack("!Q", context_packet[76:84])[0] / (
+            0b1 << VRT_RADIX_FREQUENCY
+        )
 
 
 if __name__ == "__main__":
