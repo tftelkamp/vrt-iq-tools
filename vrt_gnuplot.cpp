@@ -35,6 +35,13 @@
 // VRT tools functions
 #include "vrt-tools.h"
 
+#ifdef __APPLE__
+#define DEFAULT_GNUPLOT_TERMINAL "qt"
+#else
+#define DEFAULT_GNUPLOT_TERMINAL "x11"
+#endif
+
+
 namespace po = boost::program_options;
 
 #define NUM_POINTS 10000
@@ -71,7 +78,7 @@ int main(int argc, char* argv[])
     uint32_t num_points = 0;
 
     // variables to be set by po
-    std::string file, type, zmq_address;
+    std::string file, type, zmq_address, gnuplot_terminal;
     size_t num_requested_samples;
     double total_time;
     uint32_t bins;
@@ -97,6 +104,7 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("bins", po::value<uint32_t>(&bins)->default_value(1000), "Spectrum bins (default 100)")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
+        ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
 
@@ -223,7 +231,7 @@ int main(int argc, char* argv[])
                     double avg = 0;
 
                     float ticks = vrt_context.sample_rate/(4e6);
-                    printf("set term qt 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ",ticks);
+                    printf("set term %s 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ", gnuplot_terminal.c_str(), ticks);
                     printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
 
                    for (uint32_t i = 0; i < num_points; ++i) {
