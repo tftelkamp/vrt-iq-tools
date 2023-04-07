@@ -217,9 +217,10 @@ int main(int argc, char* argv[])
             printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
 
             // Header
+            float binsize = (double)vrt_context.sample_rate/(double)num_bins;
             printf("# timestamp");
             for (uint32_t i = 0; i < num_bins; ++i) {
-                    printf(", %.0f", (double)(vrt_context.rf_freq + (i+0.5)*integrations - vrt_context.sample_rate/2));
+                    printf(", %.0f", (double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2));
             }
             printf("\n");
         }
