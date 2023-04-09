@@ -23,16 +23,16 @@ bool dt_process(uint32_t* buffer, uint32_t size, packet_type* vrt_packet, dt_ext
 		dt_ext_context->fractional_seconds_timestamp = vrt_packet->fractional_seconds_timestamp;
 		dt_ext_context->integer_seconds_timestamp = vrt_packet->integer_seconds_timestamp;
 
-    	memcpy(&dt_ext_context->azimuth, (char*)&buffer[vrt_packet->offset], sizeof(float));
-        memcpy(&dt_ext_context->elevation, (char*)&buffer[vrt_packet->offset+1], sizeof(float));
-        memcpy(&dt_ext_context->azimuth_error, (char*)&buffer[vrt_packet->offset+2], sizeof(float));
-        memcpy(&dt_ext_context->elevation_error, (char*)&buffer[vrt_packet->offset+3], sizeof(float));
-        memcpy(&dt_ext_context->azimuth_speed, (char*)&buffer[vrt_packet->offset+4], sizeof(float));
-        memcpy(&dt_ext_context->elevation_speed, (char*)&buffer[vrt_packet->offset+5], sizeof(float));
-        memcpy(&dt_ext_context->focusbox, (char*)&buffer[vrt_packet->offset+6], sizeof(float));
+		memcpy(&dt_ext_context->azimuth, (char*)&buffer[vrt_packet->offset], sizeof(float));
+		memcpy(&dt_ext_context->elevation, (char*)&buffer[vrt_packet->offset+1], sizeof(float));
+		memcpy(&dt_ext_context->azimuth_error, (char*)&buffer[vrt_packet->offset+2], sizeof(float));
+		memcpy(&dt_ext_context->elevation_error, (char*)&buffer[vrt_packet->offset+3], sizeof(float));
+		memcpy(&dt_ext_context->azimuth_speed, (char*)&buffer[vrt_packet->offset+4], sizeof(float));
+		memcpy(&dt_ext_context->elevation_speed, (char*)&buffer[vrt_packet->offset+5], sizeof(float));
+		memcpy(&dt_ext_context->focusbox, (char*)&buffer[vrt_packet->offset+6], sizeof(float));
 
-        dt_ext_context->dt_ext_context_received = true;
-        return true;
+		dt_ext_context->dt_ext_context_received = true;
+		return true;
 	} else
 		return false;
 }
