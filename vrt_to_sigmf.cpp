@@ -33,6 +33,7 @@
 #include <vrt/vrt_util.h>
 
 #include "vrt-tools.h"
+#include "dt-extended-context.h"
 
 namespace po = boost::program_options;
 
@@ -130,6 +131,7 @@ int main(int argc, char* argv[])
     bool int_second             = vm.count("int-second") > 0;
 
     context_type vrt_context;
+    dt_ext_context_type dt_ext_context;
     init_context(&vrt_context);
 
     packet_type vrt_packet;
@@ -226,7 +228,7 @@ int main(int argc, char* argv[])
         uint32_t channel = channel_nums[ch];
 
         if ( not (context_recv & vrt_packet.stream_id) and vrt_packet.context 
-             and not first_frame and not (dt_trace and not dt_trace_received)) {
+             and not first_frame and not (dt_trace and not dt_ext_context.dt_ext_context_received)) {
 
             context_recv |= vrt_packet.stream_id;
 
@@ -268,8 +270,8 @@ int main(int argc, char* argv[])
                     % (vrt_context.time_cal ? "pps" : "internal")
                     % vrt_context.stream_id
                     % channel
-                    % ((180.0/M_PI)*azimuth)
-                    % ((180.0/M_PI)*elevation)
+                    % ((180.0/M_PI)*dt_ext_context.azimuth)
+                    % ((180.0/M_PI)*dt_ext_context.elevation)
                     % vrt_context.rf_freq
                     % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(vrt_context.starttime_integer)))
                     % (double)(vrt_context.starttime_fractional/1e6);
@@ -284,12 +286,9 @@ int main(int argc, char* argv[])
                 num_requested_samples = total_time * vrt_context.sample_rate;
         }
 
+ 
         if (vrt_packet.extended_context) {
-            if (vrt_packet.oui == 0xFF0042) { // add information and packet class checks
-                memcpy(&azimuth, (char*)&buffer[vrt_packet.offset], sizeof(float));
-                memcpy(&elevation, (char*)&buffer[vrt_packet.offset+1], sizeof(float));
-                dt_trace_received = true;
-            }
+            dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
         }
 
         if (vrt_packet.data) {

@@ -33,6 +33,7 @@
 #include <fftw3.h>
 
 #include "vrt-tools.h"
+#include "dt-extended-context.h"
 
 namespace po = boost::program_options;
 
@@ -136,6 +137,7 @@ int main(int argc, char* argv[])
     bool dt_trace               = vm.count("dt-trace") > 0;
 
     context_type vrt_context;
+    dt_ext_context_type dt_ext_context;
     init_context(&vrt_context);
 
     packet_type vrt_packet;
@@ -172,9 +174,6 @@ int main(int argc, char* argv[])
 
     uint32_t signal_pointer = 0;
     uint32_t integration_counter = 0;
-
-    float azimuth = NAN;
-    float elevation = NAN;
 
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
@@ -288,7 +287,7 @@ int main(int argc, char* argv[])
                     if (integration_counter == integrations) {
                         printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
                         if (dt_trace) {
-                            printf(", %.3f, %.3f", (180.0/M_PI)*azimuth, (180.0/M_PI)*elevation);
+                            printf(", %.3f, %.3f", (180.0/M_PI)*dt_ext_context.azimuth, (180.0/M_PI)*dt_ext_context.elevation);
                         }
                         for (uint32_t i = 0; i < num_bins; ++i) {
                             magnitudes[i] /= (float)integrations;
@@ -307,11 +306,7 @@ int main(int argc, char* argv[])
         }
 
         if (vrt_packet.extended_context) {
-            if (vrt_packet.oui == 0xFF0042) { // add information and packet class checks
-                memcpy(&azimuth, (char*)&buffer[vrt_packet.offset], sizeof(float));
-                memcpy(&elevation, (char*)&buffer[vrt_packet.offset+1], sizeof(float));
-            }
-
+            dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
         }
 
         if (progress) {
