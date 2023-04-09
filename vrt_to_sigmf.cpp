@@ -81,6 +81,9 @@ int main(int argc, char* argv[])
     uint16_t port;
     int hwm;
 
+    // DT trace data
+    float azimuth = NAN, elevation = NAN;
+
     // setup the program options
     po::options_description desc("Allowed options");
     // clang-format off
@@ -98,6 +101,7 @@ int main(int argc, char* argv[])
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("meta-only", "only create sigmf-meta file")
+        ("dt-trace", "add DT trace data")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
@@ -122,7 +126,8 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool meta_only              = vm.count("meta-only") > 0;
-    bool int_second             = vm.count("int-second");
+    bool dt_trace               = vm.count("dt-trace") > 0;
+    bool int_second             = vm.count("int-second") > 0;
 
     context_type vrt_context;
     init_context(&vrt_context);
@@ -185,6 +190,7 @@ int main(int argc, char* argv[])
     uint64_t last_fractional_seconds_timestamp = 0;
 
     bool first_frame = true;
+    bool dt_trace_received = false;
     uint32_t context_recv = 0;
 
     if (num_requested_samples == 0) {
@@ -219,7 +225,8 @@ int main(int argc, char* argv[])
 
         uint32_t channel = channel_nums[ch];
 
-        if ( not (context_recv & vrt_packet.stream_id) and vrt_packet.context and not first_frame) {
+        if ( not (context_recv & vrt_packet.stream_id) and vrt_packet.context 
+             and not first_frame and not (dt_trace and not dt_trace_received)) {
 
             context_recv |= vrt_packet.stream_id;
 
@@ -241,7 +248,9 @@ int main(int argc, char* argv[])
                     "        \"vrt:reference\": \"%s\",\n"
                     "        \"vrt:time_source\": \"%s\",\n"
                     "        \"vrt:stream_id\": %u,\n"
-                    "        \"vrt:channel\": %u\n"
+                    "        \"vrt:channel\": %u,\n"
+                    "        \"vrt:dt:azimuth\": %.3f,\n"
+                    "        \"vrt:dt:elevation\": %.3f\n"
                     "    },\n"
                     "    \"annotations\": [],\n"
                     "    \"captures\": [\n"
@@ -259,6 +268,8 @@ int main(int argc, char* argv[])
                     % (vrt_context.time_cal ? "pps" : "internal")
                     % vrt_context.stream_id
                     % channel
+                    % ((180.0/M_PI)*azimuth)
+                    % ((180.0/M_PI)*elevation)
                     % vrt_context.rf_freq
                     % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(vrt_context.starttime_integer)))
                     % (double)(vrt_context.starttime_fractional/1e6);
@@ -271,6 +282,14 @@ int main(int argc, char* argv[])
 
             if (total_time > 0)  
                 num_requested_samples = total_time * vrt_context.sample_rate;
+        }
+
+        if (vrt_packet.extended_context) {
+            if (vrt_packet.oui == 0xFF0042) { // add information and packet class checks
+                memcpy(&azimuth, (char*)&buffer[vrt_packet.offset], sizeof(float));
+                memcpy(&elevation, (char*)&buffer[vrt_packet.offset+1], sizeof(float));
+                dt_trace_received = true;
+            }
         }
 
         if (vrt_packet.data) {
