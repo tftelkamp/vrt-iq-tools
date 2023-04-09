@@ -97,6 +97,7 @@ int main(int argc, char* argv[])
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
+        ("meta-only", "only create sigmf-meta file")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
@@ -120,6 +121,7 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
+    bool meta_only              = vm.count("meta-only") > 0;
     bool int_second             = vm.count("int-second");
 
     context_type vrt_context;
@@ -148,9 +150,11 @@ int main(int argc, char* argv[])
 
     if (not null) 
         for (size_t i = 0; i < channel_nums.size(); i++) {
-            const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i]);
-            outfiles.push_back(std::shared_ptr<std::ofstream>(
-                new std::ofstream(this_filename.c_str(), std::ofstream::binary)));
+            if (not meta_only) {
+                const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i]);
+                outfiles.push_back(std::shared_ptr<std::ofstream>(
+                    new std::ofstream(this_filename.c_str(), std::ofstream::binary)));
+            }
             
             const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i]);
             metafiles.push_back(std::shared_ptr<std::ofstream>(
@@ -260,6 +264,8 @@ int main(int argc, char* argv[])
                     % (double)(vrt_context.starttime_fractional/1e6);
                     *metafiles[ch] << std::endl;
                     metafiles[ch]->close();
+                    if (meta_only and ch==(channel_nums.size()-1))
+                        break;
                 }
             }
 
@@ -301,7 +307,7 @@ int main(int argc, char* argv[])
             }
 
             // Write to file
-            if (not null) {
+            if (not null and not meta_only) {
                 outfiles[ch]->write(
                     (const char*)&buffer[vrt_packet.offset], sizeof(uint32_t)*vrt_packet.num_rx_samps);
             }
