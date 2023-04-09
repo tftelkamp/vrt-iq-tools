@@ -41,8 +41,12 @@ struct context_type {
 struct packet_type {
     bool context;
     bool data;
+    bool extended_context;
     bool lost_frame;
     bool first_frame;
+    uint32_t oui;
+    uint16_t information_class_code;
+    uint16_t packet_class_code;
     uint32_t stream_id;
     uint32_t channel_filt;
     uint32_t num_rx_samps;
@@ -106,6 +110,7 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
 
     vrt_packet->context = false;
     vrt_packet->data = false;
+    vrt_packet->extended_context = false;
 
     /* Parse header */
     if (rv < 0) {
@@ -156,6 +161,11 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
             vrt_packet->context = true;
             vrt_context->context_received = true;
             vrt_packet->stream_id = f.stream_id;
+
+            vrt_packet->oui = f.class_id.oui;
+            vrt_packet->information_class_code = f.class_id.information_class_code;
+            vrt_packet->packet_class_code = f.class_id.packet_class_code;
+
         }
     } else if (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID) {
         // Data
@@ -180,12 +190,37 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
             vrt_packet->stream_id = f.stream_id;
             vrt_packet->data = true;
 
+            vrt_packet->oui = f.class_id.oui;
+            vrt_packet->information_class_code = f.class_id.information_class_code;
+            vrt_packet->packet_class_code = f.class_id.packet_class_code;
+
             if (vrt_packet->first_frame) {
                 vrt_context->starttime_integer = f.integer_seconds_timestamp;
                 vrt_context->starttime_fractional = f.fractional_seconds_timestamp;
                 vrt_packet->first_frame = false;
             }
         }
+    } else if (h.packet_type == VRT_PT_EXT_CONTEXT) {
+
+         /* Parse fields */
+        rv = vrt_read_fields(&h, buffer + offset, size - offset, &f, true);
+        if (rv < 0) {
+            fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
+            return false;
+        }
+        offset += rv;
+
+        vrt_packet->integer_seconds_timestamp = f.integer_seconds_timestamp;
+        vrt_packet->fractional_seconds_timestamp = f.fractional_seconds_timestamp;
+        vrt_packet->num_rx_samps = (h.packet_size-offset);
+        vrt_packet->offset = offset;
+        vrt_packet->stream_id = f.stream_id;
+
+        vrt_packet->oui = f.class_id.oui;
+        vrt_packet->information_class_code = f.class_id.information_class_code;
+        vrt_packet->packet_class_code = f.class_id.packet_class_code;
+
+        vrt_packet->extended_context = true;
     }
 
     return true;

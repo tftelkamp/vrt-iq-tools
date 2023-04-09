@@ -119,14 +119,15 @@ inline float get_abs_val(std::complex<int8_t> t)
 int UHD_SAFE_MAIN(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string file, type, ant_list, subdev, ref, wirefmt, channel_list, gain_list, udp_forward;
+    std::string file, type, ant_list, subdev, ref, wirefmt, channel_list, gain_list, udp_forward, merge_address;
     size_t total_num_samps, spb;
-    uint16_t port;
+    uint16_t port, merge_port;
     int hwm;
     uint32_t stream_id;
     double rate, freq, bw, total_time, setup_time, lo_offset;
 
     bool context_changed = true;
+    bool merge;
 
     // recv_frame_size=1024, num_recv_frames=1024, recv_buff_size
     std::string stdargs = "num_recv_frames=1024";
@@ -167,6 +168,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("int-n", "tune USRP with integer-N tuning")
         // ("stream-id", po::value<uint32_t>(&stream_id), "VRT Stream ID")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("merge", po::value<bool>(&merge)->default_value(true), "Merge another VRT ZMQ stream (SUB connect)")
+        ("merge-port", po::value<uint16_t>(&merge_port)->default_value(50011), "VRT ZMQ merge port")
+        ("merge-address", po::value<std::string>(&merge_address)->default_value("localhost"), "VRT ZMQ merg address")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
@@ -223,8 +227,16 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     assert (rc == 0);
     zmq_control = responder;
     zmq_setsockopt(zmq_control, ZMQ_SUBSCRIBE, "", 0);
-    
 
+    // Merge
+    void *merge_zmq = zmq_socket(context, ZMQ_SUB);
+    if (merge) {
+        connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
+        rc = zmq_connect(merge_zmq, connect_string.c_str());
+        assert(rc == 0);
+        zmq_setsockopt(merge_zmq, ZMQ_SUBSCRIBE, "", 0);
+    }
+    
     // UDP DI-FI
 
     int sockfd; 
@@ -572,6 +584,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     uint32_t frame_count = 0;
 
+    // flush merge queue
+    if (merge)
+        while ( zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
+
     while (not stop_signal_called 
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
            // and (time_requested == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
@@ -703,6 +719,19 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 {
                    printf("UDP fail\n");
                 }
+            }
+        }
+
+        // Merge
+        if (merge) {
+            int mergelen;
+            while ( (mergelen = zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK)) > 0  ) {
+                // zmq_send (zmq_server, buffer, mergelen, 0);
+                zmq_msg_t msg;
+                zmq_msg_init_size (&msg, mergelen);
+                memcpy (zmq_msg_data(&msg), buffer, mergelen);
+                zmq_msg_send(&msg, zmq_server, 0);
+                zmq_msg_close(&msg);
             }
         }
 

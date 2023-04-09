@@ -107,6 +107,7 @@ int main(int argc, char* argv[])
         ("updates", po::value<uint32_t>(&updates_per_second)->default_value(1), "Updates per second (default 1)")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
+        ("trace", "use DT trace data in VRT stream")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
@@ -132,6 +133,7 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
+    bool trace                  = vm.count("trace") > 0;
 
     context_type vrt_context;
     init_context(&vrt_context);
@@ -170,6 +172,9 @@ int main(int argc, char* argv[])
 
     uint32_t signal_pointer = 0;
     uint32_t integration_counter = 0;
+
+    float azimuth = NAN;
+    float elevation = NAN;
 
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
@@ -218,7 +223,9 @@ int main(int argc, char* argv[])
 
             // Header
             float binsize = (double)vrt_context.sample_rate/(double)num_bins;
-            printf("# timestamp");
+            printf("timestamp");
+            if (trace) 
+                printf(", azimuth, elevation");
             for (uint32_t i = 0; i < num_bins; ++i) {
                     printf(", %.0f", (double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2));
             }
@@ -280,6 +287,9 @@ int main(int argc, char* argv[])
                     integration_counter++;
                     if (integration_counter == integrations) {
                         printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
+                        if (trace) {
+                            printf(", %.3f, %.3f", (180.0/M_PI)*azimuth, (180.0/M_PI)*elevation);
+                        }
                         for (uint32_t i = 0; i < num_bins; ++i) {
                             magnitudes[i] /= (float)integrations;
                             printf(", %.3f",20*log10(magnitudes[i]));
@@ -293,6 +303,14 @@ int main(int argc, char* argv[])
             }
 
             num_total_samps += vrt_packet.num_rx_samps;
+
+        }
+
+        if (vrt_packet.extended_context) {
+            if (vrt_packet.oui == 0xFF0042) { // add information and packet class checks
+                memcpy(&azimuth, (char*)&buffer[vrt_packet.offset], sizeof(float));
+                memcpy(&elevation, (char*)&buffer[vrt_packet.offset+1], sizeof(float));
+            }
 
         }
 
