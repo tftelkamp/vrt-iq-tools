@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
 {
 
     // variables to be set by po
-    std::string file, type, zmq_address, channel_list;
+    std::string file, auto_file, type, zmq_address, channel_list;
     size_t num_requested_samples, total_time;
     uint16_t port;
     int hwm;
@@ -92,6 +92,7 @@ int main(int argc, char* argv[])
     desc.add_options()
         ("help", "help message")
         ("file", po::value<std::string>(&file)->default_value("usrp_samples.dat"), "name of the file to write binary samples to")
+        ("auto-file", po::value<std::string>(&auto_file), "prefix of the auto generated filename to write binary samples to")
         // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<size_t>(&total_time)->default_value(0), "total number of seconds to receive")
@@ -128,6 +129,7 @@ int main(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool meta_only              = vm.count("meta-only") > 0;
     bool dt_trace               = vm.count("dt-trace") > 0;
+    bool do_auto_file           = vm.count("auto-file") > 0;
     bool int_second             = vm.count("int-second") > 0;
 
     context_type vrt_context;
@@ -374,6 +376,37 @@ int main(int argc, char* argv[])
 
     for (size_t i = 0; i < outfiles.size(); i++)
         outfiles[i]->close();
+
+    // Auto file
+    if (do_auto_file) {
+        boost::format auto_format;
+        boost::posix_time::ptime starttime = boost::posix_time::from_time_t(vrt_context.starttime_integer);
+        std::string timestring = boost::posix_time::to_iso_extended_string(starttime);
+        std::replace( timestring.begin(), timestring.end(), ':', '_'); 
+        std::replace( timestring.begin(), timestring.end(), '-', '_'); 
+        std::replace( timestring.begin(), timestring.end(), 'T', '_'); 
+        auto_format = boost::format("%s_%s_%.3fMHz_%.2fMsps_ci16_le")
+                    % (auto_file)
+                    % (timestring)
+                    % (vrt_context.rf_freq/1e6)
+                    % (vrt_context.sample_rate/1e6);
+
+        std::string auto_mdfilename = auto_format.str() + ".sigmf-meta";
+        std::string auto_bin_file = auto_format.str() + ".sigmf-data";
+
+        if (not null) 
+            for (size_t i = 0; i < channel_nums.size(); i++) {
+                if (not meta_only) {
+                    const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i]);
+                    const std::string this_auto_filename = generate_out_filename(auto_bin_file, channel_nums.size(), channel_nums[i]);
+                    boost::filesystem::rename( this_filename, this_auto_filename );
+                }
+                
+                const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i]);
+                const std::string auto_meta_filename = generate_out_filename(auto_mdfilename, channel_nums.size(), channel_nums[i]);
+                boost::filesystem::rename( meta_filename, auto_meta_filename );
+        }
+    }
         
     zmq_close(subscriber);
     zmq_ctx_destroy(context);
