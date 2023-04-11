@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
 {
 
     // variables to be set by po
-    std::string file, auto_file, type, zmq_address, channel_list;
+    std::string file, auto_file, type, zmq_address, channel_list, author, description;
     size_t num_requested_samples, total_time;
     uint16_t port;
     int hwm;
@@ -98,7 +98,8 @@ int main(int argc, char* argv[])
         ("duration", po::value<size_t>(&total_time)->default_value(0), "total number of seconds to receive")
         ("progress", "periodically display short-term bandwidth")
         ("channel", po::value<std::string>(&channel_list)->default_value("0"), "which channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
-        // ("stats", "show average bandwidth on exit")
+        ("author", po::value<std::string>(&author), "core:author in sigmf-meta")
+        ("description", po::value<std::string>(&description), "core:description in sigmf-meta")
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
@@ -131,6 +132,8 @@ int main(int argc, char* argv[])
     bool dt_trace               = vm.count("dt-trace") > 0;
     bool do_auto_file           = vm.count("auto-file") > 0;
     bool int_second             = vm.count("int-second") > 0;
+    bool has_author             = vm.count("author") > 0;
+    bool has_desc               = vm.count("description") > 0;
 
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
@@ -241,20 +244,89 @@ int main(int argc, char* argv[])
                 if (!metafiles[ch]) {
                     std::cout << "File not created?!";
                 } else {
-                    *metafiles[ch] << boost::format("{ \n"
+                    std::string json = str(boost::format("{ \n"
                     "    \"global\": {\n"
                     "        \"core:version\": \"1.0.0\",\n"
                     "        \"core:recorder\": \"vrt_to_sigmf\",\n"
                     "        \"core:sample_rate\": %u,\n"
-                    "        \"core:datatype\": \"ci16_le\",\n"
+                    "        \"core:datatype\": \"ci16_le\",\n")
+                    % vrt_context.sample_rate);
+                    if (has_author) {
+                        json += str(boost::format(
+                        "        \"core:author\": \"%s\",\n")
+                        % author);
+                    }
+                    if (has_desc) {
+                        json += str(boost::format(
+                        "        \"core:description\": \"%s\",\n")
+                        % description);
+                    }
+                    if (dt_trace) {
+                        char const *trackerStrings[] = {"idle", "azel", "j2000tracker", "moontracker", "suntracker", "sattracker", "manual"};
+                        json += str(boost::format(
+                        "        \"dt:datetime\": \"%s.%06.0f\",\n"
+                        "        \"dt:pointing:active_tracker\": \"%s\",\n"
+                        "        \"dt:pointing:tracking_enabled\": \"%s\",\n"
+                        "        \"dt:pointing:refraction\": \"%s\",\n"
+                        "        \"dt:pointing:dt_model\": \"%s\",\n"
+                        "        \"dt:pointing:refraction_j2000\": \"%s\",\n"
+                        "        \"dt:pointing:dt_model_j2000\": \"%s\",\n"
+                        "        \"dt:pointing:current:az_deg\": %.3f,\n"
+                        "        \"dt:pointing:current:el_deg\": %.3f,\n"
+                        "        \"dt:pointing:error:az_deg\": %.3f,\n"
+                        "        \"dt:pointing:error:el_deg\": %.3f,\n"
+                        "        \"dt:pointing:offset:az_deg\": %.3f,\n"
+                        "        \"dt:pointing:offset:el_deg\": %.3f,\n"
+                        "        \"dt:pointing:az_speed_deg_s\": %.6f,\n"
+                        "        \"dt:pointing:el_speed_deg_s\": %.6f,\n"
+                        "        \"dt:pointing:setpoint:ra_h\": %.3f,\n"
+                        "        \"dt:pointing:setpoint:dec_deg\": %.3f,\n"
+                        "        \"dt:pointing:current:ra_h\": %.3f,\n"
+                        "        \"dt:pointing:current:dec_deg\": %.3f,\n"
+                        "        \"dt:pointing:model:a0\": %.6f,\n"
+                        "        \"dt:pointing:model:c1\": %.6f,\n"
+                        "        \"dt:pointing:model:c2\": %.6f,\n"
+                        "        \"dt:pointing:model:e0\": %.6f,\n"
+                        "        \"dt:pointing:model:b\": %.6f,\n"
+                        "        \"dt:pointing:model:za\": %.6f,\n"
+                        "        \"dt:pointing:model:aa\": %.6f,\n"
+                        "        \"dt:focusbox_position_mm\": %.0f,\n" )
+                        % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(dt_ext_context.integer_seconds_timestamp)))
+                        % ((double)(dt_ext_context.fractional_seconds_timestamp/1e6))
+                        % (trackerStrings[dt_ext_context.active_tracker])
+                        % (dt_ext_context.tracking_enabled ? "true" : "false")
+                        % (dt_ext_context.refraction ? "true" : "false")
+                        % (dt_ext_context.dt_model ? "true" : "false")
+                        % (dt_ext_context.refraction_j2000 ? "true" : "false")
+                        % (dt_ext_context.dt_model_j2000 ? "true" : "false")
+                        % ((180.0/M_PI)*dt_ext_context.azimuth)
+                        % ((180.0/M_PI)*dt_ext_context.elevation)
+                        % ((180.0/M_PI)*dt_ext_context.azimuth_error)
+                        % ((180.0/M_PI)*dt_ext_context.elevation_error)
+                        % ((180.0/M_PI)*dt_ext_context.azimuth_offset)
+                        % ((180.0/M_PI)*dt_ext_context.elevation_offset)
+                        % ((180.0/M_PI)*dt_ext_context.azimuth_speed)
+                        % ((180.0/M_PI)*dt_ext_context.elevation_speed)
+                        % ((12.0/M_PI)*dt_ext_context.ra_setpoint)
+                        % ((180.0/M_PI)*dt_ext_context.dec_setpoint)
+                        % ((12.0/M_PI)*dt_ext_context.ra_current)
+                        % ((180.0/M_PI)*dt_ext_context.dec_current)
+                        % dt_ext_context.model_a0
+                        % dt_ext_context.model_c1
+                        % dt_ext_context.model_c2
+                        % dt_ext_context.model_e0
+                        % dt_ext_context.model_b
+                        % dt_ext_context.model_za
+                        % dt_ext_context.model_aa
+                        % dt_ext_context.focusbox );
+                    }
+                    json += str(boost::format(
                     "        \"vrt:rx_gain\": %i,\n"
                     "        \"vrt:bandwidth\": %u,\n"
                     "        \"vrt:reference\": \"%s\",\n"
                     "        \"vrt:time_source\": \"%s\",\n"
                     "        \"vrt:stream_id\": %u,\n"
-                    "        \"vrt:channel\": %u,\n"
-                    "        \"vrt:dt:azimuth\": %.3f,\n"
-                    "        \"vrt:dt:elevation\": %.3f\n"
+                    "        \"vrt:channel\": %u\n"
                     "    },\n"
                     "    \"annotations\": [],\n"
                     "    \"captures\": [\n"
@@ -265,18 +337,16 @@ int main(int argc, char* argv[])
                     "        }\n"
                     "    ]\n"
                     "}\n")
-                    % vrt_context.sample_rate
                     % vrt_context.gain
                     % vrt_context.bandwidth
                     % (vrt_context.reflock ? "external" : "internal")
                     % (vrt_context.time_cal ? "pps" : "internal")
                     % vrt_context.stream_id
                     % channel
-                    % ((180.0/M_PI)*dt_ext_context.azimuth)
-                    % ((180.0/M_PI)*dt_ext_context.elevation)
                     % vrt_context.rf_freq
                     % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(vrt_context.starttime_integer)))
-                    % (double)(vrt_context.starttime_fractional/1e6);
+                    % (double)(vrt_context.starttime_fractional/1e6) );
+                    *metafiles[ch] << json;
                     *metafiles[ch] << std::endl;
                     metafiles[ch]->close();
                     if (meta_only and ch==(channel_nums.size()-1))
