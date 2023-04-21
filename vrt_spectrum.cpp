@@ -224,7 +224,7 @@ int main(int argc, char* argv[])
             float binsize = (double)vrt_context.sample_rate/(double)num_bins;
             printf("timestamp");
             if (dt_trace) 
-                printf(", azimuth, elevation");
+                printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg");
             for (uint32_t i = 0; i < num_bins; ++i) {
                     printf(", %.0f", (double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2));
             }
@@ -287,7 +287,11 @@ int main(int argc, char* argv[])
                     if (integration_counter == integrations) {
                         printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
                         if (dt_trace) {
-                            printf(", %.3f, %.3f", (180.0/M_PI)*dt_ext_context.azimuth, (180.0/M_PI)*dt_ext_context.elevation);
+                            printf(", %.3f, %.3f, %.3f, %.3f",
+                                ((180.0/M_PI)*dt_ext_context.azimuth),
+                                ((180.0/M_PI)*dt_ext_context.elevation),
+                                ((12.0/M_PI)*dt_ext_context.ra_current),
+                                ((180.0/M_PI)*dt_ext_context.dec_current));
                         }
                         for (uint32_t i = 0; i < num_bins; ++i) {
                             magnitudes[i] /= (float)integrations;
