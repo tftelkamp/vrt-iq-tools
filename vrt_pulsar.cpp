@@ -45,6 +45,8 @@ namespace po = boost::program_options;
 #define REAL 0
 #define IMAG 1
 
+#define SQUELCH_THRESHOLD (0.04)
+
 static bool stop_signal_called = false;
 void sig_int_handler(int)
 {
@@ -158,6 +160,7 @@ int main(int argc, char* argv[])
         ("quiet", "no data output")
         ("sum", "sum polarizations")
         ("audio", "enable audio")
+        ("squelch", "audio squelch")
         ("gnuplot", "enable gnuplot mode")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
@@ -189,6 +192,7 @@ int main(int argc, char* argv[])
     bool sum                    = vm.count("sum") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool quiet                  = vm.count("quiet") > 0;
+    bool squelch                = vm.count("squelch") > 0;
     bool int_second             = (bool)vm.count("int-second");
 
     context_type vrt_context;
@@ -522,19 +526,27 @@ int main(int argc, char* argv[])
                                             if (sum) {
                                                 // write sum on single channel
                                                 int16_t sample = 32768.0*(dedisp[0][index]-mean_block[0])/mean_block[0] + 
-                                                                 32768.0*(dedisp[1][index]-mean_block[1])/mean_block[1]; 
+                                                                 32768.0*(dedisp[1][index]-mean_block[1])/mean_block[1];  
+                                                if (squelch and sample < 2*SQUELCH_THRESHOLD*32768.0)
+                                                    sample = 0;
                                                 fwrite(&sample, sizeof(sample), 1, audio_pipe);
                                             } else {
                                                 // write 2 channels
                                                 int16_t sample = 32768.0*(dedisp[0][index]-mean_block[0])/mean_block[0]; 
+                                                if (squelch and sample < SQUELCH_THRESHOLD*32768.0)
+                                                    sample = 0;
                                                 fwrite(&sample, sizeof(sample), 1, audio_pipe);
                                                 sample = 32768.0*(dedisp[1][index]-mean_block[1])/mean_block[1]; 
+                                                if (squelch and sample < SQUELCH_THRESHOLD*32768.0)
+                                                    sample = 0;
                                                 fwrite(&sample, sizeof(sample), 1, audio_pipe);
                                             }
                                         }
                                     } else {
                                         // single channel
                                         int16_t sample = 32768.0* (dedisp[ch][index]-mean_block[ch])/mean_block[ch];
+                                        if (squelch and sample < SQUELCH_THRESHOLD*32768.0)
+                                                    sample = 0;
                                         fwrite(&sample, sizeof(sample), 1, audio_pipe);
                                     }
                                 }
