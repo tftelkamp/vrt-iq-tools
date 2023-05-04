@@ -148,6 +148,7 @@ int main(int argc, char* argv[])
         ("period", po::value<float>(&period)->default_value(0.7145197), "PSR Period")
         ("agg-time", po::value<float>(&agg_time)->default_value(1), "Aggregation time in milliseconds")
         ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
+        ("quiet", "no data output")
         ("sum", "sum polarizations")
         ("audio", "enable audio")
         ("gnuplot", "enable gnuplot mode")
@@ -180,6 +181,7 @@ int main(int argc, char* argv[])
     bool gnuplot                = vm.count("gnuplot") > 0;
     bool sum                    = vm.count("sum") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
+    bool quiet                  = vm.count("quiet") > 0;
     bool int_second             = (bool)vm.count("int-second");
 
     context_type vrt_context;
@@ -351,7 +353,7 @@ int main(int argc, char* argv[])
 
                 uint32_t num_chans = sum ? 1 : channel_nums.size();
 
-                std::string sox_command = "play -q -r " + std::to_string(audio_rate) + " --buffer 200 -c "+ std::to_string(num_chans) +" -b 16 -e signed-integer -v 30 -t raw - lowpass 40 gain 10";
+                std::string sox_command = "play -q -r " + std::to_string(audio_rate) + " --input-buffer 4000 --buffer 500 -c "+ std::to_string(num_chans) +" -b 16 -e signed-integer -v 30 -t raw - lowpass 40 rate 40k gain 8";
         
                 audio_pipe = popen(sox_command.c_str(), "w");
             
@@ -494,7 +496,7 @@ int main(int argc, char* argv[])
                         // if (!first_block) {
                             for (size_t index = 0; index < block_size/time_integrations; index++) {
                                 plotbuffer[ch][seqno[ch] % buffer_size] = dedisp[ch][index];
-                                if (!gnuplot) {
+                                if (!gnuplot and !quiet) {
                                     if (channel_nums.size()==2) {
                                         if (ch==1) {
                                             if (sum) {
