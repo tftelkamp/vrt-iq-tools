@@ -34,6 +34,12 @@
 
 #include "vrt-tools.h"
 
+#ifdef __APPLE__
+#define DEFAULT_GNUPLOT_TERMINAL "qt"
+#else
+#define DEFAULT_GNUPLOT_TERMINAL "x11"
+#endif
+
 namespace po = boost::program_options;
 
 #define REAL 0
@@ -113,7 +119,7 @@ int main(int argc, char* argv[])
     float t_threshold;
 
     // variables to be set by po
-    std::string file, type, zmq_address, channel_list;
+    std::string file, type, zmq_address, channel_list, gnuplot_terminal;
     size_t num_requested_samples;
     uint32_t bins;
     double total_time;
@@ -148,6 +154,7 @@ int main(int argc, char* argv[])
         ("period", po::value<float>(&period)->default_value(0.7145197), "PSR Period")
         ("agg-time", po::value<float>(&agg_time)->default_value(1), "Aggregation time in milliseconds")
         ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
+        ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
         ("quiet", "no data output")
         ("sum", "sum polarizations")
         ("audio", "enable audio")
@@ -343,7 +350,7 @@ int main(int argc, char* argv[])
 
             // Gnuplot
             if (gnuplot)
-                printf("set terminal qt noraise; unset mouse; set grid;\n");
+                printf("set terminal %s noraise; unset mouse; set grid;\n", gnuplot_terminal.c_str());
             // set terminal x11; 
             // set yrange [0:200000000] set xtics 1; set ytics 1;
 
