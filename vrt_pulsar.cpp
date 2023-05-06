@@ -45,7 +45,7 @@ namespace po = boost::program_options;
 #define REAL 0
 #define IMAG 1
 
-#define SQUELCH_THRESHOLD (0.04)
+#define SQUELCH_THRESHOLD (0.02)
 
 static bool stop_signal_called = false;
 void sig_int_handler(int)
@@ -124,6 +124,7 @@ int main(int argc, char* argv[])
     std::string file, type, zmq_address, channel_list, gnuplot_terminal;
     size_t num_requested_samples;
     uint32_t bins;
+    int gain;
     double total_time;
     uint16_t port;
     uint32_t channel;
@@ -161,6 +162,7 @@ int main(int argc, char* argv[])
         ("sum", "sum polarizations")
         ("audio", "enable audio")
         ("squelch", "audio squelch")
+        ("gain", po::value<int>(&gain)->default_value(8), "audio gain")
         ("gnuplot", "enable gnuplot mode")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
@@ -364,7 +366,11 @@ int main(int argc, char* argv[])
 
                 uint32_t num_chans = sum ? 1 : channel_nums.size();
 
-                std::string sox_command = "play -q -r " + std::to_string(audio_rate) + " --input-buffer 4000 --buffer 500 -c "+ std::to_string(num_chans) +" -b 16 -e signed-integer -v 30 -t raw - lowpass 40 rate 40k gain 8";
+                std::string sox_command = "play -q -r " + std::to_string(audio_rate) 
+                        + " --input-buffer 4000 --buffer 500 -c "
+                        + std::to_string(num_chans) 
+                        + " -b 16 -e signed-integer -t raw - lowpass 200 rate 40k gain -l "
+                        + std::to_string(gain);
         
                 audio_pipe = popen(sox_command.c_str(), "w");
             
