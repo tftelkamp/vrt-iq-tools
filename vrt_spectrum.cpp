@@ -106,6 +106,7 @@ int main(int argc, char* argv[])
         ("integrations", po::value<uint32_t>(&integrations)->default_value(1), "number of integrations")
         ("integration-time", po::value<float>(&integration_time), "integration time (seconds)")
         ("updates", po::value<uint32_t>(&updates_per_second)->default_value(1), "Updates per second (default 1)")
+        ("db", "output power in dB")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("dt-trace", "use DT trace data in VRT stream")
@@ -135,6 +136,7 @@ int main(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
     bool dt_trace               = vm.count("dt-trace") > 0;
+    bool db                     = vm.count("db") > 0;
 
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
@@ -296,7 +298,10 @@ int main(int argc, char* argv[])
                         }
                         for (uint32_t i = 0; i < num_bins; ++i) {
                             magnitudes[i] /= (float)integrations;
-                            printf(", %.3f",20*log10(magnitudes[i]));
+                            if (db)
+                                printf(", %.3f", 20*log10(magnitudes[i]));
+                            else
+                                printf(", %.3f", pow(magnitudes[i],2));
                         }
                         integration_counter = 0;
                         memset(magnitudes, 0, num_bins*sizeof(float));
