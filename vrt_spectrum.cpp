@@ -62,6 +62,23 @@ inline float get_abs_val(std::complex<int8_t> t)
     return std::fabs(t.real());
 }
 
+float haversine(float latitude1, float latitude2, float longitude1, float longitude2) {
+
+    float lat_delta = latitude2 - latitude1;
+    float lon_delta = longitude2 - longitude1;
+
+    float a =
+      pow(sin(lat_delta / 2), 2) + cos(latitude1) * cos(latitude2) * pow(sin(lon_delta / 2), 2);
+    float c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return(c);
+}
+
+float bearing(float latitude1, float latitude2, float longitude1, float longitude2) {
+
+    float b = atan2(cos(latitude1)*sin(latitude2)-sin(latitude1)*cos(latitude2)*cos(longitude2-longitude1), sin(longitude2-longitude1)*cos(latitude2));
+    return b;
+}
+
 int main(int argc, char* argv[])
 {
 
@@ -226,7 +243,7 @@ int main(int argc, char* argv[])
             float binsize = (double)vrt_context.sample_rate/(double)num_bins;
             printf("timestamp");
             if (dt_trace) 
-                printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg, focusbox_mm");
+                printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
             for (uint32_t i = 0; i < num_bins; ++i) {
                     printf(", %.0f", (double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2));
             }
@@ -289,11 +306,13 @@ int main(int argc, char* argv[])
                     if (integration_counter == integrations) {
                         printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
                         if (dt_trace) {
-                            printf(", %.3f, %.3f, %.3f, %.3f, %.3f",
+                            printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
                                 ((180.0/M_PI)*dt_ext_context.azimuth),
                                 ((180.0/M_PI)*dt_ext_context.elevation),
                                 ((12.0/M_PI)*dt_ext_context.ra_current),
                                 ((180.0/M_PI)*dt_ext_context.dec_current),
+                                ((180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
+                                ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
                                 dt_ext_context.focusbox);
                         }
                         for (uint32_t i = 0; i < num_bins; ++i) {
