@@ -62,20 +62,20 @@ inline float get_abs_val(std::complex<int8_t> t)
     return std::fabs(t.real());
 }
 
-float haversine(float latitude1, float latitude2, float longitude1, float longitude2) {
+float haversine(float dec1, float dec2, float ra1, float ra2) {
 
-    float lat_delta = latitude2 - latitude1;
-    float lon_delta = longitude2 - longitude1;
+    float dec_delta = dec2 - dec1;
+    float ra_delta = ra2 - ra1;
 
     float a =
-      pow(sin(lat_delta / 2), 2) + cos(latitude1) * cos(latitude2) * pow(sin(lon_delta / 2), 2);
+      pow(sin(dec_delta / 2), 2) + cos(dec1) * cos(dec2) * pow(sin(ra_delta / 2), 2);
     float c = 2 * atan2(sqrt(a), sqrt(1 - a));
     return(c);
 }
 
-float bearing(float latitude1, float latitude2, float longitude1, float longitude2) {
+float bearing(float dec1, float dec2, float ra1, float ra2) {
 
-    float b = atan2(cos(latitude1)*sin(latitude2)-sin(latitude1)*cos(latitude2)*cos(longitude2-longitude1), sin(longitude2-longitude1)*cos(latitude2));
+    float b = atan2(cos(dec1)*sin(dec2)-sin(dec1)*cos(dec2)*cos(ra2-ra1), sin(ra2-ra1)*cos(dec2));
     return b;
 }
 
