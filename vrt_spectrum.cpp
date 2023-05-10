@@ -232,6 +232,7 @@ int main(int argc, char* argv[])
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
             plan = fftw_plan_dft_1d(num_bins, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
             magnitudes = (float*)malloc(num_bins * sizeof(float));
+            memset(magnitudes, 0, num_bins*sizeof(float));
             
             printf("# Spectrum parameters:\n");
             printf("#    Bins: %u\n", num_bins);
@@ -320,7 +321,7 @@ int main(int argc, char* argv[])
                             if (db)
                                 printf(", %.3f", 20*log10(magnitudes[i]));
                             else
-                                printf(", %.3f", pow(magnitudes[i],2));
+                                printf(", %.3f", magnitudes[i]*magnitudes[i]);
                         }
                         integration_counter = 0;
                         memset(magnitudes, 0, num_bins*sizeof(float));
