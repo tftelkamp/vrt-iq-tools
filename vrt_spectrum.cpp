@@ -124,6 +124,7 @@ int main(int argc, char* argv[])
         ("integration-time", po::value<float>(&integration_time), "integration time (seconds)")
         ("updates", po::value<uint32_t>(&updates_per_second)->default_value(1), "Updates per second (default 1)")
         ("db", "output power in dB")
+        ("center-freq", "output center frequency")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("dt-trace", "use DT trace data in VRT stream")
@@ -154,6 +155,7 @@ int main(int argc, char* argv[])
     bool int_second             = (bool)vm.count("int-second");
     bool dt_trace               = vm.count("dt-trace") > 0;
     bool db                     = vm.count("db") > 0;
+    bool log_freq               = vm.count("center-freq") > 0;
 
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
@@ -243,6 +245,8 @@ int main(int argc, char* argv[])
             // Header
             float binsize = (double)vrt_context.sample_rate/(double)num_bins;
             printf("timestamp");
+            if (log_freq)
+                printf(", center_freq_hz");
             if (dt_trace) 
                 printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
             for (uint32_t i = 0; i < num_bins; ++i) {
@@ -306,6 +310,9 @@ int main(int argc, char* argv[])
                     integration_counter++;
                     if (integration_counter == integrations) {
                         printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
+                        if (log_freq) {
+                            printf(", %li", vrt_context.rf_freq);
+                        }
                         if (dt_trace) {
                             printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
                                 ((180.0/M_PI)*dt_ext_context.azimuth),
