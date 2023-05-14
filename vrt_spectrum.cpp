@@ -85,7 +85,7 @@ int main(int argc, char* argv[])
     // FFTW
     fftw_complex *signal, *result;
     fftw_plan plan;
-    float *magnitudes;
+    double *magnitudes;
 
     uint32_t num_points = 0;
     uint32_t num_bins = 0;
@@ -233,8 +233,8 @@ int main(int argc, char* argv[])
             signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
             plan = fftw_plan_dft_1d(num_bins, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
-            magnitudes = (float*)malloc(num_bins * sizeof(float));
-            memset(magnitudes, 0, num_bins*sizeof(float));
+            magnitudes = (double*)malloc(num_bins * sizeof(double));
+            memset(magnitudes, 0, num_bins*sizeof(double));
             
             printf("# Spectrum parameters:\n");
             printf("#    Bins: %u\n", num_bins);
@@ -303,7 +303,7 @@ int main(int argc, char* argv[])
                     }
 
                     for (uint32_t i = 0; i < num_bins; ++i) {
-                        magnitudes[i] += sqrt(result[i][REAL] * result[i][REAL] +
+                        magnitudes[i] += (result[i][REAL] * result[i][REAL] +
                                   result[i][IMAG] * result[i][IMAG]);
                     }
 
@@ -324,14 +324,14 @@ int main(int argc, char* argv[])
                                 dt_ext_context.focusbox);
                         }
                         for (uint32_t i = 0; i < num_bins; ++i) {
-                            magnitudes[i] /= (float)integrations;
+                            magnitudes[i] /= (double)integrations;
                             if (db)
-                                printf(", %.3f", 20*log10(magnitudes[i]));
+                                printf(", %.3f", 10*log10(magnitudes[i]));
                             else
-                                printf(", %.3f", magnitudes[i]*magnitudes[i]);
+                                printf(", %.3f", magnitudes[i]);
                         }
                         integration_counter = 0;
-                        memset(magnitudes, 0, num_bins*sizeof(float));
+                        memset(magnitudes, 0, num_bins*sizeof(double));
                         printf("\n");
                         fflush(stdout);
                     }
