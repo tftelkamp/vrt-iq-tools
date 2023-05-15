@@ -78,7 +78,7 @@ int main(int argc, char* argv[])
     uint32_t num_points = 0;
 
     // variables to be set by po
-    std::string file, type, zmq_address, gnuplot_terminal;
+    std::string file, type, zmq_address, gnuplot_terminal, gnuplot_commands;
     size_t num_requested_samples;
     double total_time;
     uint32_t bins;
@@ -103,6 +103,7 @@ int main(int argc, char* argv[])
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("bins", po::value<uint32_t>(&bins)->default_value(1000), "Spectrum bins (default 100)")
+        ("gnuplot-commands", po::value<std::string>(&gnuplot_commands)->default_value(""), "Extra gnuplot commands like \"set yr [ymin:ymax];\"")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
         ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
@@ -232,6 +233,7 @@ int main(int argc, char* argv[])
 
                     float ticks = vrt_context.sample_rate/(4e6);
                     printf("set term %s 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ", gnuplot_terminal.c_str(), ticks);
+                    printf("%s; ", gnuplot_commands.c_str());
                     printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
 
                    for (uint32_t i = 0; i < num_points; ++i) {
