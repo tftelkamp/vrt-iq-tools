@@ -1,2 +1,15 @@
-
+vrt_fftmax
+vrt_fftmax_quad
+vrt_forwarder
+vrt_gnuplot
+vrt_pulsar
+vrt_spectrum
+vrt_to_fifo
+vrt_to_filterbank
+vrt_to_rtl_tcp
+vrt_to_sigmf
+vrt_to_void
+query_dt_console
+control_vrt
+sigmf_to_vrt
 .DS_Store
