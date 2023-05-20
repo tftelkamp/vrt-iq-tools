@@ -125,6 +125,7 @@ int main(int argc, char* argv[])
         ("updates", po::value<uint32_t>(&updates_per_second)->default_value(1), "Updates per second (default 1)")
         ("db", "output power in dB")
         ("center-freq", "output center frequency")
+        ("temperature", "output temperature")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("dt-trace", "use DT trace data in VRT stream")
@@ -156,6 +157,7 @@ int main(int argc, char* argv[])
     bool dt_trace               = vm.count("dt-trace") > 0;
     bool db                     = vm.count("db") > 0;
     bool log_freq               = vm.count("center-freq") > 0;
+    bool log_temp               = vm.count("temperature") > 0;
 
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
@@ -247,6 +249,8 @@ int main(int argc, char* argv[])
             printf("timestamp");
             if (log_freq)
                 printf(", center_freq_hz");
+            if (log_temp)
+                printf(", temperature_deg_c");
             if (dt_trace) 
                 printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
             for (uint32_t i = 0; i < num_bins; ++i) {
@@ -312,6 +316,9 @@ int main(int argc, char* argv[])
                         printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
                         if (log_freq) {
                             printf(", %li", vrt_context.rf_freq);
+                        }
+                        if (log_temp) {
+                           printf(", %.2f", vrt_context.temperature); 
                         }
                         if (dt_trace) {
                             printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",

@@ -29,6 +29,7 @@ struct context_type {
     int64_t rf_freq;
     uint32_t sample_rate;
     int32_t gain;
+    float temperature;
     uint32_t bandwidth;
     bool reflock;
     bool time_cal;
@@ -156,6 +157,9 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
             
             if (c.state_and_event_indicators.has.calibrated_time)
                 vrt_context->time_cal = c.state_and_event_indicators.calibrated_time;
+
+            if (c.has.temperature)
+                vrt_context->temperature = c.temperature;
             
             vrt_context->context_changed = c.context_field_change_indicator;
             vrt_packet->context = true;

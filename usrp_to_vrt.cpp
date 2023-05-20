@@ -653,11 +653,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             for (size_t ch = 0; ch < channel_nums.size(); ch++) {
                 size_t channel = channel_nums[ch];
 
+                uhd::sensor_value_t temp = usrp->get_rx_sensor("temp", channel);
+                          
+                pc.if_context.has.temperature = true;
+                pc.if_context.temperature = temp.to_real();
+
                 if (context_changed)
                     pc.if_context.context_field_change_indicator = true;
                 else
                     pc.if_context.context_field_change_indicator = false;
-
 
                 pc.fields.stream_id = 1<<ch;
                 pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(channel); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
