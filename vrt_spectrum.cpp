@@ -91,7 +91,7 @@ int main(int argc, char* argv[])
     uint32_t num_bins = 0;
 
     bool power2;  
-    float bin_size, integration_time;
+    float bin_size, integration_time = 0.0;
  
     // variables to be set by po
     std::string file, type, zmq_address;
@@ -117,6 +117,7 @@ int main(int argc, char* argv[])
         ("channel", po::value<uint32_t>(&channel)->default_value(0), "VRT channel")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
+        ("int-interval", "align start of reception to integer number of integration intervals (implies --int-second)")
         ("num-bins", po::value<uint32_t>(&num_bins)->default_value(10000), "number of bins")
         ("bin-size", po::value<float>(&bin_size), "size of bin in Hz")
         ("power2", po::value<bool>(&power2)->default_value(false), "Round number of bins to nearest power of two")
@@ -153,11 +154,16 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
-    bool int_second             = (bool)vm.count("int-second");
+    bool int_interval           = (bool)vm.count("int-interval");
+    bool int_second             = int_interval || (bool)vm.count("int-second");
     bool dt_trace               = vm.count("dt-trace") > 0;
     bool db                     = vm.count("db") > 0;
     bool log_freq               = vm.count("center-freq") > 0;
     bool log_temp               = vm.count("temperature") > 0;
+
+    if (int_interval && int(integration_time) == 0) {
+        throw(std::runtime_error("--int-interval requires --integration_time > 1"));
+    }
 
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
@@ -273,6 +279,9 @@ int main(int argc, char* argv[])
                         last_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
                         continue;
                 } else {
+                    if (int_interval && int(vrt_packet.integer_seconds_timestamp) % int(integration_time) != 0) {
+                        continue;
+                    }
                     int_second = false;
                     last_update = now; 
                     start_time = now;
