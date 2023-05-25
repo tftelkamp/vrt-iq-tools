@@ -35,6 +35,12 @@
 #include "vrt-tools.h"
 #include "dt-extended-context.h"
 
+#ifdef __APPLE__
+#define DEFAULT_GNUPLOT_TERMINAL "qt"
+#else
+#define DEFAULT_GNUPLOT_TERMINAL "x11"
+#endif
+
 namespace po = boost::program_options;
 
 #define NUM_POINTS 10000
@@ -124,6 +130,7 @@ int main(int argc, char* argv[])
         ("integrations", po::value<uint32_t>(&integrations)->default_value(1), "number of integrations")
         ("integration-time", po::value<float>(&integration_time), "integration time (seconds)")
         ("updates", po::value<uint32_t>(&updates_per_second)->default_value(1), "Updates per second (default 1)")
+        ("gnuplot", "gnuplot mode")
         ("db", "output power in dB")
         ("center-freq", "output center frequency")
         ("temperature", "output temperature")
@@ -160,6 +167,7 @@ int main(int argc, char* argv[])
     bool db                     = vm.count("db") > 0;
     bool log_freq               = vm.count("center-freq") > 0;
     bool log_temp               = vm.count("temperature") > 0;
+    bool gnuplot                = vm.count("gnuplot") > 0;
 
     if (int_interval && int(integration_time) == 0) {
         throw(std::runtime_error("--int-interval requires --integration_time > 1"));
@@ -251,21 +259,21 @@ int main(int argc, char* argv[])
             printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
 
             // Header
-            float binsize = (double)vrt_context.sample_rate/(double)num_bins;
-            printf("timestamp");
-            if (log_freq)
-                printf(", center_freq_hz");
-            if (log_temp)
-                printf(", temperature_deg_c");
-            if (dt_trace) 
-                printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
-            for (uint32_t i = 0; i < num_bins; ++i) {
-                    printf(", %.0f", (double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2));
+            if (!gnuplot) {
+                float binsize = (double)vrt_context.sample_rate/(double)num_bins;
+                printf("timestamp");
+                if (log_freq)
+                    printf(", center_freq_hz");
+                if (log_temp)
+                    printf(", temperature_deg_c");
+                if (dt_trace) 
+                    printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
+                for (uint32_t i = 0; i < num_bins; ++i) {
+                        printf(", %.0f", (double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2));
+                }
+                printf("\n");
             }
-            printf("\n");
         }
-
-       
 
         if (start_rx and vrt_packet.data) {
 
@@ -322,33 +330,48 @@ int main(int argc, char* argv[])
 
                     integration_counter++;
                     if (integration_counter == integrations) {
-                        printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
-                        if (log_freq) {
-                            printf(", %li", vrt_context.rf_freq);
+                        if (!gnuplot) {
+                            printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
+                            if (log_freq) {
+                                printf(", %li", vrt_context.rf_freq);
+                            }
+                            if (log_temp) {
+                               printf(", %.2f", vrt_context.temperature); 
+                            }
+                            if (dt_trace) {
+                                printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
+                                    ((180.0/M_PI)*dt_ext_context.azimuth),
+                                    ((180.0/M_PI)*dt_ext_context.elevation),
+                                    ((12.0/M_PI)*dt_ext_context.ra_current),
+                                    ((180.0/M_PI)*dt_ext_context.dec_current),
+                                    ((180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
+                                    ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
+                                    dt_ext_context.focusbox);
+                            }
+                            for (uint32_t i = 0; i < num_bins; ++i) {
+                                magnitudes[i] /= (double)integrations;
+                                if (db)
+                                    printf(", %.3f", 10*log10(magnitudes[i]));
+                                else
+                                    printf(", %.3f", magnitudes[i]);
+                            }
+                            printf("\n");
+                        } else {
+                            // gnuplot
+                            float ticks = vrt_context.sample_rate/(4e6);
+                            float binsize = (double)vrt_context.sample_rate/(double)num_bins;
+                            printf("set term %s 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ", DEFAULT_GNUPLOT_TERMINAL, ticks);
+                            printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
+
+                            for (uint32_t i = 0; i < num_bins; ++i) {
+                                magnitudes[i] /= (double)integrations;
+                                printf("%.3f, %.3f\n", ((double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2))/1e6, 10*log10(magnitudes[i]));
+                            }
+                            printf("e\n");
                         }
-                        if (log_temp) {
-                           printf(", %.2f", vrt_context.temperature); 
-                        }
-                        if (dt_trace) {
-                            printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
-                                ((180.0/M_PI)*dt_ext_context.azimuth),
-                                ((180.0/M_PI)*dt_ext_context.elevation),
-                                ((12.0/M_PI)*dt_ext_context.ra_current),
-                                ((180.0/M_PI)*dt_ext_context.dec_current),
-                                ((180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
-                                ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
-                                dt_ext_context.focusbox);
-                        }
-                        for (uint32_t i = 0; i < num_bins; ++i) {
-                            magnitudes[i] /= (double)integrations;
-                            if (db)
-                                printf(", %.3f", 10*log10(magnitudes[i]));
-                            else
-                                printf(", %.3f", magnitudes[i]);
-                        }
+
                         integration_counter = 0;
                         memset(magnitudes, 0, num_bins*sizeof(double));
-                        printf("\n");
                         fflush(stdout);
                     }
                 }
