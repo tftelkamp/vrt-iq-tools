@@ -100,7 +100,7 @@ int main(int argc, char* argv[])
     float bin_size, integration_time = 0.0;
  
     // variables to be set by po
-    std::string file, type, zmq_address;
+    std::string file, type, zmq_address, gnuplot_terminal, gnuplot_commands;;
     size_t num_requested_samples;
     uint32_t bins, updates_per_second;
     double total_time;
@@ -130,7 +130,9 @@ int main(int argc, char* argv[])
         ("integrations", po::value<uint32_t>(&integrations)->default_value(1), "number of integrations")
         ("integration-time", po::value<float>(&integration_time), "integration time (seconds)")
         ("updates", po::value<uint32_t>(&updates_per_second)->default_value(1), "Updates per second (default 1)")
-        ("gnuplot", "gnuplot mode")
+        ("gnuplot", "Gnuplot mode")
+        ("gnuplot-commands", po::value<std::string>(&gnuplot_commands)->default_value(""), "Extra gnuplot commands like \"set yr [ymin:ymax];\"")
+        ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
         ("db", "output power in dB")
         ("center-freq", "output center frequency")
         ("temperature", "output temperature")
@@ -360,7 +362,8 @@ int main(int argc, char* argv[])
                             // gnuplot
                             float ticks = vrt_context.sample_rate/(4e6);
                             float binsize = (double)vrt_context.sample_rate/(double)num_bins;
-                            printf("set term %s 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ", DEFAULT_GNUPLOT_TERMINAL, ticks);
+                            printf("set term %s 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ", gnuplot_terminal.c_str(), ticks);
+                            printf("%s; ", gnuplot_commands.c_str());
                             printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
 
                             for (uint32_t i = 0; i < num_bins; ++i) {
