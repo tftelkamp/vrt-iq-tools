@@ -79,6 +79,7 @@ int main(int argc, char* argv[])
     uint32_t channel;
     uint32_t integrations;
     uint32_t num_bins = 0;
+    uint32_t threads = 1;
     int hwm;
     bool power2;
     size_t num_requested_samples;
@@ -103,6 +104,7 @@ int main(int argc, char* argv[])
         ("power2", po::value<bool>(&power2)->default_value(true), "Round number of bins to nearest power of two")
         ("integrations", po::value<uint32_t>(&integrations)->default_value(1), "number of integrations")
         ("integration-time", po::value<float>(&integration_time), "integration time (seconds)")
+        ("threads", po::value<uint32_t>(&threads)->default_value(1), "enable multi-threading")
         ("progress", "periodically display short-term bandwidth")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
@@ -216,6 +218,8 @@ int main(int argc, char* argv[])
 
             if (total_time > 0)  
                 num_requested_samples = total_time * vrt_context.sample_rate;
+
+            fftw_plan_with_nthreads(threads);
 
             signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);

@@ -61,7 +61,7 @@ vrt_pulsar: vrt_pulsar.cpp
 
 vrt_to_filterbank: vrt_to_filterbank.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_filterbank vrt_to_filterbank.cpp \
-		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
+		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3 -lfftw3_threads
 
 vrt_fftmax_quad: vrt_fftmax_quad.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_fftmax_quad vrt_fftmax_quad.cpp \
