@@ -130,7 +130,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool merge;
 
     // recv_frame_size=1024, num_recv_frames=1024, recv_buff_size
-    std::string stdargs = "num_recv_frames=1024";
+    std::string stdargs = "num_recv_frames=2048";
     std::string args;
 
     // setup the program options
@@ -160,6 +160,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("progress", "periodically display short-term bandwidth")
         ("stats", "show average bandwidth on exit")
         ("pps", "use external pps signal")
+        ("temp", "read temperature sensor")
         // ("vrt", "publish IQ using VRT over ZeroMQ (PUB on port 50100")
         ("int-second", "align start of reception to integer second")
         ("null", "run without streaming")
@@ -193,6 +194,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0; 
     bool enable_udp             = vm.count("udp") > 0;
+    bool enable_temp            = vm.count("temp") > 0;
 
     struct vrt_packet p;
     vrt_init_packet(&p);
@@ -605,9 +607,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 // overflow_message = false;
                 std::cerr
                     << boost::format(
-                           "Got an overflow indication. Please consider the following:\n"
-                           "  Your write medium must sustain a rate of %fMB/s.\n"
-                           "  Dropped samples will not be written to the file.\n")
+                           "Got an overflow indication. Host does not consume data fast enough (%fMB/s).\n")
                            % (usrp->get_rx_rate() * sizeof(std::complex<short>) / 1e6);
                 break;
             }
@@ -653,10 +653,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             for (size_t ch = 0; ch < channel_nums.size(); ch++) {
                 size_t channel = channel_nums[ch];
 
-                uhd::sensor_value_t temp = usrp->get_rx_sensor("temp", channel);
-                          
-                pc.if_context.has.temperature = true;
-                pc.if_context.temperature = temp.to_real();
+                if (enable_temp) {
+                    uhd::sensor_value_t temp = usrp->get_rx_sensor("temp", channel);
+                    pc.if_context.has.temperature = true;
+                    pc.if_context.temperature = temp.to_real();
+                }
 
                 if (context_changed)
                     pc.if_context.context_field_change_indicator = true;
