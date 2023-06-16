@@ -130,7 +130,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool merge;
 
     // recv_frame_size=1024, num_recv_frames=1024, recv_buff_size
-    std::string stdargs = "num_recv_frames=2048";
+    std::string stdargs = "num_recv_frames=1024";
     std::string args;
 
     // setup the program options
