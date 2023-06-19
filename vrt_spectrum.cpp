@@ -111,6 +111,9 @@ int main(int argc, char* argv[])
     uint32_t channel;
     int hwm;
 
+    float min_y = 1e10;
+    float max_y = -1e10;
+
     std::vector<double> poly;
 
     // setup the program options
@@ -138,6 +141,7 @@ int main(int argc, char* argv[])
         ("gnuplot", "Gnuplot mode")
         ("gnuplot-commands", po::value<std::string>(&gnuplot_commands)->default_value(""), "Extra gnuplot commands like \"set yr [ymin:ymax];\"")
         ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
+        ("minmax", "min/max hold for y-axis scale (gnuplot)")
         ("db", "output power in dB")
         ("center-freq", "output center frequency")
         ("temperature", "output temperature")
@@ -178,6 +182,7 @@ int main(int argc, char* argv[])
     bool gnuplot                = vm.count("gnuplot") > 0;
     bool poly_calib             = vm.count("poly") > 0;
     bool iir                    = vm.count("tau") > 0;
+    bool minmax                 = vm.count("minmax") > 0;
 
     if (iir) {
         alpha = (1.0 - exp(-1/(tau/integration_time)));
@@ -378,6 +383,10 @@ int main(int argc, char* argv[])
                             float binsize = (double)vrt_context.sample_rate/(double)num_bins;
                             printf("set term %s 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ", gnuplot_terminal.c_str(), ticks);
                             printf("%s; ", gnuplot_commands.c_str());
+                            if (minmax && (min_y < max_y))
+                                printf("set yr [%f:%f];", min_y, max_y);
+                            else
+                                printf("set offsets 0, 0, 0.2, 0.2;");
                             printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
 
                             int N = poly.size();  
@@ -403,7 +412,12 @@ int main(int argc, char* argv[])
                                     }
                                     correction = 10*log10(correction);
                                 }
-                                printf("%.3f, %.3f\n", freq, 10*log10(filter_out[i])-correction);
+                                float value = 10*log10(filter_out[i])-correction;
+                                if (minmax) {
+                                    min_y = (value < min_y) ? value : min_y;
+                                    max_y = (value > max_y) ? value : max_y;
+                                }
+                                printf("%.3f, %.3f\n", freq, value);
                             }
                             printf("e\n");
                         }
