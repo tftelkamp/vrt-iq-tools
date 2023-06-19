@@ -91,13 +91,15 @@ int main(int argc, char* argv[])
     // FFTW
     fftw_complex *signal, *result;
     fftw_plan plan;
-    double *magnitudes;
+    double *magnitudes, *filter_out;
 
     uint32_t num_points = 0;
     uint32_t num_bins = 0;
 
     bool power2;  
     float bin_size, integration_time = 0.0;
+    double alpha, tau;
+    uint32_t output_counter = 0;
  
     // variables to be set by po
     std::string file, type, zmq_address, gnuplot_terminal, gnuplot_commands;;
@@ -108,6 +110,8 @@ int main(int argc, char* argv[])
     uint16_t port;
     uint32_t channel;
     int hwm;
+
+    std::vector<double> poly;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -129,7 +133,8 @@ int main(int argc, char* argv[])
         ("power2", po::value<bool>(&power2)->default_value(false), "Round number of bins to nearest power of two")
         ("integrations", po::value<uint32_t>(&integrations)->default_value(1), "number of integrations")
         ("integration-time", po::value<float>(&integration_time), "integration time (seconds)")
-        ("updates", po::value<uint32_t>(&updates_per_second)->default_value(1), "Updates per second (default 1)")
+        ("tau", po::value<double>(&tau), "Exponential weighted moving average time constant (sec)")
+        ("poly", po::value<std::vector<double> >(&poly)->multitoken(), "Polynomal coefficients to compensate bandpass")
         ("gnuplot", "Gnuplot mode")
         ("gnuplot-commands", po::value<std::string>(&gnuplot_commands)->default_value(""), "Extra gnuplot commands like \"set yr [ymin:ymax];\"")
         ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
@@ -146,7 +151,8 @@ int main(int argc, char* argv[])
     ;
     // clang-format on
     po::variables_map vm;
-    po::store(po::parse_command_line(argc, argv, desc), vm);
+    // po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::store(po::command_line_parser(argc, argv).options(desc).style(po::command_line_style::unix_style ^ po::command_line_style::allow_short).run(), vm);
     po::notify(vm);
 
     // print the help message
@@ -170,6 +176,12 @@ int main(int argc, char* argv[])
     bool log_freq               = vm.count("center-freq") > 0;
     bool log_temp               = vm.count("temperature") > 0;
     bool gnuplot                = vm.count("gnuplot") > 0;
+    bool poly_calib             = vm.count("poly") > 0;
+    bool iir                    = vm.count("tau") > 0;
+
+    if (iir) {
+        alpha = (1.0 - exp(-1/(tau/integration_time)));
+    }
 
     if (int_interval && int(integration_time) == 0) {
         throw(std::runtime_error("--int-interval requires --integration_time > 1"));
@@ -253,6 +265,8 @@ int main(int argc, char* argv[])
             plan = fftw_plan_dft_1d(num_bins, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
             magnitudes = (double*)malloc(num_bins * sizeof(double));
             memset(magnitudes, 0, num_bins*sizeof(double));
+            filter_out = (double*)malloc(num_bins * sizeof(double));
+            memset(filter_out, 0, num_bins*sizeof(double));
             
             printf("# Spectrum parameters:\n");
             printf("#    Bins: %u\n", num_bins);
@@ -366,9 +380,30 @@ int main(int argc, char* argv[])
                             printf("%s; ", gnuplot_commands.c_str());
                             printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
 
+                            int N = poly.size();  
+                            output_counter++;
+
                             for (uint32_t i = 0; i < num_bins; ++i) {
                                 magnitudes[i] /= (double)integrations;
-                                printf("%.3f, %.3f\n", ((double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2))/1e6, 10*log10(magnitudes[i]));
+
+                                if (iir) {
+                                    double current_alpha = (1.0/(float)output_counter > alpha) ? 1.0/(float)output_counter : alpha;
+                                    filter_out[i] += (double)current_alpha*(magnitudes[i]-filter_out[i]);
+                                } else {
+                                    filter_out[i] = magnitudes[i];
+                                }
+                                double offset = (i+0.5)*binsize - vrt_context.sample_rate/2;
+                                double freq = ((double)vrt_context.rf_freq + offset)/1e6;
+                                
+                                double correction = 0;
+
+                                if  (poly_calib) {
+                                    for (int32_t p = 0; p < N; p++) {
+                                        correction += poly[p] * pow(offset, int(N-p-1));
+                                    }
+                                    correction = 10*log10(correction);
+                                }
+                                printf("%.3f, %.3f\n", freq, 10*log10(filter_out[i])-correction);
                             }
                             printf("e\n");
                         }
