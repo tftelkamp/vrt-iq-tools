@@ -609,7 +609,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                     << boost::format(
                            "Got an overflow indication. Host does not consume data fast enough (%fMB/s).\n")
                            % (usrp->get_rx_rate() * sizeof(std::complex<short>) / 1e6);
-                break;
+                if (!continue_on_bad_packet)
+                    break;
             }
             continue;
         }
