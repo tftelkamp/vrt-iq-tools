@@ -143,6 +143,7 @@ int main(int argc, char* argv[])
         ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
         ("minmax", "min/max hold for y-axis scale (gnuplot)")
         ("db", "output power in dB")
+        ("ecsv", "output in ECSV format (Astropy)")
         ("center-freq", "output center frequency")
         ("temperature", "output temperature")
         ("null", "run without writing to file")
@@ -183,6 +184,7 @@ int main(int argc, char* argv[])
     bool poly_calib             = vm.count("poly") > 0;
     bool iir                    = vm.count("tau") > 0;
     bool minmax                 = vm.count("minmax") > 0;
+    bool ecsv                   = vm.count("ecsv") > 0;
 
     if (iir) {
         alpha = (1.0 - exp(-1/(tau/integration_time)));
@@ -245,7 +247,8 @@ int main(int argc, char* argv[])
         }
 
         if (not start_rx and vrt_packet.context) {
-            vrt_print_context(&vrt_context);
+            if (!ecsv)
+                vrt_print_context(&vrt_context);
             start_rx = true;
 
             if (vm.count("bin-size")) {
@@ -273,11 +276,63 @@ int main(int argc, char* argv[])
             filter_out = (double*)malloc(num_bins * sizeof(double));
             memset(filter_out, 0, num_bins*sizeof(double));
             
-            printf("# Spectrum parameters:\n");
-            printf("#    Bins: %u\n", num_bins);
-            printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
-            printf("#    Integrations: %u\n", integrations);
-            printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
+            if (!ecsv) {
+                printf("# Spectrum parameters:\n");
+                printf("#    Bins: %u\n", num_bins);
+                printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
+                printf("#    Integrations: %u\n", integrations);
+                printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
+            } else {
+                uint32_t first_col = 1;
+                printf("# %%ECSV 1.0\n");
+                printf("# ---\n");
+                printf("# datatype:\n");
+                printf("# - {name: timestamp, datatype: float64}\n");
+                if (log_freq) {
+                    printf("# - {name: center_freq_hz, unit: Hz, datatype: float64}\n");
+                    first_col++;
+                }
+                if (log_temp) {
+                    printf("# - {name: temperature_deg_c, datatype: float64}\n");
+                    first_col++;
+                }
+                if (dt_trace) {
+                    printf("# - {name: current_az_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: current_el_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: current_ra_h, unit: h, datatype: float64}\n");
+                    printf("# - {name: current_dec_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: radec_error_angle_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: radec_error_bearing_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: focusbox_mm, unit: mm, datatype: float64}\n");
+                    first_col += 7;
+                }
+                float binsize = (double)vrt_context.sample_rate/(double)num_bins;
+                for (uint32_t i = 0; i < num_bins; ++i) {
+                        printf("# - {name: \'%.0f\', datatype: float64}\n", (double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2));
+                }
+                
+                uint32_t ch=0;
+                while(not (vrt_context.stream_id & (1 << ch) ) )
+                    ch++;
+                printf("# delimiter: \',\'\n");
+                printf("# meta: !!omap\n");
+                printf("# - vrt: !!omap\n");
+                printf("#   - {stream_id: %u}\n", vrt_context.stream_id);
+                printf("#   - {channel: %u}\n", ch);
+                printf("#   - {sample_rate: %.1f}\n", (float)vrt_context.sample_rate);
+                printf("#   - {frequency: %.1f}\n", (float)vrt_context.rf_freq);
+                printf("#   - {bandwidth: %.1f}\n", (float)vrt_context.bandwidth);
+                printf("#   - {rx_gain: %.1f}\n", (float)vrt_context.gain);
+                printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
+                printf("#   - {time_source: %s}\n", vrt_context.time_cal == 1? "pps" : "internal");
+                printf("# - spectrum: !!omap\n");
+                printf("#   - {bins: %u}\n", num_bins);
+                printf("#   - {col_first_bin: %u}\n", first_col);
+                printf("#   - {bin_size: %.2f}\n", ((double)vrt_context.sample_rate)/((double)num_bins));
+                printf("#   - {integrations: %u}\n", integrations);
+                printf("#   - {integration_time: %.2f}\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
+                printf("# schema: astropy-2.0\n");
+            }
 
             // Header
             if (!gnuplot) {
