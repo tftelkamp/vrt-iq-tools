@@ -326,6 +326,7 @@ int main(int argc, char* argv[])
                 printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
                 printf("#   - {time_source: %s}\n", vrt_context.time_cal == 1? "pps" : "internal");
                 printf("# - spectrum: !!omap\n");
+                printf("#   - {db: %s}\n", db ? "True" : "False");
                 printf("#   - {bins: %u}\n", num_bins);
                 printf("#   - {col_first_bin: %u}\n", first_col);
                 printf("#   - {bin_size: %.2f}\n", ((double)vrt_context.sample_rate)/((double)num_bins));
