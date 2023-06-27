@@ -425,12 +425,39 @@ int main(int argc, char* argv[])
                                     ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
                                     dt_ext_context.focusbox);
                             }
+
+                            int N = poly.size();  
+                            output_counter++;
+
                             for (uint32_t i = 0; i < num_bins; ++i) {
                                 magnitudes[i] /= (double)integrations;
-                                if (db)
-                                    printf(", %.3f", 10*log10(magnitudes[i]));
-                                else
-                                    printf(", %.3f", magnitudes[i]);
+
+                                if (iir) {
+                                    double current_alpha = (1.0/(float)output_counter > alpha) ? 1.0/(float)output_counter : alpha;
+                                    filter_out[i] += (double)current_alpha*(magnitudes[i]-filter_out[i]);
+                                } else {
+                                    filter_out[i] = magnitudes[i];
+                                }
+
+                                float binsize = (double)vrt_context.sample_rate/(double)num_bins;
+                                double offset = (i+0.5)*binsize - vrt_context.sample_rate/2;
+                                
+                                double correction = 1;
+
+                                if  (poly_calib) {
+                                    correction = 0;
+                                    for (int32_t p = 0; p < N; p++) {
+                                        correction += poly[p] * pow(offset, int(N-p-1));
+                                    }
+                                }
+                                if (db) {
+                                    correction = 10*log10(correction);
+                                    float value = 10*log10(filter_out[i])-correction;
+                                    printf(", %.3f", value);
+                                } else {
+                                    float value = filter_out[i]/correction;
+                                    printf(", %.3f", value);
+                                }
                             }
                             printf("\n");
                         } else {
