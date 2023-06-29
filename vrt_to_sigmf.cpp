@@ -91,7 +91,7 @@ int main(int argc, char* argv[])
 
     desc.add_options()
         ("help", "help message")
-        ("file", po::value<std::string>(&file)->default_value("usrp_samples.dat"), "name of the file to write binary samples to")
+        ("file", po::value<std::string>(&file)->default_value("vrt_samples"), "name of the file to write binary samples to")
         ("auto-file", po::value<std::string>(&auto_file), "prefix of the auto generated filename to write binary samples to")
         // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
@@ -105,6 +105,7 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("meta-only", "only create sigmf-meta file")
         ("dt-trace", "add DT trace data")
+        ("vrt", "write VRT stream to file")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
@@ -134,6 +135,7 @@ int main(int argc, char* argv[])
     bool int_second             = vm.count("int-second") > 0;
     bool has_author             = vm.count("author") > 0;
     bool has_desc               = vm.count("description") > 0;
+    bool vrt                    = vm.count("vrt") > 0;
 
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
@@ -158,7 +160,10 @@ int main(int argc, char* argv[])
     std::string mdfilename;
     std::ofstream mdfile;
     mdfilename = file + ".sigmf-meta";
-    file = file + ".sigmf-data";
+    if (vrt)
+        file = file + ".sigmf-vrt";
+    else
+        file = file + ".sigmf-data";
 
     if (not null) 
         for (size_t i = 0; i < channel_nums.size(); i++) {
@@ -232,6 +237,9 @@ int main(int argc, char* argv[])
 
         uint32_t channel = channel_nums[ch];
 
+        if (vrt and not null and not meta_only)
+            outfiles[ch]->write((const char*)&buffer, len);
+
         if ( not (context_recv & vrt_packet.stream_id) and vrt_packet.context 
              and not first_frame and not (dt_trace and not dt_ext_context.dt_ext_context_received)) {
 
@@ -248,9 +256,18 @@ int main(int argc, char* argv[])
                     "    \"global\": {\n"
                     "        \"core:version\": \"1.0.0\",\n"
                     "        \"core:recorder\": \"vrt_to_sigmf\",\n"
-                    "        \"core:sample_rate\": %u,\n"
-                    "        \"core:datatype\": \"ci16_le\",\n")
-                    % vrt_context.sample_rate);
+                    "        \"core:sample_rate\": %u,\n") % vrt_context.sample_rate);
+                    if (vrt) {
+                        json += str(boost::format(
+                        "        \"core:datatype\": \"vrt\",\n"));
+                    } else {
+                        json += str(boost::format(
+                        "        \"core:datatype\": \"ci16_le\",\n"));
+                    }
+                    if (vrt and not do_auto_file)
+                        json += str(boost::format(
+                        "        \"core:dataset\": \"%s\",\n")
+                        % file);
                     if (has_author) {
                         json += str(boost::format(
                         "        \"core:author\": \"%s\",\n")
@@ -361,6 +378,8 @@ int main(int argc, char* argv[])
  
         if (vrt_packet.extended_context) {
             dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
+            if (vrt and not null and not meta_only)
+                outfiles[ch]->write((const char*)&buffer, len);
         }
 
         if (vrt_packet.data) {
@@ -397,7 +416,7 @@ int main(int argc, char* argv[])
             }
 
             // Write to file
-            if (not null and not meta_only) {
+            if (not vrt and not null and not meta_only) {
                 outfiles[ch]->write(
                     (const char*)&buffer[vrt_packet.offset], sizeof(uint32_t)*vrt_packet.num_rx_samps);
             }
@@ -462,7 +481,11 @@ int main(int argc, char* argv[])
                     % (vrt_context.sample_rate/1e6);
 
         std::string auto_mdfilename = auto_format.str() + ".sigmf-meta";
-        std::string auto_bin_file = auto_format.str() + ".sigmf-data";
+        std::string auto_bin_file;
+        if (vrt)
+            auto_bin_file = auto_format.str() + ".sigmf-vrt";
+        else 
+            auto_bin_file = auto_format.str() + ".sigmf-data";
 
         if (not null) 
             for (size_t i = 0; i < channel_nums.size(); i++) {

@@ -107,6 +107,7 @@ int main(int argc, char* argv[])
         ("stats", "show average bandwidth on exit")
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
+        ("vrt", "read VRT stream from file")
         ("repeat", "repeat the input file")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
@@ -136,6 +137,7 @@ int main(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool dual_chan              = vm.count("dual-chan") > 0;
     bool repeat                 = vm.count("repeat") > 0;
+    bool vrt                    = vm.count("vrt") > 0;
 
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
@@ -182,7 +184,7 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    if (type != "ci16_le") {
+    if (not vrt and type != "ci16_le") {
         printf("Only 16 bit complex int data formmat supported (\"ci16_le\")\n");
         exit(1);
     }
@@ -193,7 +195,10 @@ int main(int argc, char* argv[])
     // Open data file
 
     std::string data_filename;
-    base_fn_fp.replace_extension(".sigmf-data");
+    if (vrt)
+        base_fn_fp.replace_extension(".sigmf-vrt");
+    else 
+        base_fn_fp.replace_extension(".sigmf-data");
     data_filename = base_fn_fp.string();
 
     printf("SigMF Data Filename: %s\n", data_filename.c_str());
@@ -266,6 +271,7 @@ int main(int argc, char* argv[])
     uint32_t frame_count = 0;
     uint32_t num_words_read=0;
 
+    uint32_t first_word;
     std::complex<short> samples[samps_per_buff];
 
     timeval time_first_sample;
@@ -298,7 +304,7 @@ int main(int argc, char* argv[])
         std::this_thread::sleep_for(wait_time);   
 
         const auto time_since_last_context = now - last_context;
-        if (time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL)) {
+        if (not vrt and time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL)) {
 
             last_context = now;
 
@@ -347,7 +353,7 @@ int main(int argc, char* argv[])
 
         // Read
 
-        if (fread(samples, sizeof(samples), 1, read_ptr) == 1) {
+        if (not vrt and fread(samples, sizeof(samples), 1, read_ptr) == 1) {
 
             num_words_read = samps_per_buff;
 
@@ -404,7 +410,6 @@ int main(int argc, char* argv[])
                     else 
                         break;
                 }
-
             }
 
             frame_count++;
@@ -442,6 +447,14 @@ int main(int argc, char* argv[])
 
                 }
             }
+        } else if (vrt and fread(&first_word, sizeof(first_word), 1, read_ptr) == 1) {
+            uint16_t words = ntohl(first_word);
+            uint32_t type = ntohl(first_word)>>28;
+            if (type == 1)
+                frame_count++;
+            fseek(read_ptr, -sizeof(uint32_t), SEEK_CUR );
+            fread(samples, words*sizeof(uint32_t), 1, read_ptr);
+            zmq_send (zmq_server, samples, words*sizeof(uint32_t), 0);
         } else {
             printf("no more samples in data file\n");
             if (repeat) 
