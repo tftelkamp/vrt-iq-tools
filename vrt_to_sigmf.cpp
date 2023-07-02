@@ -238,7 +238,7 @@ int main(int argc, char* argv[])
         uint32_t channel = channel_nums[ch];
 
         if (vrt and not null and not meta_only)
-            outfiles[ch]->write((const char*)&buffer, len);
+            outfiles[0]->write((const char*)&buffer, len);
 
         if ( not (context_recv & vrt_packet.stream_id) and vrt_packet.context 
              and not first_frame and not (dt_trace and not dt_ext_context.dt_ext_context_received)) {
