@@ -378,8 +378,6 @@ int main(int argc, char* argv[])
  
         if (vrt_packet.extended_context) {
             dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
-            if (vrt and not null and not meta_only)
-                outfiles[ch]->write((const char*)&buffer, len);
         }
 
         if (vrt_packet.data) {
