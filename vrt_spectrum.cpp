@@ -308,7 +308,7 @@ int main(int argc, char* argv[])
                 }
                 float binsize = (double)vrt_context.sample_rate/(double)num_bins;
                 for (uint32_t i = 0; i < num_bins; ++i) {
-                        printf("# - {name: \'%.0f\', datatype: float64}\n", (double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2));
+                        printf("# - {name: \'%.0f\', datatype: float64}\n", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
                 }
                 
                 uint32_t ch=0;
@@ -320,7 +320,7 @@ int main(int argc, char* argv[])
                 printf("#   - {stream_id: %u}\n", vrt_context.stream_id);
                 printf("#   - {channel: %u}\n", ch);
                 printf("#   - {sample_rate: %.1f}\n", (float)vrt_context.sample_rate);
-                printf("#   - {frequency: %.1f}\n", (float)vrt_context.rf_freq);
+                printf("#   - {frequency: %.1f}\n", (double)vrt_context.rf_freq);
                 printf("#   - {bandwidth: %.1f}\n", (float)vrt_context.bandwidth);
                 printf("#   - {rx_gain: %.1f}\n", (float)vrt_context.gain);
                 printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
@@ -346,7 +346,7 @@ int main(int argc, char* argv[])
                 if (dt_trace) 
                     printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
                 for (uint32_t i = 0; i < num_bins; ++i) {
-                        printf(", %.0f", (double)(vrt_context.rf_freq + (i+0.5)*binsize - vrt_context.sample_rate/2));
+                        printf(", %.0f", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
                 }
                 printf("\n");
             }
@@ -440,7 +440,7 @@ int main(int argc, char* argv[])
                                 }
 
                                 float binsize = (double)vrt_context.sample_rate/(double)num_bins;
-                                double offset = (i+0.5)*binsize - vrt_context.sample_rate/2;
+                                double offset = i*binsize - vrt_context.sample_rate/2;
                                 
                                 double correction = 1;
 
@@ -484,7 +484,7 @@ int main(int argc, char* argv[])
                                 } else {
                                     filter_out[i] = magnitudes[i];
                                 }
-                                double offset = (i+0.5)*binsize - vrt_context.sample_rate/2;
+                                double offset = i*binsize - vrt_context.sample_rate/2;
                                 double freq = ((double)vrt_context.rf_freq + offset)/1e6;
                                 
                                 double correction = 0;
