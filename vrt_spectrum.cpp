@@ -301,10 +301,12 @@ int main(int argc, char* argv[])
                     printf("# - {name: current_el_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: current_ra_h, unit: h, datatype: float64}\n");
                     printf("# - {name: current_dec_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: setpoint_ra_h, unit: deg, datatype: float64}\n");
+                    printf("# - {name: setpoint_dec_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: radec_error_angle_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: radec_error_bearing_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: focusbox_mm, unit: mm, datatype: float64}\n");
-                    first_col += 7;
+                    first_col += 9;
                 }
                 float binsize = (double)vrt_context.sample_rate/(double)num_bins;
                 for (uint32_t i = 0; i < num_bins; ++i) {
@@ -344,7 +346,7 @@ int main(int argc, char* argv[])
                 if (log_temp)
                     printf(", temperature_deg_c");
                 if (dt_trace) 
-                    printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
+                    printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
                 for (uint32_t i = 0; i < num_bins; ++i) {
                         printf(", %.0f", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
                 }
@@ -416,11 +418,13 @@ int main(int argc, char* argv[])
                                printf(", %.2f", vrt_context.temperature); 
                             }
                             if (dt_trace) {
-                                printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
+                                printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
                                     ((180.0/M_PI)*dt_ext_context.azimuth),
                                     ((180.0/M_PI)*dt_ext_context.elevation),
                                     ((12.0/M_PI)*dt_ext_context.ra_current),
                                     ((180.0/M_PI)*dt_ext_context.dec_current),
+                                    ((12.0/M_PI)*dt_ext_context.ra_setpoint),
+                                    ((180.0/M_PI)*dt_ext_context.dec_setpoint),
                                     ((180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
                                     ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
                                     dt_ext_context.focusbox);
