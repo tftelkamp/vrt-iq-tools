@@ -299,6 +299,8 @@ int main(int argc, char* argv[])
                 if (dt_trace) {
                     printf("# - {name: current_az_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: current_el_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: current_az_error_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: current_el_error_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: current_ra_h, unit: h, datatype: float64}\n");
                     printf("# - {name: current_dec_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: setpoint_ra_h, unit: deg, datatype: float64}\n");
@@ -346,7 +348,7 @@ int main(int argc, char* argv[])
                 if (log_temp)
                     printf(", temperature_deg_c");
                 if (dt_trace) 
-                    printf(", current_az_deg, current_el_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
+                    printf(", current_az_deg, current_el_deg, current_az_error_deg, current_el_error_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
                 for (uint32_t i = 0; i < num_bins; ++i) {
                         printf(", %.0f", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
                 }
@@ -418,9 +420,11 @@ int main(int argc, char* argv[])
                                printf(", %.2f", vrt_context.temperature); 
                             }
                             if (dt_trace) {
-                                printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
+                                printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
                                     ((180.0/M_PI)*dt_ext_context.azimuth),
                                     ((180.0/M_PI)*dt_ext_context.elevation),
+                                    ((180.0/M_PI)*dt_ext_context.azimuth_error),
+                                    ((180.0/M_PI)*dt_ext_context.elevation_error),
                                     ((12.0/M_PI)*dt_ext_context.ra_current),
                                     ((180.0/M_PI)*dt_ext_context.dec_current),
                                     ((12.0/M_PI)*dt_ext_context.ra_setpoint),
