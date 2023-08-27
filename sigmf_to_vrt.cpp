@@ -467,7 +467,7 @@ int main(int argc, char* argv[])
     const auto actual_stop_time = std::chrono::steady_clock::now();
 
 
-    if (stats) {
+    if (stats and not vrt) {
         std::cout << std::endl;
         const double actual_duration_seconds =
             std::chrono::duration<float>(actual_stop_time - start_time).count();
