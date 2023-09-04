@@ -116,15 +116,153 @@ inline float get_abs_val(std::complex<int8_t> t)
     return std::fabs(t.real());
 }
 
+
+void transmit_worker(uhd::usrp::multi_usrp::sptr usrp, 
+                     uhd::tx_streamer::sptr tx_streamer,
+                     void *zmq_transmit,
+                     double tx_freq,
+                     double tx_lo_offset,
+                     double tx_gain)
+   {
+
+    std::vector<std::complex<short>> buff(VRT_SAMPLES_PER_PACKET);
+    std::vector<std::complex<short>*> buffs(1, &buff.front());
+
+    size_t samps_per_buff = VRT_SAMPLES_PER_PACKET; // spb
+    uint32_t tx_zmq_buffer[VRT_DATA_PACKET_SIZE];
+
+    uhd::tx_metadata_t metadata;
+    metadata.start_of_burst = true;
+    metadata.end_of_burst   = false;
+    metadata.has_time_spec  = false;
+
+    // send data until the signal handler gets called
+    while (not stop_signal_called) {
+
+        // Receive data
+        int len = zmq_recv(zmq_transmit, tx_zmq_buffer, 100000, ZMQ_NOBLOCK);
+        
+        if (len > 0) {
+
+            // metadata.time_spec = uhd::time_spec_t(usrp->get_time_now() + uhd::time_spec_t(0.5));
+
+            struct vrt_header h;
+            struct vrt_fields f;
+
+            int32_t offset = 0;
+            int32_t size = ZMQ_BUFFER_SIZE;
+            int32_t rv = vrt_read_header(tx_zmq_buffer + offset, size - offset, &h, true);
+
+            /* Parse header */
+            if (rv < 0) {
+                fprintf(stderr, "Failed to parse header: %s\n", vrt_string_error(rv));
+                break;
+            }
+            offset += rv;
+
+            if (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID) {
+
+                /* Parse fields */
+                rv = vrt_read_fields(&h, tx_zmq_buffer + offset, size - offset, &f, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
+                    break;
+                }
+                offset += rv;
+
+                uint32_t num_rx_samps = (h.packet_size-offset);
+                uint32_t stream_id = f.stream_id;
+
+                if (num_rx_samps <= VRT_SAMPLES_PER_PACKET) {
+
+                    for (uint32_t i = 0; i < num_rx_samps; i++) {
+                        int16_t re;
+                        memcpy(&re, (char*)&tx_zmq_buffer[offset+i], 2);
+                        int16_t img;
+                        memcpy(&img, (char*)&tx_zmq_buffer[offset+i]+2, 2);
+
+                        buff[i] = std::complex<short>(re, img);
+                    }
+                    
+                    // send the entire contents of the ZMQ buffer
+                    tx_streamer->send(buffs, num_rx_samps, metadata);
+
+                    metadata.start_of_burst = false;
+                    metadata.has_time_spec  = false;
+                }
+            } else if (h.packet_type == VRT_PT_IF_CONTEXT) {
+                // Context
+
+                /* Parse fields */
+                rv = vrt_read_fields(&h, tx_zmq_buffer + offset, size - offset, &f, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
+                    break;
+                }
+                offset += rv;
+
+                struct vrt_if_context c;
+                rv = vrt_read_if_context(tx_zmq_buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
+                    break;
+                }
+
+                if (c.context_field_change_indicator) {
+                    double lo_offset = 0;
+                    if (c.has.if_band_offset) {
+                        tx_lo_offset = c.if_band_offset;
+                    }
+
+                    if (c.has.rf_reference_frequency) {
+                        if (tx_freq != (double)round(c.rf_reference_frequency)) {
+                            tx_freq = (double)round(c.rf_reference_frequency);
+                            std::cout << boost::format("    Setting TX Freq: %f MHz...") % (tx_freq / 1e6)
+                                      << std::endl;
+                            std::cout << boost::format("    Setting TX LO Offset: %f MHz...") % (tx_lo_offset / 1e6)
+                                      << std::endl;
+                            uhd::tune_request_t tune_request(tx_freq, lo_offset);
+                            // if (vm.count("int-n"))
+                            //     tune_request.args = uhd::device_addr_t("mode_n=integer");
+                            usrp->set_tx_freq(tune_request);
+                            std::cout << boost::format("    Actual TX Freq: %f MHz...")
+                                             % (usrp->get_tx_freq() / 1e6)
+                                      << std::endl;
+                        }
+                    }
+                    if (c.has.gain) {
+                        if (tx_gain != c.gain.stage1) {
+                            tx_gain = c.gain.stage1;
+                            std::cout << boost::format("    Setting TX Gain: %f dB...") % tx_gain << std::endl;
+                            usrp->set_tx_gain(tx_gain);
+                            std::cout << boost::format("    Actual TX Gain: %f dB...")
+                                             % usrp->get_tx_gain()
+                                      << std::endl;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // send a mini EOB packet
+    metadata.end_of_burst = true;
+    metadata.start_of_burst = false;
+    metadata.has_time_spec  = false;
+    tx_streamer->send("", 0, metadata);
+}
+
+
 int UHD_SAFE_MAIN(int argc, char* argv[])
 {
     // variables to be set by po
     std::string file, type, ant_list, subdev, ref, wirefmt, channel_list, gain_list, udp_forward, merge_address;
     size_t total_num_samps, spb;
     uint16_t port, merge_port;
+    uint16_t tx_gain;
     int hwm;
     uint32_t stream_id;
-    double rate, freq, bw, total_time, setup_time, lo_offset;
+    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq;
 
     bool context_changed = true;
     bool merge;
@@ -154,6 +292,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("usrp-channel", po::value<std::string>(&channel_list)->default_value("0"), "which usrp channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         ("bw", po::value<double>(&bw), "analog frontend filter bandwidth in Hz")
         ("ref", po::value<std::string>(&ref)->default_value("internal"), "reference source (internal, external, mimo, gpsdo)")
+        ("tx", "enable tx")
+        ("tx-freq", po::value<double>(&tx_freq)->default_value(0.0), "TX RF center frequency in Hz")
+        ("tx-gain", po::value<uint16_t>(&tx_gain)->default_value(0), "gain for the TX RF chain")
         ("wirefmt", po::value<std::string>(&wirefmt)->default_value("sc16"), "wire format (sc8, sc16 or s16)")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
         ("udp", po::value<std::string>(&udp_forward), "VRT UDP forward address")
@@ -195,6 +336,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0; 
     bool enable_udp             = vm.count("udp") > 0;
     bool enable_temp            = vm.count("temp") > 0;
+    bool enable_tx              = vm.count("tx") > 0;
 
     struct vrt_packet p;
     vrt_init_packet(&p);
@@ -214,6 +356,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // ZMQ
     void *zmq_server;
     void *zmq_control;
+    void *zmq_transmit;
 
     void *context = zmq_ctx_new();
     void *responder = zmq_socket(context, ZMQ_PUB);
@@ -229,6 +372,14 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     assert (rc == 0);
     zmq_control = responder;
     zmq_setsockopt(zmq_control, ZMQ_SUBSCRIBE, "", 0);
+
+    if (enable_tx) {
+        responder = zmq_socket(context, ZMQ_SUB);
+        rc = zmq_bind(responder, "tcp://*:50500");
+        assert (rc == 0);
+        zmq_transmit = responder;
+        zmq_setsockopt(zmq_transmit, ZMQ_SUBSCRIBE, "", 0);
+    }
 
     // Merge
     void *merge_zmq = zmq_socket(context, ZMQ_SUB);
@@ -325,6 +476,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
               << std::endl
               << std::endl;
 
+    if (enable_tx) {
+        std::cout << boost::format("Setting TX Rate: %f Msps...") % (rate / 1e6) << std::endl;
+        usrp->set_tx_rate(rate);
+        std::cout << boost::format("Actual TX Rate: %f Msps...")
+                         % (usrp->get_tx_rate() / 1e6)
+                  << std::endl
+                  << std::endl;
+    }
+
     std::vector<size_t> gains;
     if (vm.count("gain")) {
         std::vector<std::string> gain_strings;
@@ -401,6 +561,43 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                       << std::endl
                       << std::endl;
         }
+    }
+
+    if (enable_tx) {
+
+        // Freq
+        if (freq < 5e6) {
+            throw std::runtime_error("TX frequency should be given in Hz.\n" +
+                                     std::to_string(tx_freq) + "Hz is probably not what you meant!");
+        }
+        std::cout << boost::format("Setting TX Freq: %f MHz...") % (tx_freq / 1e6)
+                  << std::endl;
+        std::cout << boost::format("Setting TX LO Offset: %f MHz...") % (lo_offset / 1e6)
+                  << std::endl;
+        uhd::tune_request_t tune_request(tx_freq, lo_offset);
+        if (vm.count("int-n"))
+            tune_request.args = uhd::device_addr_t("mode_n=integer");
+        usrp->set_tx_freq(tune_request);
+        std::cout << boost::format("Actual TX Freq: %f MHz...")
+                         % (usrp->get_tx_freq() / 1e6)
+                  << std::endl
+                  << std::endl;
+
+        // Gain
+        std::cout << boost::format("Setting TX Gain: %f dB...") % tx_gain << std::endl;
+        usrp->set_tx_gain(tx_gain);
+        std::cout << boost::format("Actual TX Gain: %f dB...")
+                         % usrp->get_tx_gain()
+                  << std::endl
+                  << std::endl;
+
+        // std::cout << boost::format("Setting TX Bandwidth: %f MHz...") % (tx_bw / 1e6)
+        //           << std::endl;
+        // tx_usrp->set_tx_bandwidth(tx_bw);
+        std::cout << boost::format("Actual TX Bandwidth: %f MHz...")
+                         % (usrp->get_tx_bandwidth() / 1e6)
+                  << std::endl
+                  << std::endl;
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
@@ -511,6 +708,25 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         gettimeofday(&time_now, nullptr);
         std::cout << boost::format("PC Clock time:              %.6f seconds\n") % (time_now.tv_sec + (double)time_now.tv_usec / 1e6);
     }
+
+    // TX
+    std::thread transmit_thread;
+    uhd::tx_streamer::sptr tx_stream;
+
+    if (enable_tx) {
+        std::vector<size_t> tx_channel_nums;
+        tx_channel_nums.push_back(0);
+        uhd::stream_args_t tx_stream_args("sc16", "sc16");
+        tx_stream_args.channels = tx_channel_nums;
+        tx_stream = usrp->get_tx_stream(tx_stream_args);
+
+        // start thread
+        transmit_thread = std::thread([&]() {
+            transmit_worker(usrp, tx_stream, zmq_transmit, tx_freq, lo_offset, tx_gain);
+        });
+    }
+
+    // RX
 
     if (total_num_samps == 0) {
         std::signal(SIGINT, &sig_int_handler);
@@ -866,6 +1082,14 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     stream_cmd.stream_mode = uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS;
     rx_stream->issue_stream_cmd(stream_cmd);
     rx_stream.reset();
+
+    // clean up transmit worker
+    stop_signal_called = true;
+    if (enable_tx) {
+        transmit_thread.join();
+        tx_stream.reset();
+    }
+
     usrp.reset();
 
     if (stats) {
