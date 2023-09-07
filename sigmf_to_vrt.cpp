@@ -317,7 +317,7 @@ int main(int argc, char* argv[])
             vrt_init_context_packet(&pc);
 
             pc.fields.integer_seconds_timestamp = vrt_time.tv_sec;
-            pc.fields.fractional_seconds_timestamp = 1e3*vrt_time.tv_usec;
+            pc.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
 
             pc.fields.stream_id = 1;
 
