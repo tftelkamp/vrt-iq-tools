@@ -148,6 +148,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 
             struct vrt_header h;
             struct vrt_fields f;
+            struct vrt_trailer t;
 
             int32_t offset = 0;
             int32_t size = ZMQ_BUFFER_SIZE;
@@ -170,7 +171,35 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                 }
                 offset += rv;
 
-                uint32_t num_rx_samps = (h.packet_size-offset);
+                // Add check for missing packets
+
+                uint32_t trailer_words = 0;
+
+                if (h.has.trailer) {
+                    
+                    trailer_words = 1;
+
+                    rv = vrt_read_trailer(tx_zmq_buffer + h.packet_size -1, size, &t);
+                    if (rv < 0) {
+                        fprintf(stderr, "Failed to parse trailer section: %s\n", vrt_string_error(rv));
+                        break;
+                    }
+                    
+                    if (t.has.user_defined8) {
+                        if (t.user_defined8) {
+                            printf("timed transmit queued\n");
+                            timeval vrt_time;
+                            vrt_time.tv_sec = f.integer_seconds_timestamp;
+                            vrt_time.tv_usec = f.fractional_seconds_timestamp/1e6;
+                            uhd::time_spec_t start_time(vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
+                            metadata.has_time_spec = true;
+                            metadata.time_spec = start_time;
+                        }
+                    }
+                }
+
+                uint32_t num_rx_samps = (h.packet_size-offset-trailer_words);
+
                 uint32_t stream_id = f.stream_id;
 
                 if (num_rx_samps <= VRT_SAMPLES_PER_PACKET) {

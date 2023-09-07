@@ -70,7 +70,7 @@ int main(int argc, char* argv[])
 {
     // variables to be set by po
     std::string ref, file, time_cal, type, start_time_str, zmq_address;
-    size_t total_num_samps;
+    size_t total_num_samps, tx_int;
     uint16_t port, tx_buffer_size;
     uint32_t stream_id;
     int hwm;
@@ -94,6 +94,8 @@ int main(int argc, char* argv[])
         ("tx-gain", po::value<uint16_t>(&tx_gain)->default_value(0), "gain for the TX RF chain")
         // ("dual-chan", "use two SigMF files for dual channel stream (chan0+chan1)")
         ("progress", "periodically display short-term bandwidth")
+        ("timed-tx", "Start transmission at given time (SigMF)")
+        ("tx-interval", po::value<size_t>(&tx_int)->default_value(0), "start transmission at multiple of interval")
         ("stats", "show average bandwidth on exit")
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
@@ -129,6 +131,7 @@ int main(int argc, char* argv[])
     bool dual_chan              = vm.count("dual-chan") > 0;
     bool repeat                 = vm.count("repeat") > 0;
     bool read_stdin             = vm.count("stdin") > 0;
+    bool timed_tx               = vm.count("timed-tx") > 0;
     bool send_context           = true;
 
     struct timeval time_now{};
@@ -244,6 +247,11 @@ int main(int argc, char* argv[])
     int rc = zmq_connect(subscriber, connect_string.c_str());
     assert(rc == 0);
 
+    // stdin binary
+    if (read_stdin)
+        freopen(NULL, "rb", stdin);
+    // _setmode(_fileno(stdin), _O_BINARY);
+
     // Sleep setup time
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
 
@@ -253,14 +261,6 @@ int main(int argc, char* argv[])
         std::signal(SIGINT, &sig_int_handler);
         std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
     }
-
-    // time keeping
-    auto start_time = std::chrono::steady_clock::now();
-
-    // Track time and samps between updating the BW summary
-    auto last_update                     = start_time;
-    auto last_context                    = start_time;
-    unsigned long long last_update_samps = 0;
 
     // Run this loop until either time expired (if a duration was given), until
     // the requested number of samples were collected (if such a number was
@@ -276,10 +276,23 @@ int main(int argc, char* argv[])
 
     boost::posix_time::ptime t1;
 
-    if (read_stdin)
+    if (read_stdin) {
+        // now
         t1 = boost::posix_time::microsec_clock::universal_time();
-    else 
+        timed_tx = false;
+    } else {
+        // from SigMF
         t1 = boost::posix_time::from_iso_extended_string(start_time_str);
+    }
+
+    if (tx_int > 0) {
+        timed_tx = true;
+        t1 = boost::posix_time::microsec_clock::universal_time();
+        printf("    now: %i\n", boost::posix_time::to_time_t(t1));
+        time_t integer_time_tx = tx_int*(boost::posix_time::to_time_t(t1) / tx_int) + tx_int;
+        printf("tx time: %i\n", integer_time_tx);
+        t1 = boost::posix_time::from_time_t(integer_time_tx);
+    }
 
     time_t integer_time_first_sample = boost::posix_time::to_time_t(t1);
     boost::posix_time::ptime t2(boost::posix_time::from_time_t(integer_time_first_sample));
@@ -290,18 +303,36 @@ int main(int argc, char* argv[])
 
     auto vrt_time = time_first_sample;
 
-    // trigger context update
-    last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
-
     int update_interval = 1e6*samps_per_buff/datarate;
 
     printf("Update interval: %i\n", update_interval);
 
+    unsigned long long last_update_samps = 0;
 
-    // stdin binary
-    if (read_stdin)
-        freopen(NULL, "rb", stdin);
-    // _setmode(_fileno(stdin), _O_BINARY);
+    if (timed_tx) {
+        tx_buffer_size = 0;
+
+        boost::posix_time::time_duration const time_since_epoch=t1-boost::posix_time::from_time_t(0); 
+        std::chrono::time_point<std::chrono::system_clock> t_temp = std::chrono::system_clock::from_time_t(time_since_epoch.total_seconds()); 
+        long nsec=time_since_epoch.fractional_seconds()*(1000000000/time_since_epoch.ticks_per_second()); 
+        auto chrono_t1 = t_temp + std::chrono::nanoseconds(nsec); 
+
+        auto wait_time = chrono_t1 - std::chrono::system_clock::now() - std::chrono::milliseconds(100);
+
+        if (wait_time > std::chrono::microseconds(0))
+            std::this_thread::sleep_for(wait_time);
+    }
+
+    // time keeping
+    auto start_time = std::chrono::steady_clock::now();
+
+    // Track time and samps between updating the BW summary
+    auto last_update                     = start_time;
+    auto last_context                    = start_time;
+
+    // trigger context update
+    last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
+
 
     while (not stop_signal_called) {
  
@@ -313,7 +344,8 @@ int main(int argc, char* argv[])
         } else {
             // wait
             auto wait_time = start_time + std::chrono::microseconds((frame_count-tx_buffer_size)*update_interval) - now;
-            std::this_thread::sleep_for(wait_time);
+            if (wait_time > std::chrono::microseconds(0))
+                std::this_thread::sleep_for(wait_time);
         }
 
         const auto time_since_last_context = now - last_context;
@@ -330,7 +362,7 @@ int main(int argc, char* argv[])
             vrt_init_context_packet(&pc);
 
             pc.fields.integer_seconds_timestamp = vrt_time.tv_sec;
-            pc.fields.fractional_seconds_timestamp = 1e3*vrt_time.tv_usec;
+            pc.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
 
             pc.fields.stream_id = 1;
 
@@ -399,6 +431,8 @@ int main(int argc, char* argv[])
 
             timeradd(&time_first_sample, &interval_time, &vrt_time);
 
+            uint32_t trailer_words = 0;
+
             if (first_frame) {
                 std::cout << boost::format(
                                  "First frame: %u samples, %u full secs, %.09f frac secs")
@@ -406,6 +440,17 @@ int main(int argc, char* argv[])
                                  % (vrt_time.tv_usec/1e6)
                           << std::endl;
                 first_frame = false;
+
+                if (timed_tx) {
+                    p.header.has.trailer = true;
+                    p.trailer.has.user_defined8 = true;
+                    p.trailer.user_defined8 = true;
+                    p.header.packet_size = SIZE + 1;
+                    trailer_words = 1;
+                }
+            } else {
+                p.header.has.trailer = false;
+                p.header.packet_size = SIZE;
             }
 
             p.fields.stream_id = 1;
@@ -415,9 +460,9 @@ int main(int argc, char* argv[])
             p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
 
             zmq_msg_t msg;
-            int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
+            int rc = zmq_msg_init_size (&msg, (VRT_DATA_PACKET_SIZE+trailer_words)*4);
 
-            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE, true);
+            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE+trailer_words, true);
 
             zmq_msg_send(&msg, subscriber, 0);
             zmq_msg_close(&msg);
