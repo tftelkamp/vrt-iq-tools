@@ -242,7 +242,7 @@ void vrt_init_data_packet(struct vrt_packet* p) {
     p->words_body                 = VRT_SAMPLES_PER_PACKET;
 
     p->header.has.class_id        = true;
-    p->fields.class_id.oui        = 0x6A621E; // DIFI OUI TBC
+    p->fields.class_id.oui        = 0xFF5454;
     p->fields.class_id.information_class_code = 0;
     p->fields.class_id.packet_class_code = 0;
 
@@ -254,7 +254,7 @@ void vrt_init_context_packet(struct vrt_packet* pc) {
 	pc->header.packet_type = VRT_PT_IF_CONTEXT;
     pc->header.has.class_id = true;
 
-    pc->fields.class_id.oui        = 0x6A621E; // DIFI OUI TBC
+    pc->fields.class_id.oui        = 0xFF5454;
     pc->fields.class_id.information_class_code = 0;
     pc->fields.class_id.packet_class_code = 0;
 
