@@ -308,7 +308,7 @@ int main(int argc, char* argv[])
                     printf("# - {name: radec_error_angle_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: radec_error_bearing_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: focusbox_mm, unit: mm, datatype: float64}\n");
-                    first_col += 9;
+                    first_col += 11;
                 }
                 float binsize = (double)vrt_context.sample_rate/(double)num_bins;
                 for (uint32_t i = 0; i < num_bins; ++i) {
