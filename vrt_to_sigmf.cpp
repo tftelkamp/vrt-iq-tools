@@ -46,9 +46,9 @@ void sig_int_handler(int)
 //! Change to filename, e.g. from usrp_samples.dat to usrp_samples.chan0.dat,
 //  but only if multiple names are to be generated.
 std::string generate_out_filename(
-    const std::string& base_fn, size_t n_names, size_t this_name)
+    const std::string& base_fn, size_t n_names, size_t this_name, bool vrt=false)
 {
-    if (n_names == 1) {
+    if (n_names == 1 or vrt) {
         return base_fn;
     }
 
@@ -167,15 +167,16 @@ int main(int argc, char* argv[])
 
     if (not null) 
         for (size_t i = 0; i < channel_nums.size(); i++) {
-            if (not meta_only) {
-                const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i]);
-                outfiles.push_back(std::shared_ptr<std::ofstream>(
-                    new std::ofstream(this_filename.c_str(), std::ofstream::binary)));
-            }
-            
             const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i]);
             metafiles.push_back(std::shared_ptr<std::ofstream>(
                 new std::ofstream(meta_filename.c_str())));
+
+            if (not meta_only) {
+                if (vrt and i > 0) break; // Only one data file for VRT
+                const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i], vrt);
+                outfiles.push_back(std::shared_ptr<std::ofstream>(
+                    new std::ofstream(this_filename.c_str(), std::ofstream::binary)));
+            }
     }
 
     // ZMQ
@@ -492,15 +493,17 @@ int main(int argc, char* argv[])
 
         if (not null) 
             for (size_t i = 0; i < channel_nums.size(); i++) {
-                if (not meta_only) {
-                    const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i]);
-                    const std::string this_auto_filename = generate_out_filename(auto_bin_file, channel_nums.size(), channel_nums[i]);
-                    boost::filesystem::rename( this_filename, this_auto_filename );
-                }
-                
                 const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i]);
                 const std::string auto_meta_filename = generate_out_filename(auto_mdfilename, channel_nums.size(), channel_nums[i]);
                 boost::filesystem::rename( meta_filename, auto_meta_filename );
+
+                if (not meta_only) {
+                    if (vrt and i > 0) break; // Only one data file for VRT
+                    const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i], vrt);
+                    const std::string this_auto_filename = generate_out_filename(auto_bin_file, channel_nums.size(), channel_nums[i], vrt);
+                    boost::filesystem::rename( this_filename, this_auto_filename );
+                }
+
         }
     }
         
