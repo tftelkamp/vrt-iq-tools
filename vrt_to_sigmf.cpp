@@ -377,6 +377,11 @@ int main(int argc, char* argv[])
 
  
         if (vrt_packet.extended_context) {
+            // TODO: Find some other variable to avoid giving this warning for every extended context packet
+            // This now assumes that any extended context is a DT extended context
+            if (not dt_ext_context.dt_ext_context_received and not dt_trace) {
+                std::cerr << "WARNING: DT metadata is present in the stream, but it is ignored. Did you forget --dt-trace?" << std::endl;
+            }
             dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
         }
 
