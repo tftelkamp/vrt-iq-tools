@@ -143,6 +143,7 @@ int main(int argc, char* argv[])
         ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
         ("minmax", "min/max hold for y-axis scale (gnuplot)")
         ("db", "output power in dB")
+        ("dc", "suppress DC peak")
         ("ecsv", "output in ECSV format (Astropy)")
         ("center-freq", "output center frequency")
         ("temperature", "output temperature")
@@ -185,6 +186,7 @@ int main(int argc, char* argv[])
     bool iir                    = vm.count("tau") > 0;
     bool minmax                 = vm.count("minmax") > 0;
     bool ecsv                   = vm.count("ecsv") > 0;
+    bool dc                     = vm.count("dc") > 0;
 
     if (iir) {
         alpha = (1.0 - exp(-1/(tau/integration_time)));
@@ -407,6 +409,11 @@ int main(int argc, char* argv[])
                     for (uint32_t i = 0; i < num_bins; ++i) {
                         magnitudes[i] += (result[i][REAL] * result[i][REAL] +
                                   result[i][IMAG] * result[i][IMAG]);
+                    }
+
+                    if (dc) {
+                        size_t dcbin = num_bins/2;
+                        magnitudes[dcbin] = (magnitudes[dcbin-1]+magnitudes[dcbin+1])/2;
                     }
 
                     integration_counter++;
