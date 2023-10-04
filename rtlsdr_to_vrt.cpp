@@ -88,12 +88,13 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string gain_list, udp_forward;
+    std::string gain_list, udp_forward, merge_address;
     size_t total_num_samps;
-    uint16_t port;
+    uint16_t port, merge_port;
     uint32_t stream_id;
     int hwm;
     double rate, freq, bw, total_time, setup_time, lo_offset;
+    bool merge;
 
     // recv_frame_size=1024, num_recv_frames=1024, recv_buff_size
     std::string stdargs = "num_recv_frames=1024";
@@ -122,6 +123,10 @@ int main(int argc, char* argv[])
         ("skip-lo", "skip checking LO lock status")
         // ("stream-id", po::value<uint32_t>(&stream_id), "VRT Stream ID")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("merge", po::value<bool>(&merge)->default_value(true), "Merge another VRT ZMQ stream (SUB connect)")
+        ("merge-port", po::value<uint16_t>(&merge_port)->default_value(50011), "VRT ZMQ merge port")
+        ("merge-address", po::value<std::string>(&merge_address)->default_value("localhost"), "VRT ZMQ merg address")
+
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
@@ -248,16 +253,25 @@ int main(int argc, char* argv[])
     
     // ZMQ
     void *zmq_server;
-    if (vrt) {
-        void *context = zmq_ctx_new();
-        void *responder = zmq_socket(context, ZMQ_PUB);
-        int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
-        assert(rc == 0);
 
-        std::string connect_string = "tcp://*:" + std::to_string(port);
-        rc = zmq_bind(responder, connect_string.c_str());
-        assert (rc == 0);
-        zmq_server = responder;
+    void *context = zmq_ctx_new();
+    void *responder = zmq_socket(context, ZMQ_PUB);
+    int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
+    assert(rc == 0);
+
+    std::string connect_string = "tcp://*:" + std::to_string(port);
+    rc = zmq_bind(responder, connect_string.c_str());
+    assert (rc == 0);
+    zmq_server = responder;
+
+
+    // Merge
+    void *merge_zmq = zmq_socket(context, ZMQ_SUB);
+    if (merge) {
+        connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
+        rc = zmq_connect(merge_zmq, connect_string.c_str());
+        assert(rc == 0);
+        zmq_setsockopt(merge_zmq, ZMQ_SUBSCRIBE, "", 0);
     }
 
     // UDP DI-FI
@@ -316,6 +330,10 @@ int main(int argc, char* argv[])
 
     // Create a circular buffer with a capacity for xxx.
 	boost::circular_buffer<int8_t> cb(samps_per_buff*3*2);
+
+    // flush merge queue
+    if (merge)
+        while ( zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
 
     while (not stop_signal_called) {
  
@@ -469,6 +487,20 @@ int main(int argc, char* argv[])
 		        }
 		    }
 		}
+
+        // Merge
+        if (merge) {
+            int mergelen;
+            while ( (mergelen = zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK)) > 0  ) {
+                // zmq_send (zmq_server, buffer, mergelen, 0);
+                zmq_msg_t msg;
+                zmq_msg_init_size (&msg, mergelen);
+                memcpy (zmq_msg_data(&msg), buffer, mergelen);
+                zmq_msg_send(&msg, zmq_server, 0);
+                zmq_msg_close(&msg);
+            }
+        }
+
     }
 
     const auto actual_stop_time = std::chrono::steady_clock::now();
