@@ -83,7 +83,6 @@ int main(int argc, char* argv[])
 {
     // variables to be set by po
     std::string udp_forward, ref, file, time_cal, type, start_time_str;
-    size_t total_num_samps;
     uint16_t port;
     uint32_t stream_id;
     int hwm;
@@ -215,7 +214,6 @@ int main(int argc, char* argv[])
 
 	size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
 
-	unsigned long long num_requested_samples = total_num_samps;
     double time_requested = total_time;
 
     uint32_t buffer[VRT_DATA_PACKET_SIZE];
@@ -251,10 +249,8 @@ int main(int argc, char* argv[])
     // Sleep setup time
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
 
-    if (total_num_samps == 0) {
-        std::signal(SIGINT, &sig_int_handler);
-        std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
-    }
+    std::signal(SIGINT, &sig_int_handler);
+    std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
 
     // time keeping
     auto start_time = std::chrono::steady_clock::now();
