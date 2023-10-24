@@ -167,12 +167,12 @@ int main(int argc, char* argv[])
 
     if (not null) 
         for (size_t i = 0; i < channel_nums.size(); i++) {
-            const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i]);
+            if (vrt and i > 0) break; // Only one data and metadata file for VRT
+            const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i], vrt);
             metafiles.push_back(std::shared_ptr<std::ofstream>(
                 new std::ofstream(meta_filename.c_str())));
 
             if (not meta_only) {
-                if (vrt and i > 0) break; // Only one data file for VRT
                 const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i], vrt);
                 outfiles.push_back(std::shared_ptr<std::ofstream>(
                     new std::ofstream(this_filename.c_str(), std::ofstream::binary)));
@@ -236,7 +236,10 @@ int main(int argc, char* argv[])
             if (vrt_packet.stream_id & (1 << channel_nums[ch]) )
                 break;
 
-        uint32_t channel = channel_nums[ch];
+        std::string channel = std::to_string(channel_nums[ch]);
+        if (vrt) {
+            channel = channel_list;
+        }
 
         if (vrt and not null and not meta_only)
             outfiles[0]->write((const char*)&buffer, len);
@@ -250,8 +253,9 @@ int main(int argc, char* argv[])
 
             if (not null) {
                 // std::cout << "Writing SigMF metadata..." << std::endl;
-                if (!metafiles[ch]) {
-                    std::cout << "File not created?!";
+                if (metafiles.size() < ch + 1) {
+                    if (!vrt)
+                        std::cout << "File not created?!";
                 } else {
                     std::string json = str(boost::format("{ \n"
                     "    \"global\": {\n"
@@ -344,7 +348,7 @@ int main(int argc, char* argv[])
                     "        \"vrt:reference\": \"%s\",\n"
                     "        \"vrt:time_source\": \"%s\",\n"
                     "        \"vrt:stream_id\": %u,\n"
-                    "        \"vrt:channel\": %u\n"
+                    "        \"vrt:channel\": %s\n"
                     "    },\n"
                     "    \"annotations\": [],\n"
                     "    \"captures\": [\n"
@@ -493,9 +497,10 @@ int main(int argc, char* argv[])
 
         if (not null) 
             for (size_t i = 0; i < channel_nums.size(); i++) {
-                const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i]);
-                const std::string auto_meta_filename = generate_out_filename(auto_mdfilename, channel_nums.size(), channel_nums[i]);
-                boost::filesystem::rename( meta_filename, auto_meta_filename );
+                if (vrt and i > 0) break;
+                const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i], vrt);
+                const std::string auto_meta_filename = generate_out_filename(auto_mdfilename, channel_nums.size(), channel_nums[i], vrt);
+                boost::filesystem::rename(meta_filename, auto_meta_filename);
 
                 if (not meta_only) {
                     if (vrt and i > 0) break; // Only one data file for VRT
