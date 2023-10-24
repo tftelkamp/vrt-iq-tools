@@ -212,7 +212,7 @@ int main(int argc, char* argv[])
         read_ptr_2 = fopen(data_filename_2.c_str(),"rb");  // r for read, b for binary
     }
 
-	size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
+    size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
 
     double time_requested = total_time;
 
