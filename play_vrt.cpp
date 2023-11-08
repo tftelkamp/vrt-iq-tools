@@ -134,6 +134,8 @@ int main(int argc, char* argv[])
     bool timed_tx               = vm.count("timed-tx") > 0;
     bool send_context           = true;
 
+    size_t filesize = 0;
+
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
 
@@ -197,8 +199,12 @@ int main(int argc, char* argv[])
 
         printf("SigMF Data Filename: %s\n", data_filename.c_str());
 
-        if (data_filename.c_str())
+        if (data_filename.c_str()) {
             read_ptr = fopen(data_filename.c_str(),"rb");  // r for read, b for binary
+            fseek(read_ptr, 0L, SEEK_END);    // seek to the EOF
+            filesize = ftell(read_ptr);       // get the current position
+            rewind(read_ptr);                 // rewind to the beginning of file
+        }
     } else {
         if (datarate == 0) {
             printf("Specify --datarate.\n");
@@ -225,6 +231,7 @@ int main(int argc, char* argv[])
     uint32_t buffer[VRT_DATA_PACKET_SIZE];
    
     bool first_frame = true;
+    bool last_frame = false;
     bool context_changed = true;
 
     struct vrt_packet p;
@@ -269,7 +276,6 @@ int main(int argc, char* argv[])
     uint32_t frame_count = 0;
     uint32_t num_words_read = 0;
 
-    uint32_t first_word;
     std::complex<short> samples[samps_per_buff];
 
     timeval time_first_sample;
@@ -348,6 +354,15 @@ int main(int argc, char* argv[])
                 std::this_thread::sleep_for(wait_time);
         }
 
+        struct timeval interval_time;
+        int64_t first_sample = frame_count*samps_per_buff;
+
+        double interval = (double)first_sample/(double)rate;
+        interval_time.tv_sec = (time_t)interval;
+        interval_time.tv_usec = (interval-(time_t)interval)*1e6;
+
+        timeradd(&time_first_sample, &interval_time, &vrt_time);
+
         const auto time_since_last_context = now - last_context;
         if (send_context and time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL)) {
 
@@ -393,8 +408,20 @@ int main(int argc, char* argv[])
                 context_changed = false;
             }
 
-            // pc.if_context.state_and_event_indicators.reference_lock = (bool)(ref=="external") ? true : false;
+            if (timed_tx) {
+                pc.if_context.state_and_event_indicators.has.calibrated_time = true;
+                pc.if_context.state_and_event_indicators.calibrated_time = true;
+            }
 
+            if (first_frame) {
+                pc.if_context.state_and_event_indicators.user_defined = 0x1;
+            } else if (last_frame and not repeat) {
+                pc.if_context.state_and_event_indicators.user_defined = 0x2;
+            } else {
+                pc.if_context.state_and_event_indicators.user_defined = 0x0;
+            }
+
+            // pc.if_context.state_and_event_indicators.reference_lock = (bool)(ref=="external") ? true : false;
             // pc.if_context.state_and_event_indicators.calibrated_time = (bool)(time_cal=="external" || time_cal=="pps") ? true : false;
 
             int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
@@ -415,23 +442,10 @@ int main(int argc, char* argv[])
 
         }
 
-        // Data (read)
-
+        // Data
         if (fread(samples, sizeof(samples), 1, read_ptr) == 1) {
-        // if (fread(samples, sizeof(samples), 1, stdin) == 1) {
 
             num_words_read = samps_per_buff;
-
-            struct timeval interval_time;
-            int64_t first_sample = frame_count*samps_per_buff;
-
-            double interval = (double)first_sample/(double)rate;
-            interval_time.tv_sec = (time_t)interval;
-            interval_time.tv_usec = (interval-(time_t)interval)*1e6;
-
-            timeradd(&time_first_sample, &interval_time, &vrt_time);
-
-            uint32_t trailer_words = 0;
 
             if (first_frame) {
                 std::cout << boost::format(
@@ -440,17 +454,12 @@ int main(int argc, char* argv[])
                                  % (vrt_time.tv_usec/1e6)
                           << std::endl;
                 first_frame = false;
+            }
 
-                if (timed_tx) {
-                    p.header.has.trailer = true;
-                    p.trailer.has.user_defined8 = true;
-                    p.trailer.user_defined8 = true;
-                    p.header.packet_size = SIZE + 1;
-                    trailer_words = 1;
-                }
-            } else {
-                p.header.has.trailer = false;
-                p.header.packet_size = SIZE;
+            if (filesize > 0 && ftell(read_ptr) > filesize-sizeof(samples)) {
+                last_frame = true;
+                // trigger context
+                last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
             }
 
             p.fields.stream_id = 1;
@@ -460,9 +469,9 @@ int main(int argc, char* argv[])
             p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
 
             zmq_msg_t msg;
-            int rc = zmq_msg_init_size (&msg, (VRT_DATA_PACKET_SIZE+trailer_words)*4);
+            int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
 
-            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE+trailer_words, true);
+            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE, true);
 
             zmq_msg_send(&msg, subscriber, 0);
             zmq_msg_close(&msg);
@@ -532,10 +541,10 @@ int main(int argc, char* argv[])
             else
                 break;
         }
+
     }
 
     const auto actual_stop_time = std::chrono::steady_clock::now();
-
 
     if (stats) {
         std::cout << std::endl;

@@ -148,7 +148,6 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 
             struct vrt_header h;
             struct vrt_fields f;
-            struct vrt_trailer t;
 
             int32_t offset = 0;
             int32_t size = ZMQ_BUFFER_SIZE;
@@ -173,32 +172,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 
                 // Add check for missing packets
 
-                uint32_t trailer_words = 0;
-
-                if (h.has.trailer) {
-                    
-                    trailer_words = 1;
-
-                    rv = vrt_read_trailer(tx_zmq_buffer + h.packet_size -1, size, &t);
-                    if (rv < 0) {
-                        fprintf(stderr, "Failed to parse trailer section: %s\n", vrt_string_error(rv));
-                        break;
-                    }
-                    
-                    if (t.has.user_defined8) {
-                        if (t.user_defined8) {
-                            printf("timed transmit queued\n");
-                            timeval vrt_time;
-                            vrt_time.tv_sec = f.integer_seconds_timestamp;
-                            vrt_time.tv_usec = f.fractional_seconds_timestamp/1e6;
-                            uhd::time_spec_t start_time(vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
-                            metadata.has_time_spec = true;
-                            metadata.time_spec = start_time;
-                        }
-                    }
-                }
-
-                uint32_t num_rx_samps = (h.packet_size-offset-trailer_words);
+                uint32_t num_rx_samps = (h.packet_size-offset);
 
                 uint32_t stream_id = f.stream_id;
 
@@ -218,7 +192,9 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 
                     metadata.start_of_burst = false;
                     metadata.has_time_spec  = false;
+                    metadata.end_of_burst   = false;
                 }
+
             } else if (h.packet_type == VRT_PT_IF_CONTEXT) {
                 // Context
 
@@ -238,6 +214,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                 }
 
                 if (c.context_field_change_indicator) {
+
                     double lo_offset = 0;
                     if (c.has.if_band_offset) {
                         tx_lo_offset = c.if_band_offset;
@@ -270,6 +247,35 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                         }
                     }
                 }
+
+                if (c.state_and_event_indicators.user_defined == 0x1) {
+                    if (c.state_and_event_indicators.has.calibrated_time && c.state_and_event_indicators.calibrated_time) {
+                        printf("timed transmit queued\n");
+                        timeval vrt_time;
+                        vrt_time.tv_sec = f.integer_seconds_timestamp;
+                        vrt_time.tv_usec = f.fractional_seconds_timestamp/1e6;
+                        uhd::time_spec_t start_time(vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
+                        
+                        metadata.has_time_spec = true;
+                        metadata.time_spec = start_time;
+                    } else {
+                        printf("start transmit\n");
+                    }
+
+                        
+                } else if (c.state_and_event_indicators.user_defined == 0x2) {
+                    printf("end transmit\n");
+                    timeval vrt_time;
+                    vrt_time.tv_sec = f.integer_seconds_timestamp;
+                    vrt_time.tv_usec = f.fractional_seconds_timestamp/1e6;
+                    uhd::time_spec_t start_time(vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
+                    metadata.end_of_burst = true;
+                    metadata.start_of_burst = false;
+                    metadata.has_time_spec  = false;
+                    tx_streamer->send("", 0, metadata);
+                    metadata.end_of_burst = false;
+                }
+
             }
         }
     }
@@ -291,7 +297,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     uint16_t tx_gain;
     int hwm;
     uint32_t stream_id;
-    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq;
+    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, if_freq;
 
     bool context_changed = true;
     bool merge;
@@ -313,6 +319,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         // ("spb", po::value<size_t>(&spb)->default_value(10000), "samples per buffer")
         ("rate", po::value<double>(&rate)->default_value(1e6), "rate of incoming samples")
         ("freq", po::value<double>(&freq)->default_value(0.0), "RF center frequency in Hz")
+        ("if-freq", po::value<double>(&if_freq)->default_value(0.0), "IF center frequency in Hz")
         ("lo-offset", po::value<double>(&lo_offset)->default_value(0.0),
             "Offset for frontend LO in Hz (optional)")
         ("gain", po::value<std::string>(&gain_list), "gain(s) for the RF chain")
@@ -913,9 +920,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 pc.fields.stream_id = 1<<ch;
                 pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(channel); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
                 pc.if_context.sample_rate                       = usrp->get_rx_rate(channel);
-                pc.if_context.rf_reference_frequency            = usrp->get_rx_freq(channel);
+                pc.if_context.rf_reference_frequency            = usrp->get_rx_freq(channel)+if_freq;
                 pc.if_context.rf_reference_frequency_offset     = 0;
-                pc.if_context.if_reference_frequency            = 0; // Zero-IF
+                pc.if_context.if_reference_frequency            = if_freq; // 0 for Zero-IF
                 pc.if_context.if_band_offset                    = lo_offset;  //todo
                 pc.if_context.gain.stage1                       = usrp->get_rx_gain(channel);
                 pc.if_context.gain.stage2                       = 0;
