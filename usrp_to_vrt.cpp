@@ -293,7 +293,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     uint16_t tx_gain;
     int hwm;
     uint32_t stream_id;
-    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, if_freq;
+    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, if_freq, pps_offset;
 
     bool context_changed = true;
     bool merge;
@@ -333,6 +333,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("progress", "periodically display short-term bandwidth")
         ("stats", "show average bandwidth on exit")
         ("pps", "use external pps signal")
+        ("pps-offset", po::value<double>(&pps_offset)->default_value(0), "Offset of the PPS pulse in sec.")
         ("temp", "read temperature sensor")
         // ("vrt", "publish IQ using VRT over ZeroMQ (PUB on port 50100")
         ("int-second", "align start of reception to integer second")
@@ -684,9 +685,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     // PPS
     if (vm.count("pps")) {
-        std::cout << boost::format("Wait for PPS sync...") << std::endl;
         gettimeofday(&time_now, nullptr);
-        usrp->set_time_unknown_pps(uhd::time_spec_t(time_now.tv_sec + 2.0));
+        time_t integer_time = (time_t)((double)time_now.tv_sec + 2.0 - pps_offset);
+        uhd::time_spec_t set_pps_time = uhd::time_spec_t(integer_time + pps_offset);
+        std::cout << boost::format("Wait for PPS sync...") << std::endl;
+        usrp->set_time_unknown_pps(set_pps_time);
         boost::this_thread::sleep_for(boost::chrono::milliseconds(2100));
         std::cout << boost::format("Done...") << std::endl;
     }
