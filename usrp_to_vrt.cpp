@@ -265,10 +265,6 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                         
                 } else if (c.state_and_event_indicators.user_defined == 0x2) {
                     printf("end transmit\n");
-                    timeval vrt_time;
-                    vrt_time.tv_sec = f.integer_seconds_timestamp;
-                    vrt_time.tv_usec = f.fractional_seconds_timestamp/1e6;
-                    uhd::time_spec_t start_time(vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
                     metadata.end_of_burst = true;
                     metadata.start_of_burst = false;
                     metadata.has_time_spec  = false;
