@@ -93,7 +93,7 @@ int main(int argc, char* argv[])
     uint16_t port, merge_port;
     uint32_t stream_id;
     int hwm;
-    double rate, freq, bw, total_time, setup_time, lo_offset;
+    double rate, freq, bw, total_time, setup_time, lo_offset, if_freq;
     bool merge;
 
     // recv_frame_size=1024, num_recv_frames=1024, recv_buff_size
@@ -108,6 +108,7 @@ int main(int argc, char* argv[])
         ("args", po::value<std::string>(&args)->default_value(""), "multi uhd device address args")
         ("rate", po::value<double>(&rate)->default_value(1e6), "rate of incoming samples")
         ("freq", po::value<double>(&freq)->default_value(0.0), "RF center frequency in Hz")
+        ("if-freq", po::value<double>(&if_freq)->default_value(0.0), "IF center frequency in Hz")
         // ("lo-offset", po::value<double>(&lo_offset)->default_value(0.0),
         //     "Offset for frontend LO in Hz (optional)")
         ("gain", po::value<std::string>(&gain_list), "gain(s) for the RF chain")
@@ -423,9 +424,9 @@ int main(int argc, char* argv[])
 
 		            pc.if_context.bandwidth                         = rate;
 		            pc.if_context.sample_rate                       = rate;
-		            pc.if_context.rf_reference_frequency            = freq;
+		            pc.if_context.rf_reference_frequency            = freq+if_freq;
 		            pc.if_context.rf_reference_frequency_offset     = 0;
-		            pc.if_context.if_reference_frequency            = 0; // Zero-IF
+		            pc.if_context.if_reference_frequency            = if_freq; // 0 for Zero-IF
 		            pc.if_context.gain.stage1                       = gain;
 		            pc.if_context.gain.stage2                       = 0;
 
