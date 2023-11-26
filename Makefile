@@ -5,7 +5,7 @@ endif
 
 # VRT IQ tools
 all: clients dt
-clients: vrt_fftmax vrt_gnuplot vrt_to_sigmf sigmf_to_vrt play_vrt vrt_forwarder vrt_spectrum vrt_to_void control_vrt vrt_to_rtl_tcp vrt_fftmax_quad vrt_to_filterbank vrt_to_fifo vrt_pulsar
+clients: vrt_fftmax vrt_gnuplot vrt_to_sigmf sigmf_to_vrt play_vrt vrt_forwarder vrt_spectrum vrt_to_void control_vrt vrt_to_rtl_tcp vrt_fftmax_quad vrt_to_filterbank vrt_to_fifo vrt_pulsar vrt_to_udp
 sdr: usrp_to_vrt rfspace_to_vrt rtlsdr_to_vrt
 gnuradio: vrt_to_gnuradio
 gpu: vrt_gpu_fftmax
@@ -21,7 +21,7 @@ INCLUDES = -I. -I/opt/local/include -I../libvrt/include -I/opt/homebrew/include/
 LIBS = -L. -L../libvrt/build/ -L/usr/local/lib -L/opt/local/lib -L/opt/homebrew/lib/
 
 BOOSTLIBS = -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lboost_date_time
-#BOOSTLIBS = -lboost_system-mt -lboost_program_options-mt -lboost_chrono-mt -lboost_filesystem-mt -lboost_thread-mt -lboost_date_time-mt
+# BOOSTLIBS = -lboost_system-mt -lboost_program_options-mt -lboost_chrono-mt -lboost_filesystem-mt -lboost_thread-mt -lboost_date_time-mt
 
 usrp_to_vrt: usrp_to_vrt.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) usrp_to_vrt.cpp -o usrp_to_vrt \
@@ -37,6 +37,10 @@ vrt_to_gnuradio: vrt_to_gnuradio.cpp
 
 vrt_to_void: vrt_to_void.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_void vrt_to_void.cpp \
+		-lvrt -lzmq $(BOOSTLIBS)
+
+vrt_to_udp: vrt_to_udp.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_udp vrt_to_udp.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
 vrt_to_fifo: vrt_to_fifo.cpp
@@ -134,4 +138,4 @@ install: all
 		install -m 755 query_dt_console   $(DESTDIR)$(PREFIX)/bin/
 
 clean:
-		$(RM) usrp_to_vrt vrt_fftmax vrt_gnuplot vrt_to_gnuradio vrt_to_sigmf convenience.o rtlsdr_to_vrt rfspace_to_vrt vrt_forwarder vrt_to_void vrt_spectrum sigmf_to_vrt play_vrt vrt_gpu_fftmax control_vrt vrt_to_dada vrt_to_rtl_tcp vrt_to_vrt_quad vrt_fftmax_quad vrt_to_filterbank query_dt_console vrt_rffft vrt_to_fifo vrt_pulsar
+		$(RM) usrp_to_vrt vrt_fftmax vrt_gnuplot vrt_to_gnuradio vrt_to_sigmf convenience.o rtlsdr_to_vrt rfspace_to_vrt vrt_forwarder vrt_to_void vrt_spectrum sigmf_to_vrt play_vrt vrt_gpu_fftmax control_vrt vrt_to_dada vrt_to_rtl_tcp vrt_to_vrt_quad vrt_fftmax_quad vrt_to_filterbank query_dt_console vrt_rffft vrt_to_fifo vrt_pulsar vrt_to_udp
