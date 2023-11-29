@@ -114,6 +114,8 @@ int main(int argc, char* argv[])
     float min_y = 1e10;
     float max_y = -1e10;
 
+    FILE *outfile;
+
     std::vector<double> poly;
 
     // setup the program options
@@ -145,6 +147,7 @@ int main(int argc, char* argv[])
         ("db", "output power in dB")
         ("dc", "suppress DC peak")
         ("ecsv", "output in ECSV format (Astropy)")
+        ("bin-file", po::value<std::string>(&file), "output binary data to file")
         ("center-freq", "output center frequency")
         ("temperature", "output temperature")
         ("null", "run without writing to file")
@@ -186,6 +189,7 @@ int main(int argc, char* argv[])
     bool iir                    = vm.count("tau") > 0;
     bool minmax                 = vm.count("minmax") > 0;
     bool ecsv                   = vm.count("ecsv") > 0;
+    bool binary                 = vm.count("bin-file") > 0;
     bool dc                     = vm.count("dc") > 0;
 
     if (iir) {
@@ -234,6 +238,10 @@ int main(int argc, char* argv[])
 
     uint32_t signal_pointer = 0;
     uint32_t integration_counter = 0;
+
+    if (binary) {
+        outfile=fopen(file.c_str(),"w");
+    }
 
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
@@ -355,6 +363,7 @@ int main(int argc, char* argv[])
                         printf(", %.0f", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
                 }
                 printf("\n");
+                fflush(stdout);
             }
         }
 
@@ -419,26 +428,58 @@ int main(int argc, char* argv[])
                     integration_counter++;
                     if (integration_counter == integrations) {
                         if (!gnuplot) {
-                            printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
+                            if (binary) {
+                                double timestamp = (double)seconds + (double)(frac_seconds/1e12);
+                                fwrite(&timestamp,sizeof(double),1,outfile);
+                            } else {
+                                printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
+                            }
                             if (log_freq) {
-                                printf(", %li", vrt_context.rf_freq);
+                                if (not binary) {
+                                    printf(", %li", vrt_context.rf_freq);
+                                }
+                                else {
+                                    double freq = vrt_context.rf_freq;
+                                    fwrite(&freq,sizeof(double),1,outfile);
+                                }
                             }
                             if (log_temp) {
-                               printf(", %.2f", vrt_context.temperature); 
+                                if (not binary) {
+                                    printf(", %.2f", vrt_context.temperature); 
+                                } else {
+                                    double temp = vrt_context.temperature;
+                                    fwrite(&temp,sizeof(double),1,outfile);
+                                }
                             }
                             if (dt_trace) {
-                                printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
-                                    ((180.0/M_PI)*dt_ext_context.azimuth),
-                                    ((180.0/M_PI)*dt_ext_context.elevation),
-                                    ((180.0/M_PI)*dt_ext_context.azimuth_error),
-                                    ((180.0/M_PI)*dt_ext_context.elevation_error),
-                                    ((12.0/M_PI)*dt_ext_context.ra_current),
-                                    ((180.0/M_PI)*dt_ext_context.dec_current),
-                                    ((12.0/M_PI)*dt_ext_context.ra_setpoint),
-                                    ((180.0/M_PI)*dt_ext_context.dec_setpoint),
-                                    ((180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
-                                    ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
-                                    dt_ext_context.focusbox);
+                                if (not binary) {
+                                    printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
+                                        ((180.0/M_PI)*dt_ext_context.azimuth),
+                                        ((180.0/M_PI)*dt_ext_context.elevation),
+                                        ((180.0/M_PI)*dt_ext_context.azimuth_error),
+                                        ((180.0/M_PI)*dt_ext_context.elevation_error),
+                                        ((12.0/M_PI)*dt_ext_context.ra_current),
+                                        ((180.0/M_PI)*dt_ext_context.dec_current),
+                                        ((12.0/M_PI)*dt_ext_context.ra_setpoint),
+                                        ((180.0/M_PI)*dt_ext_context.dec_setpoint),
+                                        ((180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
+                                        ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
+                                        dt_ext_context.focusbox);
+                                } else {
+                                    double trace_values[11];
+                                    trace_values[0] = ((180.0/M_PI)*dt_ext_context.azimuth);
+                                    trace_values[1] = ((180.0/M_PI)*dt_ext_context.elevation);
+                                    trace_values[2] = ((180.0/M_PI)*dt_ext_context.azimuth_error);
+                                    trace_values[3] = ((180.0/M_PI)*dt_ext_context.elevation_error);
+                                    trace_values[4] = ((12.0/M_PI)*dt_ext_context.ra_current);
+                                    trace_values[5] = ((180.0/M_PI)*dt_ext_context.dec_current);
+                                    trace_values[6] = ((12.0/M_PI)*dt_ext_context.ra_setpoint);
+                                    trace_values[7] = ((180.0/M_PI)*dt_ext_context.dec_setpoint);
+                                    trace_values[8] = ((180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current));
+                                    trace_values[9] = ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current));
+                                    trace_values[10] = dt_ext_context.focusbox;
+                                    fwrite(&trace_values,11*sizeof(double),1,outfile); 
+                                }
                             }
 
                             int N = poly.size();  
@@ -467,14 +508,23 @@ int main(int argc, char* argv[])
                                 }
                                 if (db) {
                                     correction = 10*log10(correction);
-                                    float value = 10*log10(filter_out[i])-correction;
-                                    printf(", %.3f", value);
+                                    double value = 10*log10(filter_out[i])-correction;
+                                    if (not binary) {
+                                        printf(", %.3f", value);
+                                    } else {
+                                        fwrite(&value,sizeof(double),1,outfile);
+                                    }
                                 } else {
-                                    float value = filter_out[i]/correction;
-                                    printf(", %.3f", value);
+                                    double value = filter_out[i]/correction;
+                                    if (not binary) {
+                                        printf(", %.3f", value);
+                                    } else {
+                                        fwrite(&value,sizeof(double),1,outfile);
+                                    }
                                 }
                             }
-                            printf("\n");
+                            if (not binary)
+                                printf("\n");
                         } else {
                             // gnuplot
                             float ticks = vrt_context.sample_rate/(4e6);
@@ -515,14 +565,17 @@ int main(int argc, char* argv[])
                                     min_y = (value < min_y) ? value : min_y;
                                     max_y = (value > max_y) ? value : max_y;
                                 }
-                                printf("%.3f, %.3f\n", freq, value);
+                                printf("%.6f, %.6f\n", freq, value);
                             }
                             printf("e\n");
                         }
 
                         integration_counter = 0;
                         memset(magnitudes, 0, num_bins*sizeof(double));
-                        fflush(stdout);
+                        if (binary)
+                            fflush(outfile);
+                        else
+                            fflush(stdout);
                     }
                 }
             }
@@ -574,6 +627,9 @@ int main(int argc, char* argv[])
             }
         }
     }
+
+    if (binary)
+        fclose(outfile);
 
     zmq_close(subscriber);
     zmq_ctx_destroy(context);
