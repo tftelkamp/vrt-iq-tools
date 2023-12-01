@@ -133,11 +133,11 @@ int main(int argc, char* argv[])
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
         ("int-interval", "align start of reception to integer number of integration intervals (implies --int-second)")
-        ("num-bins", po::value<uint32_t>(&num_bins)->default_value(10000), "number of bins")
+        ("num-bins", po::value<uint32_t>(&num_bins)->default_value(1000), "number of bins")
         ("bin-size", po::value<float>(&bin_size), "size of bin in Hz")
         ("power2", po::value<bool>(&power2)->default_value(false), "Round number of bins to nearest power of two")
-        ("integrations", po::value<uint32_t>(&integrations)->default_value(1), "number of integrations")
-        ("integration-time", po::value<float>(&integration_time), "integration time (seconds)")
+        ("integrations", po::value<uint32_t>(&integrations), "number of integrations")
+        ("integration-time", po::value<float>(&integration_time)->default_value(1.0), "integration time (seconds)")
         ("tau", po::value<double>(&tau), "Exponential weighted moving average time constant (sec)")
         ("poly", po::value<std::vector<double> >(&poly)->multitoken(), "Polynomal coefficients to compensate bandpass")
         ("gnuplot", "Gnuplot mode")
@@ -271,7 +271,7 @@ int main(int argc, char* argv[])
                 }
             }
 
-            if (vm.count("integration-time")) {
+            if (not vm.count("integrations")) {
                 integrations = (uint32_t)round((double)integration_time/((double)num_bins/(double)vrt_context.sample_rate));
             }
 
