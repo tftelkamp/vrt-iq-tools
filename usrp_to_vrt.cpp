@@ -57,6 +57,11 @@ void sig_int_handler(int)
     stop_signal_called = true;
 }
 
+static UHD_INLINE boost::uint32_t GPIO_BIT(const size_t x)
+{
+    return (1 << x);
+}
+
 typedef std::function<uhd::sensor_value_t(const std::string&)> get_sensor_fn_t;
 
 bool check_locked_sensor(std::vector<std::string> sensor_names,
@@ -122,7 +127,10 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                      void *zmq_transmit,
                      double tx_freq,
                      double tx_lo_offset,
-                     double tx_gain)
+                     double tx_gain,
+                     double sample_rate,
+                     bool enable_gpio,
+                     double gpio_delay)
    {
 
     std::vector<std::complex<short>> buff(VRT_SAMPLES_PER_PACKET);
@@ -135,6 +143,31 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
     metadata.start_of_burst = true;
     metadata.end_of_burst   = false;
     metadata.has_time_spec  = false;
+
+    std::string gpio = "FP0";
+
+    //configure GPIO
+    uint32_t gpio_bit = 0;
+    uint32_t duplex_bit = 1;
+    size_t num_bits = 6;
+    boost::uint32_t mask = (1 << num_bits) - 1;
+
+    float gpio_start_delay = gpio_delay/1000.0;
+    float gpio_stop_delay = gpio_delay/1000.0;
+
+    if (enable_gpio) {
+        //set data direction register (DDR)
+        usrp->set_gpio_attr(gpio, "DDR", (GPIO_BIT(gpio_bit)|GPIO_BIT(duplex_bit)), mask);
+
+        //set control register
+        usrp->set_gpio_attr(gpio, "CTRL", GPIO_BIT(duplex_bit), mask);
+
+        //set output values
+        usrp->set_gpio_attr(gpio, "OUT", 0, mask);
+
+        // ATR Duplex for testing on GPIO duplex_bit
+        usrp->set_gpio_attr(gpio, "ATR_XX", GPIO_BIT(duplex_bit), mask);
+    }
 
     // send data until the signal handler gets called
     while (not stop_signal_called) {
@@ -250,26 +283,55 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 
                 if (c.state_and_event_indicators.user_defined == 0x1) {
                     if (c.state_and_event_indicators.has.calibrated_time && c.state_and_event_indicators.calibrated_time) {
-                        printf("timed transmit queued\n");
+
                         timeval vrt_time;
                         vrt_time.tv_sec = f.integer_seconds_timestamp;
                         vrt_time.tv_usec = f.fractional_seconds_timestamp/1e6;
                         uhd::time_spec_t start_time(vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
-                        
+
                         metadata.has_time_spec = true;
                         metadata.time_spec = start_time;
+
+                        printf("Timed transmit queued (%u frac %.09f).\n", vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
+                       
+                        // GPIO
+                        if (enable_gpio) {
+                            usrp->set_command_time(start_time - uhd::time_spec_t(gpio_start_delay));
+                            usrp->set_gpio_attr(gpio, "OUT", GPIO_BIT(gpio_bit), GPIO_BIT(gpio_bit));
+                        }
                     } else {
-                        printf("start transmit\n");
+                        if (enable_gpio) {
+                            usrp->set_gpio_attr(gpio, "OUT", GPIO_BIT(gpio_bit), GPIO_BIT(gpio_bit));
+                            boost::this_thread::sleep_for(boost::chrono::milliseconds((uint32_t)(gpio_start_delay*1000)));
+                        }
+                        printf("Start transmit.\n");
                     }
 
                         
                 } else if (c.state_and_event_indicators.user_defined == 0x2) {
-                    printf("end transmit\n");
+                    printf("End transmit.\n");
                     metadata.end_of_burst = true;
                     metadata.start_of_burst = false;
                     metadata.has_time_spec  = false;
                     tx_streamer->send("", 0, metadata);
                     metadata.end_of_burst = false;
+
+                    // GPIO
+                    if (enable_gpio) {
+                        if (c.state_and_event_indicators.has.calibrated_time && c.state_and_event_indicators.calibrated_time) {
+                            timeval vrt_time;
+                            vrt_time.tv_sec = f.integer_seconds_timestamp;
+                            vrt_time.tv_usec = f.fractional_seconds_timestamp/1e6;
+                            uhd::time_spec_t stop_time(vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
+                            usrp->set_command_time(stop_time + uhd::time_spec_t(gpio_stop_delay));
+                            usrp->set_gpio_attr(gpio, "OUT", 0, GPIO_BIT(gpio_bit));
+                        } else {
+                            // the '5' is a guess of the usrp buffer depth
+                            usrp->set_command_time(usrp->get_time_now() + uhd::time_spec_t(5*(float)VRT_SAMPLES_PER_PACKET/sample_rate) + uhd::time_spec_t(gpio_stop_delay));
+                            usrp->set_gpio_attr(gpio, "OUT", 0, GPIO_BIT(gpio_bit));
+                        }
+                    }
+
                 }
 
             }
@@ -293,7 +355,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     uint16_t tx_gain;
     int hwm;
     uint32_t stream_id;
-    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, if_freq, pps_offset;
+    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, if_freq, pps_offset, gpio_delay;
 
     bool context_changed = true;
     bool merge;
@@ -327,6 +389,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("tx", "enable tx")
         ("tx-freq", po::value<double>(&tx_freq)->default_value(0.0), "TX RF center frequency in Hz")
         ("tx-gain", po::value<uint16_t>(&tx_gain)->default_value(0), "gain for the TX RF chain")
+        ("gpio", "enable GPIO (TX)")
+        ("gpio-delay", po::value<double>(&gpio_delay)->default_value(50), "GPIO advance/delay (ms)")
         ("wirefmt", po::value<std::string>(&wirefmt)->default_value("sc16"), "wire format (sc8, sc16 or s16)")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
         ("udp", po::value<std::string>(&udp_forward), "VRT UDP forward address")
@@ -370,6 +434,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool enable_udp             = vm.count("udp") > 0;
     bool enable_temp            = vm.count("temp") > 0;
     bool enable_tx              = vm.count("tx") > 0;
+    bool enable_gpio            = vm.count("gpio") > 0;
 
     struct vrt_packet p;
     vrt_init_packet(&p);
@@ -757,7 +822,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
         // start thread
         transmit_thread = std::thread([&]() {
-            transmit_worker(usrp, tx_stream, zmq_transmit, tx_freq, lo_offset, tx_gain);
+            transmit_worker(usrp, tx_stream, zmq_transmit, tx_freq, lo_offset, tx_gain, rate, enable_gpio, gpio_delay);
         });
     }
 

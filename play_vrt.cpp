@@ -61,9 +61,12 @@ unsigned long long num_total_samps = 0;
 namespace po = boost::program_options;
 
 static bool stop_signal_called = false;
+static bool last_frame = false;
+
 void sig_int_handler(int)
 {
     stop_signal_called = true;
+    last_frame = true;
 }
 
 int main(int argc, char* argv[])
@@ -231,7 +234,6 @@ int main(int argc, char* argv[])
     uint32_t buffer[VRT_DATA_PACKET_SIZE];
    
     bool first_frame = true;
-    bool last_frame = false;
     bool context_changed = true;
 
     struct vrt_packet p;
@@ -295,6 +297,7 @@ int main(int argc, char* argv[])
         timed_tx = true;
         t1 = boost::posix_time::microsec_clock::universal_time();
         printf("    now: %i\n", boost::posix_time::to_time_t(t1));
+        t1 = t1 + boost::posix_time::milliseconds(200);
         time_t integer_time_tx = tx_int*(boost::posix_time::to_time_t(t1) / tx_int) + tx_int;
         printf("tx time: %i\n", integer_time_tx);
         t1 = boost::posix_time::from_time_t(integer_time_tx);
@@ -323,7 +326,7 @@ int main(int argc, char* argv[])
         long nsec=time_since_epoch.fractional_seconds()*(1000000000/time_since_epoch.ticks_per_second()); 
         auto chrono_t1 = t_temp + std::chrono::nanoseconds(nsec); 
 
-        auto wait_time = chrono_t1 - std::chrono::system_clock::now() - std::chrono::milliseconds(100);
+        auto wait_time = chrono_t1 - std::chrono::system_clock::now() - std::chrono::milliseconds(150);
 
         if (wait_time > std::chrono::microseconds(0))
             std::this_thread::sleep_for(wait_time);
@@ -340,7 +343,7 @@ int main(int argc, char* argv[])
     last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
 
 
-    while (not stop_signal_called) {
+    while (not stop_signal_called or last_frame) {
  
         const auto now = std::chrono::steady_clock::now();
 
@@ -357,14 +360,14 @@ int main(int argc, char* argv[])
         struct timeval interval_time;
         int64_t first_sample = frame_count*samps_per_buff;
 
-        double interval = (double)first_sample/(double)rate;
+        double interval = (double)first_sample/(double)datarate;
         interval_time.tv_sec = (time_t)interval;
         interval_time.tv_usec = (interval-(time_t)interval)*1e6;
 
         timeradd(&time_first_sample, &interval_time, &vrt_time);
 
         const auto time_since_last_context = now - last_context;
-        if (send_context and time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL)) {
+        if (last_frame or (send_context and time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL))) {
 
             last_context = now;
 
@@ -415,14 +418,11 @@ int main(int argc, char* argv[])
 
             if (first_frame) {
                 pc.if_context.state_and_event_indicators.user_defined = 0x1;
-            } else if (last_frame and not repeat) {
+            } else if (last_frame) {
                 pc.if_context.state_and_event_indicators.user_defined = 0x2;
             } else {
                 pc.if_context.state_and_event_indicators.user_defined = 0x0;
             }
-
-            // pc.if_context.state_and_event_indicators.reference_lock = (bool)(ref=="external") ? true : false;
-            // pc.if_context.state_and_event_indicators.calibrated_time = (bool)(time_cal=="external" || time_cal=="pps") ? true : false;
 
             int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
             if (rv < 0) {
@@ -439,6 +439,7 @@ int main(int argc, char* argv[])
             //     }
             //     zmq_send (subscriber, buffer, rv*4, 0);   
             // }
+            last_frame = false;
 
         }
 
@@ -456,7 +457,7 @@ int main(int argc, char* argv[])
                 first_frame = false;
             }
 
-            if (filesize > 0 && ftell(read_ptr) > filesize-sizeof(samples)) {
+            if (not repeat && filesize > 0 && ftell(read_ptr) > filesize-sizeof(samples)) {
                 last_frame = true;
                 // trigger context
                 last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
