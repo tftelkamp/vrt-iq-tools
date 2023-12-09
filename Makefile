@@ -6,7 +6,8 @@ endif
 # VRT IQ tools
 all: clients dt
 clients: vrt_fftmax vrt_gnuplot vrt_to_sigmf sigmf_to_vrt play_vrt vrt_forwarder vrt_spectrum vrt_to_void control_vrt vrt_to_rtl_tcp vrt_fftmax_quad vrt_to_filterbank vrt_to_fifo vrt_pulsar vrt_to_udp
-sdr: usrp_to_vrt rfspace_to_vrt rtlsdr_to_vrt
+sdr: usrp_to_vrt rfspace_to_vrt 
+rtlsdr: rtlsdr_to_vrt
 gnuradio: vrt_to_gnuradio
 gpu: vrt_gpu_fftmax
 dada: vrt_to_dada
@@ -135,7 +136,17 @@ install: all
 		install -m 755 vrt_to_rtl_tcp    $(DESTDIR)$(PREFIX)/bin/
 		install -m 755 vrt_fftmax_quad   $(DESTDIR)$(PREFIX)/bin/
 		install -m 755 vrt_to_filterbank $(DESTDIR)$(PREFIX)/bin/
-		install -m 755 query_dt_console   $(DESTDIR)$(PREFIX)/bin/
+		install -m 755 query_dt_console  $(DESTDIR)$(PREFIX)/bin/
+
+ifeq ("$(wildcard "usrp_to_vrt")","")
+		install -m 755 usrp_to_vrt $(DESTDIR)$(PREFIX)/bin/
+endif
+ifeq ("$(wildcard "rfspace_to_vrt")","")
+		install -m 755 rfspace_to_vrt $(DESTDIR)$(PREFIX)/bin/
+endif
+ifeq ("$(wildcard "rtlsdr_to_vrt")","")
+		install -m 755 rtlsdr_to_vrt $(DESTDIR)$(PREFIX)/bin/
+endif
 
 clean:
 		$(RM) usrp_to_vrt vrt_fftmax vrt_gnuplot vrt_to_gnuradio vrt_to_sigmf convenience.o rtlsdr_to_vrt rfspace_to_vrt vrt_forwarder vrt_to_void vrt_spectrum sigmf_to_vrt play_vrt vrt_gpu_fftmax control_vrt vrt_to_dada vrt_to_rtl_tcp vrt_to_vrt_quad vrt_fftmax_quad vrt_to_filterbank query_dt_console vrt_rffft vrt_to_fifo vrt_pulsar vrt_to_udp
