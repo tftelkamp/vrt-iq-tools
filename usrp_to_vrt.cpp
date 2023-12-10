@@ -466,7 +466,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     zmq_server = responder;
 
     responder = zmq_socket(context, ZMQ_SUB);
-    rc = zmq_bind(responder, "tcp://*:50300");
+    std::string control_string = "tcp://*:" + std::to_string(port+200);
+    rc = zmq_bind(responder, control_string.c_str());
     assert (rc == 0);
     zmq_control = responder;
     zmq_setsockopt(zmq_control, ZMQ_SUBSCRIBE, "", 0);
