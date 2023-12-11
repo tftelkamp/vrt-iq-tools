@@ -42,8 +42,6 @@
 #include <arpa/inet.h> 
 #include <netinet/in.h> 
 
-#include <boost/thread/thread.hpp>
-
 // VRT tools functions
 #include "vrt-tools.h"
 
@@ -474,7 +472,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     if (enable_tx) {
         responder = zmq_socket(context, ZMQ_SUB);
-        rc = zmq_bind(responder, "tcp://*:50500");
+        std::string tx_string = "tcp://*:" + std::to_string(port+400);
+        rc = zmq_bind(responder, tx_string.c_str());
         assert (rc == 0);
         zmq_transmit = responder;
         zmq_setsockopt(zmq_transmit, ZMQ_SUBSCRIBE, "", 0);
