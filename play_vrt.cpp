@@ -156,16 +156,16 @@ int main(int argc, char* argv[])
         meta_filename = base_fn_fp.string();
         pt::read_json(meta_filename, root);
 
-        rate = root.get<double>("global.core:sample_rate", 0);
+        rate = root.get<double>("global.core:sample_rate", datarate);
         bw = root.get<double>("global.vrt:bandwidth", 0);
-        gain = root.get<int>("global.vrt:tx_gain", 0);
+        gain = root.get<int>("global.vrt:tx_gain", tx_gain);
         // ref = root.get<std::string>("global.vrt:reference", "");
         // time_cal = root.get<std::string>("global.vrt:time_source", "");
         type = root.get<std::string>("global.core:datatype", "");
         stream_id = root.get<uint32_t>("global.vrt:stream_id", 0);
 
         for (auto& item : root.get_child("captures")) {
-            freq = item.second.get<double>("core:frequency");
+            freq = item.second.get<double>("core:frequency", tx_freq);
             start_time_str = item.second.get<std::string>("core:datetime");
         }
 
@@ -296,10 +296,10 @@ int main(int argc, char* argv[])
     if (tx_int > 0) {
         timed_tx = true;
         t1 = boost::posix_time::microsec_clock::universal_time();
-        printf("    now: %i\n", boost::posix_time::to_time_t(t1));
+        printf("    now: %li\n", boost::posix_time::to_time_t(t1));
         t1 = t1 + boost::posix_time::milliseconds(200);
         time_t integer_time_tx = tx_int*(boost::posix_time::to_time_t(t1) / tx_int) + tx_int;
-        printf("tx time: %i\n", integer_time_tx);
+        printf("tx time: %li\n", integer_time_tx);
         t1 = boost::posix_time::from_time_t(integer_time_tx);
     }
 
