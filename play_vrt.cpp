@@ -84,6 +84,10 @@ int main(int argc, char* argv[])
     FILE *read_ptr;
     FILE *read_ptr_2;
 
+    datarate = 0;
+    tx_freq = 0;
+    tx_gain = 0;
+
     // setup the program options
     po::options_description desc("Allowed options");
     // clang-format off
@@ -91,10 +95,10 @@ int main(int argc, char* argv[])
         ("help", "help message")
         ("file", po::value<std::string>(&file)->default_value("samples.sigmf-meta"), "name of the SigMF meta file")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
-        ("datarate", po::value<double>(&datarate)->default_value(0), "rate of outgoing samples")
+        ("datarate", po::value<double>(&datarate), "rate of outgoing samples")
         ("tx-buffer", po::value<uint16_t>(&tx_buffer_size)->default_value(10), "VRT ZMQ transmit buffer size")
-        ("tx-freq", po::value<double>(&tx_freq)->default_value(0.0), "TX RF center frequency in Hz")
-        ("tx-gain", po::value<uint16_t>(&tx_gain)->default_value(0), "gain for the TX RF chain")
+        ("tx-freq", po::value<double>(&tx_freq), "TX RF center frequency in Hz")
+        ("tx-gain", po::value<uint16_t>(&tx_gain), "gain for the TX RF chain")
         // ("dual-chan", "use two SigMF files for dual channel stream (chan0+chan1)")
         ("progress", "periodically display short-term bandwidth")
         ("timed-tx", "Start transmission at given time (SigMF)")
@@ -159,8 +163,6 @@ int main(int argc, char* argv[])
         rate = root.get<double>("global.core:sample_rate", datarate);
         bw = root.get<double>("global.vrt:bandwidth", 0);
         gain = root.get<int>("global.vrt:tx_gain", tx_gain);
-        // ref = root.get<std::string>("global.vrt:reference", "");
-        // time_cal = root.get<std::string>("global.vrt:time_source", "");
         type = root.get<std::string>("global.core:datatype", "");
         stream_id = root.get<uint32_t>("global.vrt:stream_id", 0);
 
@@ -174,17 +176,10 @@ int main(int argc, char* argv[])
         printf("     Sample rate: %i\n", (int)rate);
         printf("            Gain: %i\n", (int)gain);
         printf("       Frequency: %i\n", (int)freq);
-        // printf("       Reference: %s\n", ref.c_str());
-        // printf("Time calibration: %s\n", time_cal.c_str());
         printf("       Data type: %s\n", type.c_str());
         printf("       Stream ID: %u\n", stream_id);
 
         // Some Checks
-        
-        if (rate == 0 || freq == 0) {
-            printf("Frequency and sample rate need to be set.\n");
-            exit(1);
-        }
 
         if (type != "ci16_le") {
             printf("Only 16 bit complex int data format supported (\"ci16_le\")\n");
@@ -209,14 +204,21 @@ int main(int argc, char* argv[])
             rewind(read_ptr);                 // rewind to the beginning of file
         }
     } else {
-        if (datarate == 0) {
-            printf("Specify --datarate.\n");
-            exit(1);
-        }
         read_ptr = stdin;
-        rate = datarate;
+    }
+
+    if (vm.count("tx-freq"))
         freq = tx_freq;
+
+    if (vm.count("tx-gain"))
         gain = tx_gain;
+
+    if (vm.count("datarate"))
+        rate = datarate;
+
+    if (rate == 0 || freq == 0) {
+            printf("Frequency and sample rate need to be specified.\n");
+            exit(1);
     }
     
     // if (dual_chan) {
