@@ -79,7 +79,7 @@ int main(int argc, char* argv[])
     int hwm;
     uint16_t gain, tx_gain;
     double datarate;
-    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq;
+    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, tx_lo_offset;
 
     FILE *read_ptr;
     FILE *read_ptr_2;
@@ -87,6 +87,7 @@ int main(int argc, char* argv[])
     datarate = 0;
     tx_freq = 0;
     tx_gain = 0;
+    tx_lo_offset = 0;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -99,6 +100,7 @@ int main(int argc, char* argv[])
         ("tx-buffer", po::value<uint16_t>(&tx_buffer_size)->default_value(10), "VRT ZMQ transmit buffer size")
         ("tx-freq", po::value<double>(&tx_freq), "TX RF center frequency in Hz")
         ("tx-gain", po::value<uint16_t>(&tx_gain), "gain for the TX RF chain")
+        ("tx-lo-offset", po::value<double>(&tx_lo_offset), "offset for frontend TX LO in Hz")
         // ("dual-chan", "use two SigMF files for dual channel stream (chan0+chan1)")
         ("progress", "periodically display short-term bandwidth")
         ("timed-tx", "Start transmission at given time (SigMF)")
@@ -391,8 +393,15 @@ int main(int argc, char* argv[])
                 pc.if_context.rf_reference_frequency            = freq;
                 pc.if_context.rf_reference_frequency_offset     = 0;
                 pc.if_context.if_reference_frequency            = 0; // Zero-IF
+                if (vm.count("tx-lo-offset")) {
+                    pc.if_context.has.if_band_offset = true;
+                    pc.if_context.if_band_offset = tx_lo_offset;
+                } else {
+                    pc.if_context.has.if_band_offset = false;
+                }
             } else {
                 pc.if_context.has.rf_reference_frequency = false;
+                pc.if_context.has.if_band_offset = false;
             }
 
             if (gain != 0) {

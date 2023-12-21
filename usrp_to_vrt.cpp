@@ -246,9 +246,11 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 
                 if (c.context_field_change_indicator) {
 
-                    double lo_offset = 0;
+                    double lo_offset;
                     if (c.has.if_band_offset) {
-                        tx_lo_offset = c.if_band_offset;
+                        lo_offset = c.if_band_offset;
+                    } else {
+                        lo_offset = tx_lo_offset;
                     }
 
                     if (c.has.rf_reference_frequency) {
@@ -256,7 +258,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                             tx_freq = (double)round(c.rf_reference_frequency);
                             std::cout << boost::format("    Setting TX Freq: %f MHz...") % (tx_freq / 1e6)
                                       << std::endl;
-                            std::cout << boost::format("    Setting TX LO Offset: %f MHz...") % (tx_lo_offset / 1e6)
+                            std::cout << boost::format("    Setting TX LO Offset: %f MHz...") % (lo_offset / 1e6)
                                       << std::endl;
                             uhd::tune_request_t tune_request(tx_freq, lo_offset);
                             // if (vm.count("int-n"))
