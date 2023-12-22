@@ -335,6 +335,8 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                 }
 
             }
+        } else {
+            boost::this_thread::sleep_for(boost::chrono::microseconds(10));
         }
     }
 
