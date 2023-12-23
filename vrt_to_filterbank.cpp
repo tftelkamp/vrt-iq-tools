@@ -80,6 +80,7 @@ int main(int argc, char* argv[])
     uint32_t integrations;
     uint32_t num_bins = 0;
     uint32_t threads = 1;
+    int32_t machine_id, telescope_id, data_type;
     int hwm;
     bool power2;
     size_t num_requested_samples;
@@ -105,6 +106,10 @@ int main(int argc, char* argv[])
         ("integrations", po::value<uint32_t>(&integrations)->default_value(1), "number of integrations")
         ("integration-time", po::value<float>(&integration_time), "integration time (seconds)")
         ("threads", po::value<uint32_t>(&threads)->default_value(1), "enable multi-threading")
+        ("machine-id", po::value<int32_t>(&machine_id)->default_value(0), "set filterbank machine_id (0=FAKE)")
+        ("telescope-id", po::value<int32_t>(&telescope_id)->default_value(0), "set filterbank telescope_id (0=FAKE)")
+        ("data-type", po::value<int32_t>(&data_type)->default_value(1), "set filterbank data_type (1=filterbank)")
+        ("negative-foff", "negative foff frequency and set fch1 as highest channel")
         ("progress", "periodically display short-term bandwidth")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
@@ -134,6 +139,7 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
+    bool neg_foff 		= vm.count("negative-foff") > 0;
     bool int_second             = (bool)vm.count("int-second");
     // bool ignore_dc              = (bool)vm.count("ignore-dc");
 
@@ -273,18 +279,33 @@ int main(int argc, char* argv[])
                 fwrite( (char*)keyword, len, 1, write_ptr);
 
                 keyword = "machine_id";
-                int_value = 0; // FAKE
+                int_value = machine_id;
                 len = strlen(keyword);
                 fwrite( &len, sizeof(len), 1, write_ptr);
                 fwrite( (char*)keyword, len, 1, write_ptr);
                 fwrite( &int_value, sizeof(int_value), 1, write_ptr);
 
                 keyword = "telescope_id";
-                int_value = 26; // Dwingeloo
+                int_value = telescope_id;
                 len = strlen(keyword);
                 fwrite( &len, sizeof(len), 1, write_ptr);
                 fwrite( (char*)keyword, len, 1, write_ptr);
                 fwrite( &int_value, sizeof(int_value), 1, write_ptr);
+
+                keyword = "data_type";
+                int_value = data_type;
+                len = strlen(keyword);
+                fwrite( &len, sizeof(len), 1, write_ptr);
+                fwrite( (char*)keyword, len, 1, write_ptr);
+                fwrite( &int_value, sizeof(int_value), 1, write_ptr);
+
+                keyword = "ibeam";
+                int_value = 1;
+                len = strlen(keyword);
+                fwrite( &len, sizeof(len), 1, write_ptr);
+                fwrite( (char*)keyword, len, 1, write_ptr);
+                fwrite( &int_value, sizeof(int_value), 1, write_ptr);
+
 
                 keyword = "source_name";
                 len = strlen(keyword);
@@ -323,14 +344,20 @@ int main(int argc, char* argv[])
                 fwrite( &int_value, sizeof(int_value), 1, write_ptr);
 
                 keyword = "fch1";
-                double_value = (double)vrt_context.rf_freq/1e6-(double)vrt_context.sample_rate/2e6;
+        		if (neg_foff)
+                    double_value = (double)vrt_context.rf_freq/1e6+(double)vrt_context.sample_rate/2e6;
+        		else
+                    double_value = (double)vrt_context.rf_freq/1e6-(double)vrt_context.sample_rate/2e6;
                 len = strlen(keyword);
                 fwrite( &len, sizeof(len), 1, write_ptr);
                 fwrite( (char*)keyword, len, 1, write_ptr);
                 fwrite( &double_value, sizeof(double_value), 1, write_ptr);
 
                 keyword = "foff";
-                double_value = ((double)vrt_context.sample_rate/1e6)/((double)num_bins); // num_bins-1 ?
+        		if (neg_foff) 
+                    double_value = -((double)vrt_context.sample_rate/1e6)/((double)num_bins);
+        		else
+                    double_value = ((double)vrt_context.sample_rate/1e6)/((double)num_bins);
                 len = strlen(keyword);
                 fwrite( &len, sizeof(len), 1, write_ptr);
                 fwrite( (char*)keyword, len, 1, write_ptr);
@@ -407,7 +434,7 @@ int main(int argc, char* argv[])
                     fftw_execute(plan);
 
                     for (uint32_t i = 0; i < num_bins; ++i) {
-                        magnitudes[i] += sqrt(result[i][REAL] * result[i][REAL] +
+                        magnitudes[i] += (result[i][REAL] * result[i][REAL] +
                                   result[i][IMAG] * result[i][IMAG]);
                     }
                     integration_counter++;
