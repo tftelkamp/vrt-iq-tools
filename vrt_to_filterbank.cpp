@@ -434,7 +434,12 @@ int main(int argc, char* argv[])
                     fftw_execute(plan);
 
                     for (uint32_t i = 0; i < num_bins; ++i) {
-                        magnitudes[i] += (result[i][REAL] * result[i][REAL] +
+                        size_t index;
+                        if (neg_foff)
+                            index = num_bins-1-i;
+                        else
+                            index = i;
+                        magnitudes[index] += (result[i][REAL] * result[i][REAL] +
                                   result[i][IMAG] * result[i][IMAG]);
                     }
                     integration_counter++;
