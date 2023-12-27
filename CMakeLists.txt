@@ -19,9 +19,9 @@ find_package(UHD)
 if (NOT ${UHD_FOUND})
     message(WARNING "UHD not found, not building usrp_to_vrt")
 endif()
-find_package(gnuradio-pmt QUIET)
-if (NOT ${GNURADIO_FOUND})
-    message(WARNING "GnuRadio not found, not building usrp_to_gnuradio")
+find_library(GNURADIO_PMT_LIBRARY gnuradio-pmt QUIET)
+if (NOT GNURADIO_PMT_LIBRARY)
+    message(WARNING "Gnuradio-pmt library not found, not building vrt_to_gnuradio")
 endif()
 
 if (${UHD_FOUND})
@@ -29,13 +29,17 @@ if (${UHD_FOUND})
     target_include_directories(usrp_to_vrt PRIVATE ${UHD_INCLUDE_DIRS})
     target_link_libraries(usrp_to_vrt PRIVATE ${UHD_LIBRARIES})
 endif()
+
 add_executable(vrt_to_sigmf vrt_to_sigmf.cpp)
-add_executable(vrt_to_gnuradio vrt_to_gnuradio.cpp)
+
+if (GNURADIO_PMT_LIBRARY)
+    add_executable(vrt_to_gnuradio vrt_to_gnuradio.cpp)
+    target_link_libraries(vrt_to_gnuradio PRIVATE ${GNURADIO_PMT_LIBRARY})
+endif()
 
 get_property(all_targets DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY BUILDSYSTEM_TARGETS)
 
 
-message(WARNING ${Boost_LIBRARIES})
 foreach(target ${all_targets})
     target_include_directories(${target} PRIVATE ${ZMQ_INCLUDE_DIR})
     target_link_libraries(${target} PRIVATE ${ZMQ_LIBRARY})
