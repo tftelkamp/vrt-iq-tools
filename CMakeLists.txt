@@ -20,7 +20,7 @@ find_path(VRT_INCLUDE_DIR NAMES "vrt/vrt_init.h" REQUIRED)
 find_library(ZMQ_LIBRARY NAMES zmq REQUIRED)
 find_path(ZMQ_INCLUDE_DIR NAMES "zmq.h" REQUIRED)
 
-find_package(UHD)
+find_package(UHD QUIET)
 if(${UHD_FOUND})
   add_executable(usrp_to_vrt usrp_to_vrt.cpp)
   target_include_directories(usrp_to_vrt PRIVATE ${UHD_INCLUDE_DIRS})
@@ -45,11 +45,13 @@ find_package(CUDAToolkit)
 if(NOT CUDAToolkit_FOUND)
   message(WARNING "CUDA not found, building without GPU support")
 else()
+  enable_language(CUDA)
   find_library(
     CUFFT_LIBRARY
     NAMES cufft
     HINTS ${CUDAToolkit_LIBRARY_DIR})
-  add_executable(vrt_gpu_fftmax vrt_gpu_fftmax.cpp)
+  add_executable(vrt_gpu_fftmax vrt_gpu_fftmax.cu)
+  set_property(TARGET vrt_gpu_fftmax PROPERTY CUDA_ARCHITECTURES OFF)
   target_link_libraries(vrt_gpu_fftmax PRIVATE ${CUFFT_LIBRARY})
 endif()
 
