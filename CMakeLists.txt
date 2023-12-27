@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.17)
 
 project(VrtIqTools VERSION 1.0
                    DESCRIPTION "VRT IQ tools"
@@ -17,31 +17,35 @@ find_path(VRT_INCLUDE_DIR NAMES "vrt/vrt_init.h" REQUIRED)
 find_library(ZMQ_LIBRARY NAMES zmq REQUIRED)
 find_path(ZMQ_INCLUDE_DIR NAMES "zmq.h" REQUIRED)
 
+
+
 find_package(UHD)
-
-if (NOT ${UHD_FOUND})
-    message(WARNING "UHD not found, not building usrp_to_vrt")
-endif()
-find_library(GNURADIO_PMT_LIBRARY gnuradio-pmt QUIET)
-if (NOT GNURADIO_PMT_LIBRARY)
-    message(WARNING "Gnuradio-pmt library not found, not building vrt_to_gnuradio")
-endif()
-
 if (${UHD_FOUND})
     add_executable(usrp_to_vrt usrp_to_vrt.cpp)
     target_include_directories(usrp_to_vrt PRIVATE ${UHD_INCLUDE_DIRS})
     target_link_libraries(usrp_to_vrt PRIVATE ${UHD_LIBRARIES})
+else()
+    message(WARNING "UHD not found, not building usrp_to_vrt")
 endif()
 
 find_library(RTLSDR_LIBRARY rtlsdr)
-find_path(RTLSDR_INCLUDE_DIR NAMES rtl-sdr.h)
-if (NOT RTLSDR_LIBRARY)
-    message(WARNING "RTL-SDR library library not found, not building rtlsdr_to_vrt")
-else()
+if (RTLSDR_LIBRARY)
+    find_path(RTLSDR_INCLUDE_DIR NAMES rtl-sdr.h REQUIRED)
     set_source_files_properties(convenience.c PROPERTIES LANGUAGE CXX)
     add_executable(rtlsdr_to_vrt convenience.c rtlsdr_to_vrt.cpp)
     target_include_directories(rtlsdr_to_vrt PRIVATE ${RTLSDR_INCLUDE_DIR})
     target_link_libraries(rtlsdr_to_vrt PRIVATE ${RTLSDR_LIBRARY})
+else()
+    message(WARNING "RTL-SDR library library not found, not building rtlsdr_to_vrt")
+endif()
+
+find_package(CUDAToolkit)
+if (NOT CUDAToolkit_FOUND)
+    message(WARNING "CUDA not found, building without GPU support")
+else()
+    find_library(CUFFT_LIBRARY NAMES cufft HINTS ${CUDAToolkit_LIBRARY_DIR})
+    add_executable(vrt_gpu_fftmax vrt_gpu_fftmax.cpp)
+    target_link_libraries(vrt_gpu_fftmax PRIVATE ${CUFFT_LIBRARY})
 endif()
 
 add_executable(vrt_to_sigmf vrt_to_sigmf.cpp)
@@ -52,7 +56,6 @@ add_executable(vrt_pulsar vrt_pulsar.cpp)
 add_executable(vrt_to_rtl_tcp vrt_to_rtl_tcp.cpp)
 add_executable(vrt_fftmax vrt_fftmax.cpp)
 add_executable(vrt_fftmax_quad vrt_fftmax_quad.cpp)
-#add_executable(vrt_gpu_fftmax vrt_gpu_fftmax.cpp)
 add_executable(vrt_gnuplot vrt_gnuplot.cpp)
 add_executable(vrt_spectrum vrt_spectrum.cpp)
 add_executable(vrt_forwarder vrt_forwarder.cpp)
@@ -62,11 +65,13 @@ add_executable(play_vrt play_vrt.cpp)
 add_executable(control_vrt control_vrt.cpp)
 add_executable(vrt_rffft vrt_rffft.cpp)
 # TODO vrt_to_dada
-# TODO rtlsdr_to_vrt
 
+find_library(GNURADIO_PMT_LIBRARY gnuradio-pmt QUIET)
 if (GNURADIO_PMT_LIBRARY)
     add_executable(vrt_to_gnuradio vrt_to_gnuradio.cpp)
     target_link_libraries(vrt_to_gnuradio PRIVATE ${GNURADIO_PMT_LIBRARY})
+else()
+    message(WARNING "Gnuradio-pmt library not found, not building vrt_to_gnuradio")
 endif()
 
 get_property(all_targets DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY BUILDSYSTEM_TARGETS)
