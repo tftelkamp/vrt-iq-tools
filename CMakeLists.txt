@@ -33,6 +33,16 @@ if (${UHD_FOUND})
     target_link_libraries(usrp_to_vrt PRIVATE ${UHD_LIBRARIES})
 endif()
 
+find_library(RTLSDR_LIBRARY rtlsdr)
+find_path(RTLSDR_INCLUDE_DIR NAMES rtl-sdr.h)
+if (NOT RTLSDR_LIBRARY)
+    message(WARNING "RTL-SDR library library not found, not building rtlsdr_to_vrt")
+else()
+    add_executable(rtlsdr_to_vrt rtlsdr_to_vrt.cpp)
+    target_include_directories(rtlsdr_to_vrt PRIVATE ${RTLSDR_INCLUDE_DIR})
+    target_link_libraries(rtlsdr_to_vrt PRIVATE ${RTLSDR_LIBRARY})
+endif()
+
 add_executable(vrt_to_sigmf vrt_to_sigmf.cpp)
 add_executable(vrt_to_void vrt_to_void.cpp)
 add_executable(vrt_to_udp vrt_to_udp.cpp)
@@ -51,6 +61,7 @@ add_executable(play_vrt play_vrt.cpp)
 add_executable(control_vrt control_vrt.cpp)
 add_executable(vrt_rffft vrt_rffft.cpp)
 # TODO vrt_to_dada
+# TODO rtlsdr_to_vrt
 
 if (GNURADIO_PMT_LIBRARY)
     add_executable(vrt_to_gnuradio vrt_to_gnuradio.cpp)
