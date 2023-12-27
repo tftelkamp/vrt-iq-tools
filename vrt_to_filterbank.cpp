@@ -231,6 +231,7 @@ int main(int argc, char* argv[])
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
             plan = fftw_plan_dft_1d(num_bins, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
             magnitudes = (float*)malloc(num_bins * sizeof(float));
+            memset(magnitudes, 0, num_bins*sizeof(float));
             
             printf("# Filterbank parameters:\n");
             printf("#    Bins: %u\n", num_bins);
@@ -452,6 +453,8 @@ int main(int argc, char* argv[])
                     }
                 }
             }
+
+            fflush(write_ptr);
 
             num_total_samps += vrt_packet.num_rx_samps;
 
