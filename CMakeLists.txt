@@ -18,7 +18,6 @@ find_library(ZMQ_LIBRARY NAMES zmq REQUIRED)
 find_path(ZMQ_INCLUDE_DIR NAMES "zmq.h" REQUIRED)
 
 
-
 find_package(UHD)
 if (${UHD_FOUND})
     add_executable(usrp_to_vrt usrp_to_vrt.cpp)
@@ -64,7 +63,6 @@ add_executable(query_dt_console query_dt_console.cpp)
 add_executable(play_vrt play_vrt.cpp)
 add_executable(control_vrt control_vrt.cpp)
 add_executable(vrt_rffft vrt_rffft.cpp)
-# TODO vrt_to_dada
 
 find_library(GNURADIO_PMT_LIBRARY gnuradio-pmt QUIET)
 if (GNURADIO_PMT_LIBRARY)
@@ -72,6 +70,16 @@ if (GNURADIO_PMT_LIBRARY)
     target_link_libraries(vrt_to_gnuradio PRIVATE ${GNURADIO_PMT_LIBRARY})
 else()
     message(WARNING "Gnuradio-pmt library not found, not building vrt_to_gnuradio")
+endif()
+
+find_library(PSRDADA_LIBRARY psrdada QUIET)
+if (PSRDADA_LIBRARY)
+    find_path(PSRDADA_INCLUDE_DIR NAMES dada_def.h REQUIRED)
+    add_executable(vrt_to_dada vrt_to_dada.cpp)
+    target_include_directories(vrt_to_dada PRIVATE ${PSRDADA_INCLUDE_DIR})
+    target_link_libraries(vrt_to_dada PRIVATE ${PSRDADA_LIBRARY})
+else()
+    message(WARNING "PSRDADA not found, not building vrt_to_dada")
 endif()
 
 get_property(all_targets DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY BUILDSYSTEM_TARGETS)
