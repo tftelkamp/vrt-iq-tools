@@ -561,11 +561,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             channel_nums.push_back(std::stoi(channel_strings[ch]));
     }
 
-    // Create a temporary rx_stream before we set the freq and time.
-    uhd::stream_args_t tmp_stream_args("sc16", "sc16");
-    tmp_stream_args.channels             = channel_nums;
-    uhd::rx_streamer::sptr tmp_rx_stream = usrp->get_rx_stream(tmp_stream_args);
-
     // set the sample rate
     if (rate <= 0.0) {
         std::cerr << "Please specify a valid sample rate" << std::endl;
