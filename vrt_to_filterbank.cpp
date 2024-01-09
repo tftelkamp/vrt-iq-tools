@@ -33,6 +33,7 @@
 #include <fftw3.h>
 
 #include "vrt-tools.h"
+#include "dt-extended-context.h"
 
 namespace po = boost::program_options;
 
@@ -113,6 +114,7 @@ int main(int argc, char* argv[])
         ("progress", "periodically display short-term bandwidth")
         // ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
+        ("dt-trace", "use coordinates from DT trace data in VRT stream")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         // ("ignore-dc", "Ignore  DC bin")
@@ -141,6 +143,7 @@ int main(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool neg_foff 		= vm.count("negative-foff") > 0;
     bool int_second             = (bool)vm.count("int-second");
+    bool dt_trace               = vm.count("dt-trace") > 0;
     // bool ignore_dc              = (bool)vm.count("ignore-dc");
 
     std::vector<std::string> coord_strings;
@@ -159,6 +162,7 @@ int main(int argc, char* argv[])
     write_ptr = fopen(file.c_str(),"wb");  // w for write, b for binary
 
     context_type vrt_context;
+    dt_ext_context_type dt_ext_context;
     init_context(&vrt_context);
 
     packet_type vrt_packet;
@@ -240,7 +244,7 @@ int main(int argc, char* argv[])
             printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
         }
         
-        if (start_rx and vrt_packet.data) {
+        if (start_rx and vrt_packet.data and (dt_ext_context.dt_ext_context_received or not dt_trace)) {
 
             if (vrt_packet.lost_frame)
                if (not continue_on_bad_packet)
@@ -258,7 +262,7 @@ int main(int argc, char* argv[])
                 }
             }
 
-              if (first_frame) {
+            if (first_frame) {
                 std::cout << boost::format(
                                  "# First frame: %u samples, %u full secs, %.09f frac secs")
                                  % vrt_packet.num_rx_samps
@@ -306,7 +310,6 @@ int main(int argc, char* argv[])
                 fwrite( &len, sizeof(len), 1, write_ptr);
                 fwrite( (char*)keyword, len, 1, write_ptr);
                 fwrite( &int_value, sizeof(int_value), 1, write_ptr);
-
 
                 keyword = "source_name";
                 len = strlen(keyword);
@@ -378,7 +381,44 @@ int main(int argc, char* argv[])
                 fwrite( (char*)keyword, len, 1, write_ptr);
                 fwrite( &double_value, sizeof(double_value), 1, write_ptr);
 
-                if (vm.count("coordinates")) {
+                if (dt_trace) {
+                    keyword = "src_raj";
+                    double ra_h = ((12.0/M_PI)*dt_ext_context.ra_current);
+                    int ra_hours = (int)ra_h;
+                    int ra_minutes = (int)(ra_h*60)%60;
+                    double ra_seconds = fmod(ra_h*3600.0, 60.0);
+                    double_value = ra_hours*1e4 + ra_minutes*1e2 + ra_seconds;
+                    len = strlen(keyword);
+                    fwrite( &len, sizeof(len), 1, write_ptr);
+                    fwrite( (char*)keyword, len, 1, write_ptr);
+                    fwrite( &double_value, sizeof(double_value), 1, write_ptr);
+
+                    keyword = "src_dej";
+                    double dec_deg = ((180.0/M_PI)*dt_ext_context.dec_current);
+                    int dec_degrees = (int)dec_deg;
+                    int dec_minutes = (int)(dec_deg*60.0)%60;
+                    double dec_seconds = fmod(dec_deg*3600, 60.0);
+                    double_value = dec_degrees*1e4 + dec_minutes*1e2 + dec_seconds;
+                    len = strlen(keyword);
+                    fwrite( &len, sizeof(len), 1, write_ptr);
+                    fwrite( (char*)keyword, len, 1, write_ptr);
+                    fwrite( &double_value, sizeof(double_value), 1, write_ptr);
+
+                    keyword = "az_start";
+                    double_value = ((180.0/M_PI)*dt_ext_context.azimuth);
+                    len = strlen(keyword);
+                    fwrite( &len, sizeof(len), 1, write_ptr);
+                    fwrite( (char*)keyword, len, 1, write_ptr);
+                    fwrite( &double_value, sizeof(double_value), 1, write_ptr);
+
+                    keyword = "za_start";
+                    double_value = ((180.0/M_PI)*dt_ext_context.elevation);
+                    len = strlen(keyword);
+                    fwrite( &len, sizeof(len), 1, write_ptr);
+                    fwrite( (char*)keyword, len, 1, write_ptr);
+                    fwrite( &double_value, sizeof(double_value), 1, write_ptr);
+
+                } else if (vm.count("coordinates")) {
                     keyword = "src_raj";
                     double_value = strtod(coord_strings[0].c_str(), &ptr);
                     len = strlen(keyword);
@@ -458,6 +498,15 @@ int main(int argc, char* argv[])
 
             num_total_samps += vrt_packet.num_rx_samps;
 
+        }
+
+        if (vrt_packet.extended_context) {
+            // TODO: Find some other variable to avoid giving this warning for every extended context packet
+            // This now assumes that any extended context is a DT extended context
+            if (not dt_ext_context.dt_ext_context_received and not dt_trace) {
+                std::cerr << "# WARNING: DT metadata is present in the stream, but it is ignored. Did you forget --dt-trace?" << std::endl;
+            }
+            dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
         }
 
         if (progress) {
