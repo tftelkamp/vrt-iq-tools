@@ -233,7 +233,7 @@ int main(int argc, char* argv[])
               "TSAMP " + std::to_string(1e6/vrt_context.sample_rate) + "\n";
 
             if (dt_trace) {
-              boost::format fmt("+%02d:%02d:%06.3f");
+              boost::format fmt("%02d:%02d:%06.3f");
 
               double ra_h = ((12.0/M_PI) * dt_ext_context.ra_current);
               int ra_hours = static_cast<int>(ra_h);
@@ -241,8 +241,14 @@ int main(int argc, char* argv[])
               double ra_seconds = fmod(ra_h * 3600.0, 60.0);
               fmt % ra_hours % ra_minutes % ra_seconds;
               dada_header += "RA " + boost::str(fmt) + "\n";
-              std::cout<<"Writing ra\n";
-              std::cout<<"RA " << fmt << "\n";
+              double dec_deg = ((180.0/M_PI) * dt_ext_context.dec_current);
+              std::string dec_sign = (dec_deg > 0 ? "+" : "-");
+              dec_deg = abs(dec_deg);
+              int dec_degrees = static_cast<int>(dec_deg);
+              int dec_minutes = static_cast<int>(dec_deg * 60.0) % 60;
+              double dec_seconds = fmod(dec_deg * 3600, 60.0);
+              fmt % dec_degrees % dec_minutes % dec_seconds;
+              dada_header += "DEC " + dec_sign + boost::str(fmt) + "\n";
             }
 
             // DADA hdu
