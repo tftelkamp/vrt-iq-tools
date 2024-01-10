@@ -43,6 +43,7 @@
 // END DADA
 
 #include "vrt-tools.h"
+#include "dt-extended-context.h"
 
 namespace po = boost::program_options;
 
@@ -91,8 +92,8 @@ int main(int argc, char* argv[])
         ("progress", "periodically display short-term bandwidth")
         ("channel", po::value<std::string>(&channel_list)->default_value("0"), "which VRT channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         ("int-second", "align start of reception to integer second")
-        ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
+        ("dt-trace", "add DT trace data")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
@@ -114,8 +115,8 @@ int main(int argc, char* argv[])
 
     bool progress               = vm.count("progress") > 0;
     bool stats                  = vm.count("stats") > 0;
-    bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
+    bool dt_trace               = vm.count("dt-trace") > 0;
     bool int_second             = (bool)vm.count("int-second");
 
     if (!vm.count("int-second")) throw std::runtime_error("Dada requires --int-second");
@@ -125,6 +126,7 @@ int main(int argc, char* argv[])
     std::complex<float> correction = a*exp(z);
 
     context_type vrt_context;
+    dt_ext_context_type dt_ext_context;
     init_context(&vrt_context);
 
     packet_type vrt_packet;
@@ -195,7 +197,16 @@ int main(int argc, char* argv[])
 
         uint32_t channel = channel_nums[ch];
 
-        if (not start_rx and vrt_packet.context) {
+        if (vrt_packet.extended_context) {
+            // TODO: Find some other variable to avoid giving this warning for every extended context packet
+            // This now assumes that any extended context is a DT extended context
+            if (not dt_ext_context.dt_ext_context_received and not dt_trace) {
+                std::cerr << "# WARNING: DT metadata is present in the stream, but it is ignored. Did you forget --dt-trace?" << std::endl;
+            }
+            dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
+        }
+
+        if (not start_rx and vrt_packet.context and (dt_ext_context.dt_ext_context_received or not dt_trace)) {
             vrt_print_context(&vrt_context);
             start_rx = true;
 
@@ -221,6 +232,25 @@ int main(int argc, char* argv[])
               "OBS_OFFSET 0\n"
               "TSAMP " + std::to_string(1e6/vrt_context.sample_rate) + "\n";
 
+            if (dt_trace) {
+              boost::format fmt("%02d:%02d:%06.3f");
+
+              double ra_h = ((12.0/M_PI) * dt_ext_context.ra_current);
+              int ra_hours = static_cast<int>(ra_h);
+              int ra_minutes = static_cast<int>(ra_h * 60) % 60;
+              double ra_seconds = fmod(ra_h * 3600.0, 60.0);
+              fmt % ra_hours % ra_minutes % ra_seconds;
+              dada_header += "RA " + boost::str(fmt) + "\n";
+              double dec_deg = ((180.0/M_PI) * dt_ext_context.dec_current);
+              std::string dec_sign = (dec_deg > 0 ? "+" : "-");
+              dec_deg = abs(dec_deg);
+              int dec_degrees = static_cast<int>(dec_deg);
+              int dec_minutes = static_cast<int>(dec_deg * 60.0) % 60;
+              double dec_seconds = fmod(dec_deg * 3600, 60.0);
+              fmt % dec_degrees % dec_minutes % dec_seconds;
+              dada_header += "DEC " + dec_sign + boost::str(fmt) + "\n";
+            }
+
             // DADA hdu
             dada_log = multilog_open ("example_dada_writer", 0);
             multilog_add(dada_log, stderr);
@@ -233,7 +263,7 @@ int main(int argc, char* argv[])
             // END DADA
         }
         
-        if (start_rx and vrt_packet.data) {
+        if (start_rx and vrt_packet.data and (dt_ext_context.dt_ext_context_received or not dt_trace)) {
 
             if (vrt_packet.lost_frame)
                if (not continue_on_bad_packet)
