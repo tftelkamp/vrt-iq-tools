@@ -261,7 +261,7 @@ int main(int argc, char* argv[])
                     }
 
                     double peak_hz = vrt_context.rf_freq + (double)max_i/(double)fft_len - vrt_context.sample_rate/2;
-                    printf("%lu.%09li, %.2f, %.3f\n", seconds, (int64_t)(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
+                    printf("%lu.%09li, %.2f, %.3f\n", static_cast<unsigned long>(seconds), static_cast<long>(frac_seconds/1e3), peak_hz, 20*log10(max/(double)num_points));
                     fflush(stdout);
                 }
             }

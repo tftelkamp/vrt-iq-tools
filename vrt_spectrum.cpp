@@ -432,11 +432,11 @@ int main(int argc, char* argv[])
                                 double timestamp = (double)seconds + (double)(frac_seconds/1e12);
                                 fwrite(&timestamp,sizeof(double),1,outfile);
                             } else {
-                                printf("%lu.%09li", seconds, (int64_t)(frac_seconds/1e3));
+                                printf("%lu.%09li", static_cast<unsigned long>(seconds), static_cast<long>(frac_seconds/1e3));
                             }
                             if (log_freq) {
                                 if (not binary) {
-                                    printf(", %li", vrt_context.rf_freq);
+                                    printf(", %li", static_cast<long>(vrt_context.rf_freq));
                                 }
                                 else {
                                     double freq = vrt_context.rf_freq;

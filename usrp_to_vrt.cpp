@@ -292,7 +292,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                         metadata.has_time_spec = true;
                         metadata.time_spec = start_time;
 
-                        printf("Timed transmit queued (%u frac %.09f).\n", vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
+                        printf("Timed transmit queued (%ld frac %.09f).\n", vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
                        
                         // GPIO
                         if (enable_gpio) {
