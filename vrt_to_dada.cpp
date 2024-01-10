@@ -237,11 +237,12 @@ int main(int argc, char* argv[])
 
               double ra_h = ((12.0/M_PI) * dt_ext_context.ra_current);
               int ra_hours = static_cast<int>(ra_h);
-              int ra_minutes = static_cast<int>((ra_h * 60) % 60);
+              int ra_minutes = static_cast<int>(ra_h * 60) % 60;
               double ra_seconds = fmod(ra_h * 3600.0, 60.0);
-              dada_header += "RA " + (fmt % ra_hours % ra_minutes % ra_seconds) + "\n";
-              std::cout<<"Writing ra\n"
-              std::cout<<"RA " + (fmt % ra_hours % ra_minutes % ra_seconds) + "\n";
+              fmt % ra_hours % ra_minutes % ra_seconds;
+              dada_header += "RA " + boost::str(fmt) + "\n";
+              std::cout<<"Writing ra\n";
+              std::cout<<"RA " << fmt << "\n";
             }
 
             // DADA hdu
