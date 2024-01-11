@@ -71,7 +71,7 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string zmq_address, channel_list;
+    std::string zmq_address, channel_list, sourcename;
     uint16_t port;
     uint32_t channel;
     int hwm;
@@ -89,9 +89,9 @@ int main(int argc, char* argv[])
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
         ("phase", po::value<float>(&phase)->default_value(0), "phase shift on second channel [0-1]")
+        ("sourcename", po::value<std::string>(&sourcename)->default_value("undefined"), "name of tracked celestial source")
         ("progress", "periodically display short-term bandwidth")
         ("channel", po::value<std::string>(&channel_list)->default_value("0"), "which VRT channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
-        ("int-second", "align start of reception to integer second")
         ("continue", "don't abort on a bad packet")
         ("dt-trace", "add DT trace data")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
@@ -117,9 +117,6 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool dt_trace               = vm.count("dt-trace") > 0;
-    bool int_second             = (bool)vm.count("int-second");
-
-    if (!vm.count("int-second")) throw std::runtime_error("Dada requires --int-second");
 
     std::complex<float> z(0,-2*(float)M_PI*phase);
     std::complex<float> a(amplitude,0);
@@ -224,7 +221,7 @@ int main(int argc, char* argv[])
               "TELESCOPE DWL\n"
               "RECEIVER VRT\n"
               "INSTRUMENT dspsr\n"
-              "SOURCE UNDEFINED\n"
+              "SOURCE " + sourcename + "\n"
               "NBIT " + "32\n" +
               "NDIM " + "2\n" +
               "NPOL " + std::to_string(channel_nums.size()) + "\n" +
@@ -241,6 +238,7 @@ int main(int argc, char* argv[])
               double ra_seconds = fmod(ra_h * 3600.0, 60.0);
               fmt % ra_hours % ra_minutes % ra_seconds;
               dada_header += "RA " + boost::str(fmt) + "\n";
+
               double dec_deg = ((180.0/M_PI) * dt_ext_context.dec_current);
               std::string dec_sign = (dec_deg > 0 ? "+" : "-");
               dec_deg = abs(dec_deg);
@@ -249,6 +247,8 @@ int main(int argc, char* argv[])
               double dec_seconds = fmod(dec_deg * 3600, 60.0);
               fmt % dec_degrees % dec_minutes % dec_seconds;
               dada_header += "DEC " + dec_sign + boost::str(fmt) + "\n";
+
+
             }
 
             // DADA hdu
@@ -269,17 +269,14 @@ int main(int argc, char* argv[])
                if (not continue_on_bad_packet)
                     break;
 
-            if (int_second) {
-                // check if fractional second has wrapped
-                if (vrt_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
-                        last_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
-                        continue;
-                } else {
-                    int_second = false;
-                    last_update = now; 
-                    start_time = now;
-                    stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
-                }
+            // check if fractional second has wrapped
+            if (vrt_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
+                    last_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
+                    continue;
+            } else {
+                last_update = now;
+                start_time = now;
+                stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
             }
 
             // Process data here
