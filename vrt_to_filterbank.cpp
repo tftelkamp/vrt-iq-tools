@@ -412,7 +412,7 @@ int main(int argc, char* argv[])
                     fwrite( &double_value, sizeof(double_value), 1, write_ptr);
 
                     keyword = "za_start";
-                    double_value = ((180.0/M_PI)*dt_ext_context.elevation);
+                    double_value = 90.0 - ((180.0/M_PI)*dt_ext_context.elevation);
                     len = strlen(keyword);
                     fwrite( &len, sizeof(len), 1, write_ptr);
                     fwrite( (char*)keyword, len, 1, write_ptr);
