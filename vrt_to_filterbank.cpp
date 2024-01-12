@@ -239,9 +239,9 @@ int main(int argc, char* argv[])
             
             printf("# Filterbank parameters:\n");
             printf("#    Bins: %u\n", num_bins);
-            printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
+            printf("#    Bin size [Hz]: %.0f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
             printf("#    Integrations: %u\n", integrations);
-            printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
+            printf("#    Integration Time [sec]: %.4f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
         }
         
         if (start_rx and vrt_packet.data and (dt_ext_context.dt_ext_context_received or not dt_trace)) {
