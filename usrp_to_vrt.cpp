@@ -351,7 +351,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 int UHD_SAFE_MAIN(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string file, type, ant_list, subdev, ref, wirefmt, channel_list, gain_list, udp_forward, merge_address;
+    std::string file, type, ant_list, subdev, ref, wirefmt, channel_list, gain_list, freq_list, udp_forward, merge_address;
     size_t total_num_samps, spb;
     uint16_t port, merge_port;
     uint16_t tx_gain;
@@ -378,7 +378,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         // ("spb", po::value<size_t>(&spb)->default_value(10000), "samples per buffer")
         ("rate", po::value<double>(&rate)->default_value(1e6), "rate of incoming samples")
-        ("freq", po::value<double>(&freq)->default_value(0.0), "RF center frequency in Hz")
+        ("freq", po::value<std::string>(&freq_list), "RF center frequency (list) in Hz")
         ("if-freq", po::value<double>(&if_freq)->default_value(0.0), "IF center frequency in Hz")
         ("lo-offset", po::value<double>(&lo_offset)->default_value(0.0),
             "Offset for frontend LO in Hz (optional)")
@@ -582,6 +582,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                   << std::endl;
     }
 
+    std::vector<double> frequencies;
+    if (vm.count("freq")) {
+        std::vector<std::string> freq_strings;
+        boost::split(freq_strings, freq_list, boost::is_any_of("\"',"));
+        for (size_t ch = 0; ch < freq_strings.size(); ch++) {
+            frequencies.push_back(std::stod(freq_strings[ch]));
+        }
+    }
+
     std::vector<size_t> gains;
     if (vm.count("gain")) {
         std::vector<std::string> gain_strings;
@@ -607,7 +616,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         }
 
         // set the center frequency
-        if (vm.count("freq")) { // with default of 0.0 this will always be true
+        if (vm.count("freq")) {
+            freq = (frequencies.size() > channel) ? frequencies[ch] : frequencies[0];
             if (freq < 5e6) {
                 throw std::runtime_error("Frequency should be given in Hz.\n" +
                                          std::to_string(freq) + "Hz is probably not what you meant!");
