@@ -351,7 +351,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 int UHD_SAFE_MAIN(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string file, type, ant_list, subdev, ref, wirefmt, channel_list, gain_list, freq_list, udp_forward, merge_address;
+    std::string file, type, ant_list, subdev, ref, channel_list, gain_list, freq_list, udp_forward, merge_address;
     size_t total_num_samps, spb;
     uint16_t port, merge_port;
     uint16_t tx_gain;
@@ -393,7 +393,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("tx-gain", po::value<uint16_t>(&tx_gain)->default_value(0), "gain for the TX RF chain")
         ("gpio", "enable GPIO (TX)")
         ("gpio-delay", po::value<double>(&gpio_delay)->default_value(50), "GPIO advance/delay (ms)")
-        ("wirefmt", po::value<std::string>(&wirefmt)->default_value("sc16"), "wire format (sc8, sc16 or s16)")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
         ("udp", po::value<std::string>(&udp_forward), "VRT UDP forward address")
         ("progress", "periodically display short-term bandwidth")
@@ -745,6 +744,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         }
     }
 
+    // create a receive streamer
+    const std::string& cpu_format = "sc16";
+    const std::string& wire_format = "sc16";
+    uhd::stream_args_t stream_args(cpu_format, wire_format);
+    stream_args.channels             = channel_nums;
+    uhd::rx_streamer::sptr rx_stream = usrp->get_rx_stream(stream_args);
+
     // reset usrp time to prepare for transmit/receive
     std::cout << boost::format("Setting device timestamp to current time...") << std::endl;
 
@@ -841,9 +847,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::signal(SIGINT, &sig_int_handler);
         std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
     }
-
-    const std::string& cpu_format = "sc16";
-    const std::string& wire_format = wirefmt;
     
     unsigned long long num_requested_samples = total_num_samps;
     bool int_second             = (bool)vm.count("int-second");
@@ -852,11 +855,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     size_t samps_per_buff = VRT_SAMPLES_PER_PACKET; // spb
 
     uint32_t buffer[VRT_DATA_PACKET_SIZE];
-
-    // create a receive streamer
-    uhd::stream_args_t stream_args(cpu_format, wire_format);
-    stream_args.channels             = channel_nums;
-    uhd::rx_streamer::sptr rx_stream = usrp->get_rx_stream(stream_args);
 
     uhd::rx_metadata_t md;
     std::vector<std::vector<std::complex<short>>> buffs(
