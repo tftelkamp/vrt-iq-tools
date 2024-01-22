@@ -102,7 +102,7 @@ int main(int argc, char* argv[])
     uint32_t output_counter = 0;
  
     // variables to be set by po
-    std::string file, type, zmq_address, gnuplot_terminal, gnuplot_commands;;
+    std::string file, type, zmq_address, gnuplot_terminal, gnuplot_commands, source;
     size_t num_requested_samples;
     uint32_t bins, updates_per_second;
     double total_time;
@@ -140,6 +140,7 @@ int main(int argc, char* argv[])
         ("integration-time", po::value<float>(&integration_time)->default_value(1.0), "integration time (seconds)")
         ("tau", po::value<double>(&tau), "Exponential weighted moving average time constant (sec)")
         ("poly", po::value<std::vector<double> >(&poly)->multitoken(), "Polynomal coefficients to compensate bandpass")
+        ("source", po::value<std::string>(&source), "Source description (ECSV)")
         ("gnuplot", "Gnuplot mode")
         ("gnuplot-commands", po::value<std::string>(&gnuplot_commands)->default_value(""), "Extra gnuplot commands like \"set yr [ymin:ymax];\"")
         ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
@@ -191,6 +192,7 @@ int main(int argc, char* argv[])
     bool ecsv                   = vm.count("ecsv") > 0;
     bool binary                 = vm.count("bin-file") > 0;
     bool dc                     = vm.count("dc") > 0;
+    bool has_source             = vm.count("source") > 0;
 
     if (iir) {
         alpha = (1.0 - exp(-1/(tau/integration_time)));
@@ -296,6 +298,33 @@ int main(int argc, char* argv[])
                 uint32_t first_col = 1;
                 printf("# %%ECSV 1.0\n");
                 printf("# ---\n");
+
+                uint32_t ch=0;
+                while(not (vrt_context.stream_id & (1 << ch) ) )
+                    ch++;
+                printf("# delimiter: \',\'\n");
+                printf("# meta: !!omap\n");
+                printf("# - vrt: !!omap\n");
+                printf("#   - {stream_id: %u}\n", vrt_context.stream_id);
+                printf("#   - {channel: %u}\n", ch);
+                printf("#   - {sample_rate: %.1f}\n", (float)vrt_context.sample_rate);
+                printf("#   - {frequency: %.1f}\n", (double)vrt_context.rf_freq);
+                printf("#   - {bandwidth: %.1f}\n", (float)vrt_context.bandwidth);
+                printf("#   - {rx_gain: %.1f}\n", (float)vrt_context.gain);
+                printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
+                printf("#   - {time_source: %s}\n", vrt_context.time_cal == 1? "pps" : "internal");
+                printf("# - spectrum: !!omap\n");
+                printf("#   - {db: %s}\n", db ? "True" : "False");
+                printf("#   - {bins: %u}\n", num_bins);
+                printf("#   - {col_first_bin: %u}\n", first_col);
+                printf("#   - {bin_size: %.2f}\n", ((double)vrt_context.sample_rate)/((double)num_bins));
+                printf("#   - {integrations: %u}\n", integrations);
+                printf("#   - {integration_time: %.2f}\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
+                if (has_source) {
+                    printf("# - description: !!omap\n");
+                    printf("#   - {source: %s}\n", source.c_str());
+                }
+
                 printf("# datatype:\n");
                 printf("# - {name: timestamp, datatype: float64}\n");
                 if (log_freq) {
@@ -324,28 +353,6 @@ int main(int argc, char* argv[])
                 for (uint32_t i = 0; i < num_bins; ++i) {
                         printf("# - {name: \'%.0f\', datatype: float64}\n", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
                 }
-                
-                uint32_t ch=0;
-                while(not (vrt_context.stream_id & (1 << ch) ) )
-                    ch++;
-                printf("# delimiter: \',\'\n");
-                printf("# meta: !!omap\n");
-                printf("# - vrt: !!omap\n");
-                printf("#   - {stream_id: %u}\n", vrt_context.stream_id);
-                printf("#   - {channel: %u}\n", ch);
-                printf("#   - {sample_rate: %.1f}\n", (float)vrt_context.sample_rate);
-                printf("#   - {frequency: %.1f}\n", (double)vrt_context.rf_freq);
-                printf("#   - {bandwidth: %.1f}\n", (float)vrt_context.bandwidth);
-                printf("#   - {rx_gain: %.1f}\n", (float)vrt_context.gain);
-                printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
-                printf("#   - {time_source: %s}\n", vrt_context.time_cal == 1? "pps" : "internal");
-                printf("# - spectrum: !!omap\n");
-                printf("#   - {db: %s}\n", db ? "True" : "False");
-                printf("#   - {bins: %u}\n", num_bins);
-                printf("#   - {col_first_bin: %u}\n", first_col);
-                printf("#   - {bin_size: %.2f}\n", ((double)vrt_context.sample_rate)/((double)num_bins));
-                printf("#   - {integrations: %u}\n", integrations);
-                printf("#   - {integration_time: %.2f}\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
                 printf("# schema: astropy-2.0\n");
             }
 
