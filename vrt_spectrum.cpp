@@ -296,6 +296,10 @@ int main(int argc, char* argv[])
                 printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
             } else {
                 uint32_t first_col = 1;
+                if (log_freq) first_col++;
+                if (log_temp) first_col++;
+                if (dt_trace) first_col += 11;
+
                 printf("# %%ECSV 1.0\n");
                 printf("# ---\n");
 
@@ -329,11 +333,9 @@ int main(int argc, char* argv[])
                 printf("# - {name: timestamp, datatype: float64}\n");
                 if (log_freq) {
                     printf("# - {name: center_freq_hz, unit: Hz, datatype: float64}\n");
-                    first_col++;
                 }
                 if (log_temp) {
                     printf("# - {name: temperature_deg_c, datatype: float64}\n");
-                    first_col++;
                 }
                 if (dt_trace) {
                     printf("# - {name: current_az_deg, unit: deg, datatype: float64}\n");
@@ -347,7 +349,6 @@ int main(int argc, char* argv[])
                     printf("# - {name: radec_error_angle_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: radec_error_bearing_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: focusbox_mm, unit: mm, datatype: float64}\n");
-                    first_col += 11;
                 }
                 float binsize = (double)vrt_context.sample_rate/(double)num_bins;
                 for (uint32_t i = 0; i < num_bins; ++i) {
