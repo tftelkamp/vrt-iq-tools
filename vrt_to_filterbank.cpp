@@ -196,6 +196,7 @@ int main(int argc, char* argv[])
     uint32_t signal_pointer = 0;
     uint32_t integration_counter = 0;
 
+    int exit_code = EXIT_SUCCESS;
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
 
@@ -247,8 +248,10 @@ int main(int argc, char* argv[])
         if (start_rx and vrt_packet.data and (dt_ext_context.dt_ext_context_received or not dt_trace)) {
 
             if (vrt_packet.lost_frame)
-               if (not continue_on_bad_packet)
+               if (not continue_on_bad_packet) {
+                    exit_code = 1;
                     break;
+               }
 
             if (int_second) {
                 // check if fractional second has wrapped
@@ -549,6 +552,5 @@ int main(int argc, char* argv[])
 
     fclose(write_ptr);
 
-    return 0;
-
+    return exit_code;
 }  
