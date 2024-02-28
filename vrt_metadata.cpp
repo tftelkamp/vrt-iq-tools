@@ -243,7 +243,7 @@ int main(int argc, char* argv[])
             if (dt_trace) 
                 printf(", ext_context_timestamp, current_az_deg, current_el_deg, current_az_error_deg, current_el_error_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
             printf("\n");
-            fflush(stdout);    
+            fflush(stdout);
         }
 
          if (vrt_packet.extended_context) {
@@ -307,6 +307,7 @@ int main(int argc, char* argv[])
                 }
 
                 printf("\n");
+                fflush(stdout);
 
                 samples_last_update = num_total_samps;
             }
