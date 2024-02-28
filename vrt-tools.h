@@ -37,6 +37,8 @@ struct context_type {
     uint64_t starttime_integer;
     uint64_t starttime_fractional;
     int32_t last_data_counter;
+    uint64_t fractional_seconds_timestamp;
+    uint64_t integer_seconds_timestamp;
 };
 
 struct packet_type {
@@ -140,6 +142,9 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
                 fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
                 return false;
             }
+
+            vrt_context->integer_seconds_timestamp = f.integer_seconds_timestamp;
+            vrt_context->fractional_seconds_timestamp = f.fractional_seconds_timestamp;
             if (c.has.sample_rate)
                 vrt_context->sample_rate = (uint32_t)round(c.sample_rate);
             
