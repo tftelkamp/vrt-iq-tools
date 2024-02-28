@@ -183,14 +183,15 @@ int main(int argc, char* argv[])
             continue;
         }
 
+        if (vrt_packet.context) {
+            samples_per_update = ((double)vrt_context.sample_rate * update_time);
+            if (total_time > 0)  
+                num_requested_samples = total_time * vrt_context.sample_rate;
+        }
+
         if (not start_rx and vrt_packet.context) {
             // vrt_print_context(&vrt_context);
             start_rx = true;
-
-            if (total_time > 0)  
-                num_requested_samples = total_time * vrt_context.sample_rate;
-
-            samples_per_update = ((double)vrt_context.sample_rate * update_time);
 
             printf("# %%ECSV 1.0\n");
             printf("# ---\n");
@@ -216,6 +217,7 @@ int main(int argc, char* argv[])
             printf("# - {name: data_timestamp, datatype: float64}\n");
             printf("# - {name: context_timestamp, datatype: float64}\n");
             printf("# - {name: center_freq_hz, unit: Hz, datatype: float64}\n");
+            printf("# - {name: sample_rate, datatype: float64}\n");
             printf("# - {name: rx_gain, unit: dB, datatype: float64}\n");
             if (log_temp) {
                 printf("# - {name: temperature_deg_c, datatype: float64}\n");
@@ -237,7 +239,7 @@ int main(int argc, char* argv[])
             printf("# schema: astropy-2.0\n");
         
             // Header
-            printf("data_timestamp, context_timestamp, center_freq_hz, rx_gain");
+            printf("data_timestamp, context_timestamp, center_freq_hz, sample_rate, rx_gain");
             if (log_temp)
                 printf(", temperature_deg_c");
             if (dt_trace) 
@@ -246,7 +248,7 @@ int main(int argc, char* argv[])
             fflush(stdout);
         }
 
-         if (vrt_packet.extended_context) {
+        if (vrt_packet.extended_context) {
             // TODO: Find some other variable to avoid giving this warning for every extended context packet
             // This now assumes that any extended context is a DT extended context
             if (not dt_ext_context.dt_ext_context_received and not dt_trace) {
@@ -286,6 +288,7 @@ int main(int argc, char* argv[])
                 printf("%lu.%09li", static_cast<unsigned long>(data_seconds), static_cast<long>(data_frac_seconds/1e3));
                 printf(", %lu.%09li", static_cast<unsigned long>(vrt_context.integer_seconds_timestamp), static_cast<long>(vrt_context.fractional_seconds_timestamp/1e3));
                 printf(", %li", static_cast<long>(vrt_context.rf_freq));
+                printf(", %li", static_cast<long>(vrt_context.sample_rate));
                 printf(", %li", static_cast<long>(vrt_context.gain));
 
                 if (log_temp)
