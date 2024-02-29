@@ -39,6 +39,7 @@ struct context_type {
     int32_t last_data_counter;
     uint64_t fractional_seconds_timestamp;
     uint64_t integer_seconds_timestamp;
+    uint32_t timestamp_calibration_time;
 };
 
 struct packet_type {
@@ -71,6 +72,7 @@ void init_context(context_type* context) {
     context->starttime_fractional = 0;
     context->reflock = false;
     context->time_cal = false;
+    context->timestamp_calibration_time = 0;
 }
 
 bool check_packet_count(int8_t counter, context_type* vrt_context) {
@@ -100,6 +102,8 @@ void vrt_print_context(context_type* vrt_context) {
     printf("#    Gain [dB]: %i\n", vrt_context->gain);
     printf("#    Ref lock: %s\n", vrt_context->reflock == 1 ? "external" : "internal");
     printf("#    Time cal: %s\n", vrt_context->time_cal == 1? "pps" : "internal");
+    if (vrt_context->timestamp_calibration_time != 0)
+        printf("#    Cal time: %u\n", vrt_context->timestamp_calibration_time);
 
 }
 
@@ -165,6 +169,9 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
 
             if (c.has.temperature)
                 vrt_context->temperature = c.temperature;
+
+            if (c.has.timestamp_calibration_time)
+                vrt_context->timestamp_calibration_time = c.timestamp_calibration_time;
             
             vrt_context->context_changed = c.context_field_change_indicator;
             vrt_packet->context = true;

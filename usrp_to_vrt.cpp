@@ -358,6 +358,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     int hwm;
     uint32_t stream_id;
     double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, if_freq, pps_offset, gpio_delay;
+    uint32_t timestamp_calibration_time = 0;
 
     bool context_changed = true;
     bool merge;
@@ -765,12 +766,19 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     // PPS
     if (vm.count("pps")) {
-        gettimeofday(&time_now, nullptr);
-        time_t integer_time = (time_t)((double)time_now.tv_sec + 2.0 - pps_offset);
-        uhd::time_spec_t set_pps_time = uhd::time_spec_t(integer_time + pps_offset);
-        std::cout << boost::format("Wait for PPS sync...") << std::endl;
-        usrp->set_time_unknown_pps(set_pps_time);
-        boost::this_thread::sleep_for(boost::chrono::milliseconds(2100));
+        uint32_t usrp_seconds;
+        do {
+            gettimeofday(&time_now, nullptr);
+            time_t integer_time = (time_t)((double)time_now.tv_sec + 2.0 - pps_offset);
+            uhd::time_spec_t set_pps_time = uhd::time_spec_t(integer_time + pps_offset);
+            std::cout << boost::format("Wait for PPS sync...") << std::endl;
+            usrp->set_time_unknown_pps(set_pps_time);
+            boost::this_thread::sleep_for(boost::chrono::milliseconds(2100));
+            gettimeofday(&time_now, nullptr);
+            usrp_seconds = usrp->get_time_now().get_full_secs();
+        } while (usrp_seconds != time_now.tv_sec);
+
+        timestamp_calibration_time = (uint32_t)usrp_seconds;
         std::cout << boost::format("Done...") << std::endl;
     }
 
@@ -798,6 +806,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             gps_seconds = usrp->get_mboard_sensor("gps_time").to_int();
             pps_seconds = usrp->get_time_last_pps().to_ticks(1.0);
         } while (pps_seconds != gps_seconds);
+
+        timestamp_calibration_time = pps_seconds;
 
         if (pps_seconds == gps_seconds) {
                 std::cout << "GPS and UHD Device time are aligned.\n";
@@ -981,6 +991,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                     uhd::sensor_value_t temp = usrp->get_rx_sensor("temp", channel);
                     pc.if_context.has.temperature = true;
                     pc.if_context.temperature = temp.to_real();
+                }
+
+                if (timestamp_calibration_time != 0) {
+                    pc.if_context.has.timestamp_calibration_time = true;
+                    pc.if_context.timestamp_calibration_time = timestamp_calibration_time;
                 }
 
                 if (context_changed)
