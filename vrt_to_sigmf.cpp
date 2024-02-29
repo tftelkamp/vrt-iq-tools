@@ -342,6 +342,9 @@ int main(int argc, char* argv[])
                         % dt_ext_context.model_aa
                         % dt_ext_context.focusbox );
                     }
+                    if (vrt_context.timestamp_calibration_time != 0) {
+                        json += str(boost::format("        \"vrt:cal_time\": %u,\n") % vrt_context.timestamp_calibration_time);
+                    }
                     json += str(boost::format(
                     "        \"vrt:rx_gain\": %i,\n"
                     "        \"vrt:bandwidth\": %u,\n"
