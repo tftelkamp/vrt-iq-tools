@@ -210,6 +210,8 @@ int main(int argc, char* argv[])
             printf("#   - {rx_gain: %.1f}\n", (float)vrt_context.gain);
             printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
             printf("#   - {time_source: %s}\n", vrt_context.time_cal == 1? "pps" : "internal");
+            if (vrt_context.timestamp_calibration_time != 0)
+                printf("#   - {cal_time: %u}\n", vrt_context.timestamp_calibration_time);
             printf("# - metadata: !!omap\n");
             printf("#   - {update_time: %.2f}\n", (double)update_time);
             
