@@ -118,7 +118,7 @@ int main(int argc, char* argv[])
                   << desc << std::endl;
         std::cout << std::endl
                   << "This application streams data from a VRT stream "
-                     "to a file.\n"
+                     "to a ZeroMQ socket to be used in GNURadio.\n"
                   << std::endl;
         return ~0;
     }
