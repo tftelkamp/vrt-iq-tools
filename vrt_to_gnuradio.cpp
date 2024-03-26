@@ -111,10 +111,14 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("VRT samples to file %s") % desc << std::endl;
+        std::cout << "Split VRT stream into metadata and data for GNURadio\n"
+                  << "Output streams: port + 10 (default 50110): data\n"
+                  << "                port + 20 (default 50120): frequency\n"
+                  << "                port + 30 (default 50130): bandwidth\n"
+                  << desc << std::endl;
         std::cout << std::endl
                   << "This application streams data from a VRT stream "
-                     "to a file.\n"
+                     "to a ZeroMQ socket to be used in GNURadio.\n"
                   << std::endl;
         return ~0;
     }
@@ -146,17 +150,17 @@ int main(int argc, char* argv[])
     void *zmq_gr_rate;
 
     void *responder = zmq_socket(context, ZMQ_PUB);
-    rc = zmq_bind(responder, "tcp://*:50200");
+    rc = zmq_bind(responder, ("tcp://*:" + std::to_string(port + 10)).c_str());
     assert (rc == 0);
     zmq_gr_data = responder;
 
     responder = zmq_socket(context, ZMQ_PUB);
-    rc = zmq_bind(responder, "tcp://*:50201");
+    rc = zmq_bind(responder, ("tcp://*:" + std::to_string(port + 11)).c_str());
     assert (rc == 0);
     zmq_gr_freq = responder;
 
     responder = zmq_socket(context, ZMQ_PUB);
-    rc = zmq_bind(responder, "tcp://*:50202");
+    rc = zmq_bind(responder, ("tcp://*:" + std::to_string(port + 12)).c_str());
     assert (rc == 0);
     zmq_gr_rate = responder;
 
