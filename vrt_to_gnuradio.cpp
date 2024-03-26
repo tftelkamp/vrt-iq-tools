@@ -79,7 +79,7 @@ int main(int argc, char* argv[])
     std::string file, type, zmq_address;
     size_t num_requested_samples;
     double total_time;
-    uint16_t port;
+    uint16_t port, gnuradioport;
     uint32_t channel;
     int hwm;
 
@@ -101,6 +101,7 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("gnuradioport", po::value<uint16_t>(&gnuradioport)->default_value(0), "GNURadio ZMQ port (default 10 above VRT ZMQ port)")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
 
     ;
@@ -144,23 +145,26 @@ int main(int argc, char* argv[])
     rc = zmq_connect(subscriber, connect_string.c_str());
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
+    if (gnuradioport == 0) {
+        gnuradioport = port + 10;
+    }
 
     void *zmq_gr_data;
     void *zmq_gr_freq;
     void *zmq_gr_rate;
 
     void *responder = zmq_socket(context, ZMQ_PUB);
-    rc = zmq_bind(responder, ("tcp://*:" + std::to_string(port + 10)).c_str());
+    rc = zmq_bind(responder, ("tcp://*:" + std::to_string(gnuradioport)).c_str());
     assert (rc == 0);
     zmq_gr_data = responder;
 
     responder = zmq_socket(context, ZMQ_PUB);
-    rc = zmq_bind(responder, ("tcp://*:" + std::to_string(port + 11)).c_str());
+    rc = zmq_bind(responder, ("tcp://*:" + std::to_string(gnuradioport + 1)).c_str());
     assert (rc == 0);
     zmq_gr_freq = responder;
 
     responder = zmq_socket(context, ZMQ_PUB);
-    rc = zmq_bind(responder, ("tcp://*:" + std::to_string(port + 12)).c_str());
+    rc = zmq_bind(responder, ("tcp://*:" + std::to_string(gnuradioport + 2)).c_str());
     assert (rc == 0);
     zmq_gr_rate = responder;
 
@@ -288,5 +292,4 @@ int main(int argc, char* argv[])
     zmq_ctx_destroy(context);
 
     return 0;
-
 }  
