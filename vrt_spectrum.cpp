@@ -298,7 +298,7 @@ int main(int argc, char* argv[])
                 uint32_t first_col = 1;
                 if (log_freq) first_col++;
                 if (log_temp) first_col++;
-                if (dt_trace) first_col += 11;
+                if (dt_trace) first_col += 15;
 
                 printf("# %%ECSV 1.0\n");
                 printf("# ---\n");
@@ -342,6 +342,10 @@ int main(int argc, char* argv[])
                     printf("# - {name: current_el_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: current_az_error_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: current_el_error_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: current_az_speed_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: current_el_speed_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: current_az_offset_deg, unit: deg, datatype: float64}\n");
+                    printf("# - {name: current_el_offset_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: current_ra_h, unit: h, datatype: float64}\n");
                     printf("# - {name: current_dec_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: setpoint_ra_h, unit: deg, datatype: float64}\n");
@@ -366,7 +370,7 @@ int main(int argc, char* argv[])
                 if (log_temp)
                     printf(", temperature_deg_c");
                 if (dt_trace) 
-                    printf(", current_az_deg, current_el_deg, current_az_error_deg, current_el_error_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
+                    printf(", current_az_deg, current_el_deg, current_az_error_deg, current_el_error_deg, current_az_speed_deg, current_el_speed_deg, current_az_offset_deg, current_el_offset_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
                 for (uint32_t i = 0; i < num_bins; ++i) {
                         printf(", %.0f", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
                 }
@@ -461,11 +465,15 @@ int main(int argc, char* argv[])
                             }
                             if (dt_trace) {
                                 if (not binary) {
-                                    printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
+                                    printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
                                         ((180.0/M_PI)*dt_ext_context.azimuth),
                                         ((180.0/M_PI)*dt_ext_context.elevation),
                                         ((180.0/M_PI)*dt_ext_context.azimuth_error),
                                         ((180.0/M_PI)*dt_ext_context.elevation_error),
+                                        ((180.0/M_PI)*dt_ext_context.azimuth_speed),
+                                        ((180.0/M_PI)*dt_ext_context.elevation_speed),
+                                        ((180.0/M_PI)*dt_ext_context.azimuth_offset),
+                                        ((180.0/M_PI)*dt_ext_context.elevation_offset),
                                         ((12.0/M_PI)*dt_ext_context.ra_current),
                                         ((180.0/M_PI)*dt_ext_context.dec_current),
                                         ((12.0/M_PI)*dt_ext_context.ra_setpoint),
@@ -474,19 +482,23 @@ int main(int argc, char* argv[])
                                         ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current)),
                                         dt_ext_context.focusbox);
                                 } else {
-                                    double trace_values[11];
+                                    double trace_values[15];
                                     trace_values[0] = ((180.0/M_PI)*dt_ext_context.azimuth);
                                     trace_values[1] = ((180.0/M_PI)*dt_ext_context.elevation);
                                     trace_values[2] = ((180.0/M_PI)*dt_ext_context.azimuth_error);
                                     trace_values[3] = ((180.0/M_PI)*dt_ext_context.elevation_error);
-                                    trace_values[4] = ((12.0/M_PI)*dt_ext_context.ra_current);
-                                    trace_values[5] = ((180.0/M_PI)*dt_ext_context.dec_current);
-                                    trace_values[6] = ((12.0/M_PI)*dt_ext_context.ra_setpoint);
-                                    trace_values[7] = ((180.0/M_PI)*dt_ext_context.dec_setpoint);
-                                    trace_values[8] = ((180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current));
-                                    trace_values[9] = ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current));
-                                    trace_values[10] = dt_ext_context.focusbox;
-                                    fwrite(&trace_values,11*sizeof(double),1,outfile); 
+                                    trace_values[4] = ((180.0/M_PI)*dt_ext_context.azimuth_speed);
+                                    trace_values[5] = ((180.0/M_PI)*dt_ext_context.elevation_speed);
+                                    trace_values[6] = ((180.0/M_PI)*dt_ext_context.azimuth_offset);
+                                    trace_values[7] = ((180.0/M_PI)*dt_ext_context.elevation_offset);
+                                    trace_values[8] = ((12.0/M_PI)*dt_ext_context.ra_current);
+                                    trace_values[9] = ((180.0/M_PI)*dt_ext_context.dec_current);
+                                    trace_values[10] = ((12.0/M_PI)*dt_ext_context.ra_setpoint);
+                                    trace_values[11] = ((180.0/M_PI)*dt_ext_context.dec_setpoint);
+                                    trace_values[12] = ((180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current));
+                                    trace_values[13] = ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current));
+                                    trace_values[14] = dt_ext_context.focusbox;
+                                    fwrite(&trace_values,15*sizeof(double),1,outfile); 
                                 }
                             }
 

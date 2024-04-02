@@ -230,6 +230,10 @@ int main(int argc, char* argv[])
                 printf("# - {name: current_el_deg, unit: deg, datatype: float64}\n");
                 printf("# - {name: current_az_error_deg, unit: deg, datatype: float64}\n");
                 printf("# - {name: current_el_error_deg, unit: deg, datatype: float64}\n");
+                printf("# - {name: current_az_speed_deg, unit: deg, datatype: float64}\n");
+                printf("# - {name: current_el_speed_deg, unit: deg, datatype: float64}\n");
+                printf("# - {name: current_az_offset_deg, unit: deg, datatype: float64}\n");
+                printf("# - {name: current_el_offset_deg, unit: deg, datatype: float64}\n");
                 printf("# - {name: current_ra_h, unit: h, datatype: float64}\n");
                 printf("# - {name: current_dec_deg, unit: deg, datatype: float64}\n");
                 printf("# - {name: setpoint_ra_h, unit: deg, datatype: float64}\n");
@@ -245,7 +249,7 @@ int main(int argc, char* argv[])
             if (log_temp)
                 printf(", temperature_deg_c");
             if (dt_trace) 
-                printf(", ext_context_timestamp, current_az_deg, current_el_deg, current_az_error_deg, current_el_error_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
+                printf(", ext_context_timestamp, current_az_deg, current_el_deg, current_az_error_deg, current_el_error_deg, current_az_speed_deg, current_el_speed_deg, current_az_offset_deg, current_el_offset_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
             printf("\n");
             fflush(stdout);
         }
@@ -297,11 +301,15 @@ int main(int argc, char* argv[])
                     printf(", %.2f", vrt_context.temperature); 
                 if (dt_trace) {
                     printf(", %lu.%09li", static_cast<unsigned long>(dt_ext_context.integer_seconds_timestamp), static_cast<long>(dt_ext_context.fractional_seconds_timestamp/1e3));
-                    printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
+                    printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
                         ((180.0/M_PI)*dt_ext_context.azimuth),
                         ((180.0/M_PI)*dt_ext_context.elevation),
                         ((180.0/M_PI)*dt_ext_context.azimuth_error),
                         ((180.0/M_PI)*dt_ext_context.elevation_error),
+                        ((180.0/M_PI)*dt_ext_context.azimuth_speed),
+                        ((180.0/M_PI)*dt_ext_context.elevation_speed),
+                        ((180.0/M_PI)*dt_ext_context.azimuth_offset),
+                        ((180.0/M_PI)*dt_ext_context.elevation_offset),
                         ((12.0/M_PI)*dt_ext_context.ra_current),
                         ((180.0/M_PI)*dt_ext_context.dec_current),
                         ((12.0/M_PI)*dt_ext_context.ra_setpoint),
