@@ -417,8 +417,6 @@ int main(int argc, char* argv[])
 
                     signal_pointer = 0;
 
-                    fftw_execute(plan);
-
                     uint64_t seconds = vrt_packet.integer_seconds_timestamp;
                     uint64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
                     frac_seconds += (i+1)*1e12/vrt_context.sample_rate;
@@ -427,9 +425,16 @@ int main(int argc, char* argv[])
                         seconds++;
                     }
 
-                    for (uint32_t i = 0; i < num_bins; ++i) {
-                        magnitudes[i] += (result[i][REAL] * result[i][REAL] +
-                                  result[i][IMAG] * result[i][IMAG]);
+                    if (num_bins > 1) {
+                        fftw_execute(plan);
+
+                        for (uint32_t i = 0; i < num_bins; ++i) {
+                            magnitudes[i] += (result[i][REAL] * result[i][REAL] +
+                                      result[i][IMAG] * result[i][IMAG]);
+                        }
+                    } else {
+                        magnitudes[0] += (signal[0][REAL] * signal[0][REAL] +
+                                      signal[0][IMAG] * signal[0][IMAG]);
                     }
 
                     if (dc) {
