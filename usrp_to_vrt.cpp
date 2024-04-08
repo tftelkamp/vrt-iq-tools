@@ -769,7 +769,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         uint32_t usrp_seconds;
         do {
             gettimeofday(&time_now, nullptr);
-            time_t integer_time = (time_t)((double)time_now.tv_sec + 2.0 - pps_offset);
+            time_t integer_time = (time_t)((double)time_now.tv_sec + (double)time_now.tv_usec/1e6 + 2.0 - pps_offset);
             uhd::time_spec_t set_pps_time = uhd::time_spec_t(integer_time + pps_offset);
             std::cout << boost::format("Wait for PPS sync...") << std::endl;
             usrp->set_time_unknown_pps(set_pps_time);
