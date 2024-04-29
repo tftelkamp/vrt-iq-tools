@@ -371,7 +371,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     po::options_description desc("Allowed options");
     // clang-format off
     desc.add_options()
-        ("help", "help message")
+        ("help,h", "help message")
         ("args", po::value<std::string>(&args)->default_value(""), "multi uhd device address args")
         // ("file", po::value<std::string>(&file)->default_value("usrp_samples.dat"), "name of the file to write binary samples to")
         // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
@@ -379,7 +379,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         // ("spb", po::value<size_t>(&spb)->default_value(10000), "samples per buffer")
         ("rate", po::value<double>(&rate)->default_value(1e6), "rate of incoming samples")
-        ("freq", po::value<std::string>(&freq_list), "RF center frequency (list) in Hz")
+        ("freq", po::value<std::string>(&freq_list)->required(), "RF center frequency (list) in Hz")
         ("if-freq", po::value<double>(&if_freq)->default_value(0.0), "IF center frequency in Hz")
         ("lo-offset", po::value<double>(&lo_offset)->default_value(0.0),
             "Offset for frontend LO in Hz (optional)")
@@ -416,11 +416,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     ;
     // clang-format on
     po::variables_map vm;
-    po::store(po::parse_command_line(argc, argv, desc), vm);
-    po::notify(vm);
+    auto parsed = po::command_line_parser(argc, argv).options(desc).positional({}).run();
+    po::store(parsed, vm);
 
     // print the help message
-    if (vm.count("help")) {
+    if (vm.count("help") || argc < 2) {
         std::cout << boost::format("UHD RX samples to Vita49 %s") % desc << std::endl;
         std::cout << std::endl
                   << "This application streams data from a single channel of a USRP "
@@ -428,6 +428,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                   << std::endl;
         return ~0;
     }
+    po::notify(vm);
 
     bool bw_summary             = vm.count("progress") > 0;
     bool stats                  = vm.count("stats") > 0;
