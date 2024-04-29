@@ -157,13 +157,12 @@ int main(int argc, char* argv[])
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
-
     ;
     // clang-format on
     po::variables_map vm;
     // po::store(po::parse_command_line(argc, argv, desc), vm);
-    po::store(po::command_line_parser(argc, argv).options(desc).style(po::command_line_style::unix_style ^ po::command_line_style::allow_short).run(), vm);
-    po::notify(vm);
+    auto parsed = po::command_line_parser(argc, argv).options(desc).positional({}).style(po::command_line_style::unix_style ^ po::command_line_style::allow_short).run();
+    po::store(parsed, vm);
 
     // print the help message
     if (vm.count("help")) {
@@ -174,6 +173,7 @@ int main(int argc, char* argv[])
                   << std::endl;
         return ~0;
     }
+    po::notify(vm);
 
     bool progress               = vm.count("progress") > 0;
     bool stats                  = vm.count("stats") > 0;
