@@ -96,11 +96,11 @@ int main(int argc, char* argv[])
     uint32_t num_points = 0;
     uint32_t num_bins = 0;
 
-    bool power2;  
+    bool power2;
     float bin_size, integration_time = 0.0;
     double alpha, tau;
     uint32_t output_counter = 0;
- 
+
     // variables to be set by po
     std::string file, type, zmq_address, gnuplot_terminal, gnuplot_commands, source;
     size_t num_requested_samples;
@@ -228,7 +228,7 @@ int main(int argc, char* argv[])
         start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
 
     uint32_t buffer[ZMQ_BUFFER_SIZE];
-    
+
     unsigned long long num_total_samps = 0;
 
     // Track time and samps between updating the BW summary
@@ -277,7 +277,7 @@ int main(int argc, char* argv[])
                 integrations = (uint32_t)round((double)integration_time/((double)num_bins/(double)vrt_context.sample_rate));
             }
 
-            if (total_time > 0)  
+            if (total_time > 0)
                 num_requested_samples = total_time * vrt_context.sample_rate;
 
             signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
@@ -287,7 +287,7 @@ int main(int argc, char* argv[])
             memset(magnitudes, 0, num_bins*sizeof(double));
             filter_out = (double*)malloc(num_bins * sizeof(double));
             memset(filter_out, 0, num_bins*sizeof(double));
-            
+
             if (!ecsv) {
                 printf("# Spectrum parameters:\n");
                 printf("#    Bins: %u\n", num_bins);
@@ -369,7 +369,7 @@ int main(int argc, char* argv[])
                     printf(", center_freq_hz");
                 if (log_temp)
                     printf(", temperature_deg_c");
-                if (dt_trace) 
+                if (dt_trace)
                     printf(", current_az_deg, current_el_deg, current_az_error_deg, current_el_error_deg, current_az_speed_deg, current_el_speed_deg, current_az_offset_deg, current_el_offset_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
                 for (uint32_t i = 0; i < num_bins; ++i) {
                         printf(", %.0f", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
@@ -395,7 +395,7 @@ int main(int argc, char* argv[])
                         continue;
                     }
                     int_second = false;
-                    last_update = now; 
+                    last_update = now;
                     start_time = now;
                 }
             }
@@ -413,7 +413,7 @@ int main(int argc, char* argv[])
 
                 signal_pointer++;
 
-                if (signal_pointer >= num_bins) { 
+                if (signal_pointer >= num_bins) {
 
                     signal_pointer = 0;
 
@@ -462,7 +462,7 @@ int main(int argc, char* argv[])
                             }
                             if (log_temp) {
                                 if (not binary) {
-                                    printf(", %.2f", vrt_context.temperature); 
+                                    printf(", %.2f", vrt_context.temperature);
                                 } else {
                                     double temp = vrt_context.temperature;
                                     fwrite(&temp,sizeof(double),1,outfile);
@@ -503,11 +503,11 @@ int main(int argc, char* argv[])
                                     trace_values[12] = ((180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current));
                                     trace_values[13] = ((180.0/M_PI)*bearing(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current));
                                     trace_values[14] = dt_ext_context.focusbox;
-                                    fwrite(&trace_values,15*sizeof(double),1,outfile); 
+                                    fwrite(&trace_values,15*sizeof(double),1,outfile);
                                 }
                             }
 
-                            int N = poly.size();  
+                            int N = poly.size();
                             output_counter++;
 
                             for (uint32_t i = 0; i < num_bins; ++i) {
@@ -522,7 +522,7 @@ int main(int argc, char* argv[])
 
                                 float binsize = (double)vrt_context.sample_rate/(double)num_bins;
                                 double offset = i*binsize - vrt_context.sample_rate/2;
-                                
+
                                 double correction = 1;
 
                                 if  (poly_calib) {
@@ -562,7 +562,7 @@ int main(int argc, char* argv[])
                                 printf("set offsets 0, 0, 0.2, 0.2;");
                             printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
 
-                            int N = poly.size();  
+                            int N = poly.size();
                             output_counter++;
 
                             for (uint32_t i = 0; i < num_bins; ++i) {
@@ -576,7 +576,7 @@ int main(int argc, char* argv[])
                                 }
                                 double offset = i*binsize - vrt_context.sample_rate/2;
                                 double freq = ((double)vrt_context.rf_freq + offset)/1e6;
-                                
+
                                 double correction = 0;
 
                                 if  (poly_calib) {
@@ -627,15 +627,15 @@ int main(int argc, char* argv[])
                     std::chrono::duration<double>(time_since_last_update).count();
                 const double rate = double(last_update_samps) / time_since_last_update_s;
                 std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                
+
                 last_update_samps = 0;
                 last_update       = now;
-    
+
                 float sum_i = 0;
                 uint32_t clip_i = 0;
 
                 double datatype_max = 32768.;
-  
+
                 for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
                     auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
                     sum_i += sample_i;
@@ -661,4 +661,4 @@ int main(int argc, char* argv[])
 
     return 0;
 
-}  
+}

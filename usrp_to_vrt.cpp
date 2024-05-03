@@ -38,9 +38,9 @@
 #include <vrt/vrt_read.h>
 
 // UDP
-#include <sys/socket.h> 
-#include <arpa/inet.h> 
-#include <netinet/in.h> 
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 
 // VRT tools functions
 #include "vrt-tools.h"
@@ -120,7 +120,7 @@ inline float get_abs_val(std::complex<int8_t> t)
 }
 
 
-void transmit_worker(uhd::usrp::multi_usrp::sptr usrp, 
+void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                      uhd::tx_streamer::sptr tx_streamer,
                      void *zmq_transmit,
                      double tx_freq,
@@ -172,7 +172,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 
         // Receive data
         int len = zmq_recv(zmq_transmit, tx_zmq_buffer, 100000, ZMQ_NOBLOCK);
-        
+
         if (len > 0) {
 
             // metadata.time_spec = uhd::time_spec_t(usrp->get_time_now() + uhd::time_spec_t(0.5));
@@ -217,7 +217,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 
                         buff[i] = std::complex<short>(re, img);
                     }
-                    
+
                     // send the entire contents of the ZMQ buffer
                     tx_streamer->send(buffs, num_rx_samps, metadata);
 
@@ -293,7 +293,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                         metadata.time_spec = start_time;
 
                         printf("Timed transmit queued (%ld frac %.09f).\n", vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
-                       
+
                         // GPIO
                         if (enable_gpio) {
                             usrp->set_command_time(start_time - uhd::time_spec_t(gpio_start_delay));
@@ -307,7 +307,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                         printf("Start transmit.\n");
                     }
 
-                        
+
                 } else if (c.state_and_event_indicators.user_defined == 0x2) {
                     printf("End transmit.\n");
                     metadata.end_of_burst = true;
@@ -433,7 +433,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool bw_summary             = vm.count("progress") > 0;
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
-    bool continue_on_bad_packet = vm.count("continue") > 0; 
+    bool continue_on_bad_packet = vm.count("continue") > 0;
     bool enable_udp             = vm.count("udp") > 0;
     bool enable_temp            = vm.count("temp") > 0;
     bool enable_tx              = vm.count("tx") > 0;
@@ -449,7 +449,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     /* VRT init */
     vrt_init_data_packet(&p);
-    
+
     // if (!vm.count("stream-id"))
     //     p.fields.stream_id = (uint32_t)rand();
     p.fields.stream_id = 0;
@@ -492,26 +492,26 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         assert(rc == 0);
         zmq_setsockopt(merge_zmq, ZMQ_SUBSCRIBE, "", 0);
     }
-    
+
     // UDP DI-FI
 
-    int sockfd; 
-    struct sockaddr_in servaddr, cliaddr; 
+    int sockfd;
+    struct sockaddr_in servaddr, cliaddr;
     if (enable_udp) {
 
         printf("Enable UDP\n");
-            
-        // Creating socket file descriptor 
-        if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
-            perror("socket creation failed"); 
-            exit(EXIT_FAILURE); 
-        } 
-            
-        memset(&servaddr, 0, sizeof(servaddr)); 
-        memset(&cliaddr, 0, sizeof(cliaddr)); 
-            
-        // Filling server information 
-        servaddr.sin_family    = AF_INET; // IPv4 
+
+        // Creating socket file descriptor
+        if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
+            perror("socket creation failed");
+            exit(EXIT_FAILURE);
+        }
+
+        memset(&servaddr, 0, sizeof(servaddr));
+        memset(&cliaddr, 0, sizeof(cliaddr));
+
+        // Filling server information
+        servaddr.sin_family    = AF_INET; // IPv4
         servaddr.sin_addr.s_addr = inet_addr(udp_forward.c_str()); /* Server's Address   */
         servaddr.sin_port = htons(50000);  // 4991?
     }
@@ -858,7 +858,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::signal(SIGINT, &sig_int_handler);
         std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
     }
-    
+
     unsigned long long num_requested_samples = total_num_samps;
     bool int_second             = (bool)vm.count("int-second");
 
@@ -876,7 +876,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         buff_ptrs.push_back(&buffs[i].front());
     }
     UHD_ASSERT_THROW(buffs.size() == channel_nums.size());
-   
+
     bool overflow_message = true;
     bool first_frame = true;
 
@@ -891,9 +891,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     //                                  : uhd::stream_cmd_t::STREAM_MODE_NUM_SAMPS_AND_DONE);
     // stream_cmd.num_samps  = size_t(num_requested_samples);
     uhd::stream_cmd_t stream_cmd(uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS);
-    
+
     if (int_second || channel_nums.size() > 1) {
-        stream_cmd.time_spec  = usrp->get_time_now().get_full_secs() + 1; 
+        stream_cmd.time_spec  = usrp->get_time_now().get_full_secs() + 1;
         stream_cmd.stream_now = false;
     }
     else {
@@ -911,7 +911,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     //     stop_time += std::chrono::milliseconds(int64_t(1000.0*(double)(stream_cmd.time_spec.get_real_secs()-usrp->get_time_now().get_real_secs())));
     // }
 
-    if (total_time > 0)  
+    if (total_time > 0)
         num_requested_samples = total_time * rate;
 
     // Run this loop until either time expired (if a duration was given), until
@@ -924,7 +924,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     if (merge)
         while ( zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
 
-    while (not stop_signal_called 
+    while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
            // and (time_requested == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
         const auto now = std::chrono::steady_clock::now();
@@ -1038,7 +1038,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             }
             context_changed = false;
         }
-   
+
         num_total_samps += num_rx_samps;
 
         p.fields.integer_seconds_timestamp = md.time_spec.get_full_secs();
@@ -1056,7 +1056,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             // VRT
             zmq_msg_send(&msg, zmq_server, 0);
             zmq_msg_close(&msg);
-       
+
             // UDP
             if (enable_udp) {
                 if (sendto(sockfd, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE*4, 0,
@@ -1082,7 +1082,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
         frame_count++;
 
-        // Control 
+        // Control
         int len = zmq_recv(zmq_control, buffer, 100000, ZMQ_NOBLOCK);
         if (len > 0) {
             printf("-> Control context received\n");
@@ -1172,7 +1172,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                     std::chrono::duration<double>(time_since_last_update).count();
                 const double rate = double(last_update_samps) / time_since_last_update_s;
                 std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                
+
                 last_update_samps = 0;
                 last_update       = now;
 
@@ -1229,7 +1229,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     // wait for ZMQ a bit
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
-  
+
     // finished
     std::cout << std::endl << "Done!" << std::endl << std::endl;
 

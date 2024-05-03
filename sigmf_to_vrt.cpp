@@ -1,5 +1,5 @@
 //
-// Copyright 2021/2022 by Thomas Telkamp 
+// Copyright 2021/2022 by Thomas Telkamp
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
@@ -32,9 +32,9 @@
 #include <vrt/vrt_read.h>
 
 // TCP/UDP
-#include <sys/socket.h> 
-#include <arpa/inet.h> 
-#include <netinet/in.h> 
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <netdb.h>
@@ -177,7 +177,7 @@ int main(int argc, char* argv[])
     printf("    Stream ID: %u\n", stream_id);
 
     // Some Checks
-    
+
     if (rate == 0 || freq == 0) {
         printf("Frequency and sample rate need to be set.\n");
         exit(1);
@@ -196,7 +196,7 @@ int main(int argc, char* argv[])
     std::string data_filename;
     if (vrt)
         base_fn_fp.replace_extension(".sigmf-vrt");
-    else 
+    else
         base_fn_fp.replace_extension(".sigmf-data");
     data_filename = base_fn_fp.string();
 
@@ -217,7 +217,7 @@ int main(int argc, char* argv[])
     double time_requested = total_time;
 
     uint32_t buffer[VRT_DATA_PACKET_SIZE];
-   
+
     bool first_frame = true;
 
     struct vrt_packet p;
@@ -230,12 +230,12 @@ int main(int argc, char* argv[])
 
     /* VRT init */
     vrt_init_data_packet(&p);
-    
+
     // p.fields.stream_id = stream_id;
-    
+
     // ZMQ
     void *zmq_server;
-  
+
     void *context = zmq_ctx_new();
     void *responder = zmq_socket(context, ZMQ_PUB);
     int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
@@ -291,13 +291,13 @@ int main(int argc, char* argv[])
     printf("Update interval: %i\n", update_interval);
 
     while (not stop_signal_called) {
- 
+
         const auto now = std::chrono::steady_clock::now();
 
         // wait
         auto wait_time = start_time + std::chrono::microseconds(frame_count*update_interval) - now;
 
-        std::this_thread::sleep_for(wait_time);   
+        std::this_thread::sleep_for(wait_time);
 
         const auto time_since_last_context = now - last_context;
         if (not vrt and time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL)) {
@@ -342,7 +342,7 @@ int main(int argc, char* argv[])
                 if (rv < 0) {
                     fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
                 }
-                zmq_send (zmq_server, buffer, rv*4, 0);   
+                zmq_send (zmq_server, buffer, rv*4, 0);
             }
 
         }
@@ -376,7 +376,7 @@ int main(int argc, char* argv[])
             p.header.packet_count = (uint8_t)frame_count%16;
             p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
             p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
-    
+
             zmq_msg_t msg;
             int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
 
@@ -392,7 +392,7 @@ int main(int argc, char* argv[])
                     p.header.packet_count = (uint8_t)frame_count%16;
                     p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
                     p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
-            
+
                     zmq_msg_t msg;
                     int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
 
@@ -403,7 +403,7 @@ int main(int argc, char* argv[])
                 } else {
                     if (repeat)
                         rewind(read_ptr_2);
-                    else 
+                    else
                         break;
                 }
             }
@@ -419,7 +419,7 @@ int main(int argc, char* argv[])
                         std::chrono::duration<double>(time_since_last_update).count();
                     const double rate = double(last_update_samps) / time_since_last_update_s;
                     std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                    
+
                     last_update_samps = 0;
                     last_update       = now;
 
@@ -453,7 +453,7 @@ int main(int argc, char* argv[])
             zmq_send (zmq_server, samples, words*sizeof(uint32_t), 0);
         } else {
             printf("no more samples in data file\n");
-            if (repeat) 
+            if (repeat)
                 rewind(read_ptr);
             else
                 break;
@@ -474,13 +474,13 @@ int main(int argc, char* argv[])
         const double rate = (double)num_total_samps / actual_duration_seconds;
         std::cout << (rate / 1e6) << " Msps." << std::endl;
     }
-  
+
     /* clean up */
     fclose(read_ptr);
 
     // Sleep setup time
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
-  
+
     // finished
     std::cout << std::endl << "Done!" << std::endl << std::endl;
 

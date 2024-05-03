@@ -93,7 +93,7 @@ enum RTL_TCP_COMMANDS {
     GPIO_WRITE_PIN            = 0x52,   /* rtlsdr_set_gpio_output() and rtlsdr_set_gpio_bit() */
     GPIO_READ_PIN             = 0x53,   /* rtlsdr_get_gpio_bit() */
     GPIO_GET_BYTE             = 0x54,   /* rtlsdr_get_gpio_byte() */
-    
+
     IS_TUNER_PLL_LOCKED       = 0x55,   /* rtlsdr_is_tuner_PLL_locked() */
 
     /* SET_FREQ_HI32          = 0x56,    * rtlsdr_set_center_freq64() */
@@ -192,7 +192,7 @@ int main(int argc, char* argv[])
     bool ctrl                   = vm.count("control") > 0;
 
     // RTL
-    int r;  
+    int r;
     SOCKET listensocket;
     fd_set readfds;
     fd_set writefds;
@@ -278,7 +278,7 @@ int main(int argc, char* argv[])
         // while(1) {
         //     if(r) {
         //         received = recv(s, (char*)&cmd, sizeof(cmd), 0);
-        //          printf("received %d bytes\n", received); 
+        //          printf("received %d bytes\n", received);
         //     }
         //     if(received == SOCKET_ERROR)
         //         break;
@@ -334,7 +334,7 @@ int main(int argc, char* argv[])
             pc.if_context.has.data_packet_payload_format = true;
             pc.if_context.state_and_event_indicators.has.reference_lock = false;
             pc.if_context.state_and_event_indicators.has.calibrated_time = false;
-        } 
+        }
 
         // time keeping
         auto start_time = std::chrono::steady_clock::now();
@@ -343,7 +343,7 @@ int main(int argc, char* argv[])
         uint32_t buffer[ZMQ_BUFFER_SIZE];
 
         uint8_t rtlbuffer[VRT_SAMPLES_PER_PACKET*2];
-        
+
         unsigned long long num_total_samps = 0;
 
         // Track time and samps between updating the BW summary
@@ -377,7 +377,7 @@ int main(int argc, char* argv[])
                 // Possibly do something with context here
                 // vrt_context
             }
-            
+
             FD_ZERO(&readfds);
             FD_SET(s, &readfds);
             tv.tv_sec = 0;
@@ -385,7 +385,7 @@ int main(int argc, char* argv[])
             r = select(s+1, &readfds, NULL, NULL, &tv);
             if (r) {
                 received = recv(s, (char*)&cmd, sizeof(cmd), 0);
-                printf("received %d bytes\n", received); 
+                printf("received %d bytes\n", received);
                 if (received == SOCKET_ERROR || received == 0) {
                     printf("exit\n");
                     break;
@@ -427,14 +427,14 @@ int main(int argc, char* argv[])
                         int32_t rv = vrt_write_packet(&pc, ctrl_buffer, VRT_DATA_PACKET_SIZE, true);
                         if (rv < 0) {
                             fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
-                        } else 
+                        } else
                             zmq_send (control, ctrl_buffer, rv*4, 0);
                     }
                 }
                 if (cmd.cmd == SET_FREQ_HI32) {
                     freqhi = ntohl(cmd.param);
                 }
- 
+
             }
 
             if (start_rx and vrt_packet.data) {
@@ -450,7 +450,7 @@ int main(int argc, char* argv[])
                             continue;
                     } else {
                         int_second = false;
-                        last_update = now; 
+                        last_update = now;
                         start_time = now;
                         stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
                     }
@@ -478,7 +478,7 @@ int main(int argc, char* argv[])
 
                     img = img < 0 ? 0 : img;
                     img = img > 255 ? 255 : img;
-                    
+
                     rtlbuffer[i*2] = (uint8_t)re;
                     rtlbuffer[i*2+1] = (uint8_t)img;
 
@@ -501,7 +501,7 @@ int main(int argc, char* argv[])
 
                 // data: (const char*)&buffer[vrt_packet.offset]
                 // size (bytes): sizeof(uint32_t)*vrt_packet.num_rx_samps
-                 
+
                 num_total_samps += vrt_packet.num_rx_samps;
 
                 if (start_rx and first_frame) {
@@ -524,10 +524,10 @@ int main(int argc, char* argv[])
                         std::chrono::duration<double>(time_since_last_update).count();
                     const double rate = double(last_update_samps) / time_since_last_update_s;
                     std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                    
+
                     last_update_samps = 0;
                     last_update       = now;
-        
+
                     float sum_i = 0;
                     uint32_t clip_i = 0;
 
@@ -559,4 +559,4 @@ int main(int argc, char* argv[])
 
     return 0;
 
-}  
+}

@@ -165,7 +165,7 @@ int main(int argc, char* argv[])
     else
         file = file + ".sigmf-data";
 
-    if (not null) 
+    if (not null)
         for (size_t i = 0; i < channel_nums.size(); i++) {
             if (vrt and i > 0) break; // Only one data and metadata file for VRT
             const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i], vrt);
@@ -244,7 +244,7 @@ int main(int argc, char* argv[])
         if (vrt and not null and not meta_only)
             outfiles[0]->write((const char*)&buffer, len);
 
-        if ( not (context_recv & vrt_packet.stream_id) and vrt_packet.context 
+        if ( not (context_recv & vrt_packet.stream_id) and vrt_packet.context
              and not first_frame and not (dt_trace and not dt_ext_context.dt_ext_context_received)) {
 
             context_recv |= vrt_packet.stream_id;
@@ -379,11 +379,11 @@ int main(int argc, char* argv[])
                 }
             }
 
-            if (total_time > 0)  
+            if (total_time > 0)
                 num_requested_samples = total_time * vrt_context.sample_rate;
         }
 
- 
+
         if (vrt_packet.extended_context) {
             // TODO: Find some other variable to avoid giving this warning for every extended context packet
             // This now assumes that any extended context is a DT extended context
@@ -406,7 +406,7 @@ int main(int argc, char* argv[])
                         continue;
                 } else {
                     int_second = false;
-                    last_update = now; 
+                    last_update = now;
                     start_time = now;
                 }
             }
@@ -444,10 +444,10 @@ int main(int argc, char* argv[])
                     std::chrono::duration<double>(time_since_last_update).count();
                 const double rate = (double(last_update_samps) / time_since_last_update_s) / (double)channel_nums.size();
                 std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                
+
                 last_update_samps = 0;
                 last_update       = now;
-    
+
                 float sum_i = 0;
                 uint32_t clip_i = 0;
 
@@ -482,9 +482,9 @@ int main(int argc, char* argv[])
         boost::format auto_format;
         boost::posix_time::ptime starttime = boost::posix_time::from_time_t(vrt_context.starttime_integer);
         std::string timestring = boost::posix_time::to_iso_extended_string(starttime);
-        std::replace( timestring.begin(), timestring.end(), ':', '_'); 
-        std::replace( timestring.begin(), timestring.end(), '-', '_'); 
-        std::replace( timestring.begin(), timestring.end(), 'T', '_'); 
+        std::replace( timestring.begin(), timestring.end(), ':', '_');
+        std::replace( timestring.begin(), timestring.end(), '-', '_');
+        std::replace( timestring.begin(), timestring.end(), 'T', '_');
         auto_format = boost::format("%s_%s_%.3fMHz_%.2fMsps_ci16_le")
                     % (auto_file)
                     % (timestring)
@@ -495,10 +495,10 @@ int main(int argc, char* argv[])
         std::string auto_bin_file;
         if (vrt)
             auto_bin_file = auto_format.str() + ".sigmf-vrt";
-        else 
+        else
             auto_bin_file = auto_format.str() + ".sigmf-data";
 
-        if (not null) 
+        if (not null)
             for (size_t i = 0; i < channel_nums.size(); i++) {
                 if (vrt and i > 0) break;
                 const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i], vrt);
@@ -514,10 +514,10 @@ int main(int argc, char* argv[])
 
         }
     }
-        
+
     zmq_close(subscriber);
     zmq_ctx_destroy(context);
 
     return 0;
 
-}  
+}

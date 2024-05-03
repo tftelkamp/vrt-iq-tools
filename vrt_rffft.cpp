@@ -184,7 +184,7 @@ int main(int argc, char* argv[])
   auto stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
 
   uint32_t buffer[ZMQ_BUFFER_SIZE];
-  
+
   unsigned long long num_total_samps = 0;
 
   // Track time and samps between updating the BW summary
@@ -223,7 +223,7 @@ int main(int argc, char* argv[])
 
           // Ensure integer number of spectra per subintegration
           tint=ceil(fchan*tint)/fchan;
-          
+
           // Number of channels
           nchan=(int) (samp_rate/fchan);
 
@@ -240,7 +240,7 @@ int main(int argc, char* argv[])
             }
             partial=1;
           }
-          
+
           // Dump statistics
           printf(" Frequency: %f MHz\n",freq*1e-6);
           printf(" Bandwidth: %f MHz\n",samp_rate*1e-6);
@@ -263,13 +263,13 @@ int main(int argc, char* argv[])
 
           // Compute window
           for (i=0;i<nchan;i++)
-            zw[i]=0.54-0.46*cos(2.0*M_PI*i/(nchan-1)); 
+            zw[i]=0.54-0.46*cos(2.0*M_PI*i/(nchan-1));
 
           // Plan
           fft=fftwf_plan_dft_1d(nchan,c,d,FFTW_FORWARD,FFTW_ESTIMATE);
 
       }
-      
+
       if (start_rx and vrt_packet.data) {
 
           if (vrt_packet.lost_frame)
@@ -283,7 +283,7 @@ int main(int argc, char* argv[])
                       continue;
               } else {
                   int_second = false;
-                  last_update = now; 
+                  last_update = now;
                   start_time = now;
                   stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
               }
@@ -300,7 +300,7 @@ int main(int argc, char* argv[])
               // STRF Create prefix
               start.tv_sec = vrt_packet.integer_seconds_timestamp;
               strftime(prefix,30,"%Y-%m-%dT%T",gmtime(&start.tv_sec));
-              
+
               // File name
               if (not useoutput) {
                 sprintf(outfname,"%s/%s_%06d.bin",path.c_str(),prefix,m);
@@ -336,13 +336,13 @@ int main(int argc, char* argv[])
 
               signal_pointer++;
 
-              if (signal_pointer >= nchan) { 
+              if (signal_pointer >= nchan) {
 
                   signal_pointer = 0;
 
                   // Execute
                   fftwf_execute(fft);
-  
+
                   // Shift/Integrate
                   for (j=0;j<nchan;j++) {
                     if (j<nchan/2)
@@ -370,23 +370,23 @@ int main(int argc, char* argv[])
                     // Process nint block
                     // Time stats
                     length=(end.tv_sec-start.tv_sec)+(end.tv_usec-start.tv_usec)*1e-6;
-                    
+
                     // Scale
-                    for (i=0;i<nchan;i++) 
+                    for (i=0;i<nchan;i++)
                       z[i] *= (float)nuse/(float)nchan;
-                    
+
                     // Format start time
                     strftime(tbuf,30,"%Y-%m-%dT%T",gmtime(&start.tv_sec));
                     sprintf(nfd,"%s.%03ld",tbuf,start.tv_usec/1000);
 
                     // Header
                     if (partial==0) {
-                      if (outformat=='f') 
+                      if (outformat=='f')
                         sprintf(header,"HEADER\nUTC_START    %s\nFREQ         %lf Hz\nBW           %lf Hz\nLENGTH       %f s\nNCHAN        %d\nNSUB         %d\nEND\n",nfd,freq,samp_rate,length,nchan,nsub);
                       else if (outformat=='c')
                         sprintf(header,"HEADER\nUTC_START    %s\nFREQ         %lf Hz\nBW           %lf Hz\nLENGTH       %f s\nNCHAN        %d\nNSUB         %d\nNBITS         8\nMEAN         %e\nRMS          %e\nEND\n",nfd,freq,samp_rate,length,nchan,nsub,zavg,zstd);
                           } else if (partial==1) {
-                      if (outformat=='f') 
+                      if (outformat=='f')
                         sprintf(header,"HEADER\nUTC_START    %s\nFREQ         %lf Hz\nBW           %lf Hz\nLENGTH       %f s\nNCHAN        %d\nNSUB         %d\nEND\n",nfd,0.5*(freqmax+freqmin),freqmax-freqmin,length,imax-imin,nsub);
                       else if (outformat=='c')
                         sprintf(header,"HEADER\nUTC_START    %s\nFREQ         %lf Hz\nBW           %lf Hz\nLENGTH       %f s\nNCHAN        %d\nNSUB         %d\nNBITS         8\nMEAN         %e\nRMS          %e\nEND\n",nfd,0.5*(freqmax+freqmin),freqmax-freqmin,length,imax-imin,nsub,zavg,zstd);
@@ -424,7 +424,7 @@ int main(int argc, char* argv[])
                     }
 
                     // clear z
-                    for (i=0;i<nchan;i++) 
+                    for (i=0;i<nchan;i++)
                       z[i]=0.0;
 
                     // reset counter
@@ -448,10 +448,10 @@ int main(int argc, char* argv[])
                   std::chrono::duration<double>(time_since_last_update).count();
               const double rate = double(last_update_samps) / time_since_last_update_s;
               std::cout << "\t" << (rate / 1e6) << " Msps, ";
-              
+
               last_update_samps = 0;
               last_update       = now;
-  
+
               float sum_i = 0;
               uint32_t clip_i = 0;
 
@@ -476,7 +476,7 @@ int main(int argc, char* argv[])
 
   // Close file
   fclose(outfile);
-  
+
   // Destroy plan
   fftwf_destroy_plan(fft);
 
@@ -488,7 +488,7 @@ int main(int argc, char* argv[])
   free(z);
   free(cz);
   free(zw);
-  
+
   return 0;
 }
 

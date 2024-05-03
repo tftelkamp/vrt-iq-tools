@@ -70,13 +70,13 @@ inline float get_abs_val(std::complex<int8_t> t)
 
 inline void swap(float *p,float *q) {
    float t;
-   
-   t=*p; 
-   *p=*q; 
+
+   t=*p;
+   *p=*q;
    *q=t;
 }
 
-inline void sort(float a[],int n) { 
+inline void sort(float a[],int n) {
    int i,j;
 
    for(i = 0;i < n-1;i++) {
@@ -240,7 +240,7 @@ int main(int argc, char* argv[])
         start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
 
     uint32_t buffer[ZMQ_BUFFER_SIZE];
-    
+
     unsigned long long num_total_samps = 0;
 
     // Track time and samps between updating the BW summary
@@ -282,30 +282,30 @@ int main(int argc, char* argv[])
             vrt_print_context(&vrt_context);
             start_rx = true;
 
-            if (total_time > 0)  
+            if (total_time > 0)
                 num_requested_samples = total_time * vrt_context.sample_rate;
 
             block_size = block_time*vrt_context.sample_rate/num_bins;
 
-            time_integrations = agg_time*(vrt_context.sample_rate/num_bins)/1000; 
+            time_integrations = agg_time*(vrt_context.sample_rate/num_bins)/1000;
 
             signal = (fftw_complex **)malloc(sizeof(fftw_complex*)*channel_nums.size());
 
             for (size_t ch=0; ch < channel_nums.size(); ch++)
                 signal[ch] = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
-            
+
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
 
             for (size_t ch=0; ch < channel_nums.size(); ch++)
                 plan[ch] = fftw_plan_dft_1d(num_bins, signal[ch], result, FFTW_FORWARD, FFTW_ESTIMATE);
 
             data_block = (float ***)malloc(sizeof(float *)*channel_nums.size());
-            
+
             for (size_t ch=0; ch < channel_nums.size(); ch++) {
                 data_block[ch] = (float **)malloc(sizeof(float *)*num_bins);
 
                 for(size_t i=0; i < num_bins; i++) {
-                    data_block[ch][i] = (float *)malloc( 2 * sizeof(float)*block_size); 
+                    data_block[ch][i] = (float *)malloc( 2 * sizeof(float)*block_size);
                 }
             }
 
@@ -318,11 +318,11 @@ int main(int argc, char* argv[])
             }
 
             median_freq = (float*)malloc(num_bins * sizeof(float));
-            median_time = (float*)malloc(block_size * sizeof(float));         
+            median_time = (float*)malloc(block_size * sizeof(float));
 
             dedisp = (float **)malloc(sizeof(float *)*channel_nums.size());
 
-            for (size_t ch=0; ch < channel_nums.size(); ch++) 
+            for (size_t ch=0; ch < channel_nums.size(); ch++)
                 dedisp[ch] = (float*)malloc( (block_size/time_integrations) * sizeof(float));
 
             dispersion = (int*)malloc(num_bins*sizeof(int));
@@ -331,7 +331,7 @@ int main(int argc, char* argv[])
             buffer_size = 4 * (1000.0/agg_time); // 4 seconds
 
             plotbuffer = (float **)malloc(sizeof(float *)*channel_nums.size());
-            for (size_t ch=0; ch < channel_nums.size(); ch++) 
+            for (size_t ch=0; ch < channel_nums.size(); ch++)
                 plotbuffer[ch] = (float*)malloc(buffer_size * sizeof(float));
 
             // data
@@ -357,7 +357,7 @@ int main(int argc, char* argv[])
             // Gnuplot
             if (gnuplot)
                 printf("set terminal %s noraise; unset mouse; set grid;\n", gnuplot_terminal.c_str());
-            // set terminal x11; 
+            // set terminal x11;
             // set yrange [0:200000000] set xtics 1; set ytics 1;
 
             if (audio) {
@@ -366,14 +366,14 @@ int main(int argc, char* argv[])
 
                 uint32_t num_chans = sum ? 1 : channel_nums.size();
 
-                std::string sox_command = "play -q -r " + std::to_string(audio_rate) 
+                std::string sox_command = "play -q -r " + std::to_string(audio_rate)
                         + " --input-buffer 4000 --buffer 500 -c "
-                        + std::to_string(num_chans) 
+                        + std::to_string(num_chans)
                         + " -b 16 -e signed-integer -t raw - lowpass 200 rate 40k gain -l "
                         + std::to_string(gain);
-        
+
                 audio_pipe = popen(sox_command.c_str(), "w");
-            
+
                 if (!audio_pipe)
                 {
                   printf("Error starting Sox play.\n");
@@ -395,7 +395,7 @@ int main(int argc, char* argv[])
                         continue;
                 } else {
                     int_second = false;
-                    last_update = now; 
+                    last_update = now;
                     start_time = now;
                 }
             }
@@ -424,7 +424,7 @@ int main(int argc, char* argv[])
 
                 signal_pointer[ch]++;
 
-                if (signal_pointer[ch] >= num_bins) { 
+                if (signal_pointer[ch] >= num_bins) {
 
                     signal_pointer[ch] = 0;
 
@@ -490,18 +490,18 @@ int main(int argc, char* argv[])
                             for (size_t index = 0; index < block_size/time_integrations; index++) {
                                 for (size_t j=0; j<time_integrations; j++) {
                                      dedisp[ch][index] += data_block[ch][chan][block_size+index*time_integrations+j+dispersion[chan]];
-                                }   
+                                }
                             }
                         }
 
                         // for data analysis:
-                        // fwrite(dedisp,sizeof(float)*block_size/time_integrations,1,write_ptr); 
+                        // fwrite(dedisp,sizeof(float)*block_size/time_integrations,1,write_ptr);
 
                         float max_block = 0;
                         mean_block[ch] = 0;
 
                         for (size_t index = 0; index < block_size/time_integrations; index++) {
-                            // sum to avg 
+                            // sum to avg
                             dedisp[ch][index] /= num_bins*(block_size/time_integrations);
                             // mean of block
                             mean_block[ch] += dedisp[ch][index];
@@ -531,18 +531,18 @@ int main(int argc, char* argv[])
                                         if (ch==1) {
                                             if (sum) {
                                                 // write sum on single channel
-                                                int16_t sample = 32768.0*(dedisp[0][index]-mean_block[0])/mean_block[0] + 
-                                                                 32768.0*(dedisp[1][index]-mean_block[1])/mean_block[1];  
+                                                int16_t sample = 32768.0*(dedisp[0][index]-mean_block[0])/mean_block[0] +
+                                                                 32768.0*(dedisp[1][index]-mean_block[1])/mean_block[1];
                                                 if (squelch and sample < 2*SQUELCH_THRESHOLD*32768.0)
                                                     sample = 0;
                                                 fwrite(&sample, sizeof(sample), 1, audio_pipe);
                                             } else {
                                                 // write 2 channels
-                                                int16_t sample = 32768.0*(dedisp[0][index]-mean_block[0])/mean_block[0]; 
+                                                int16_t sample = 32768.0*(dedisp[0][index]-mean_block[0])/mean_block[0];
                                                 if (squelch and sample < SQUELCH_THRESHOLD*32768.0)
                                                     sample = 0;
                                                 fwrite(&sample, sizeof(sample), 1, audio_pipe);
-                                                sample = 32768.0*(dedisp[1][index]-mean_block[1])/mean_block[1]; 
+                                                sample = 32768.0*(dedisp[1][index]-mean_block[1])/mean_block[1];
                                                 if (squelch and sample < SQUELCH_THRESHOLD*32768.0)
                                                     sample = 0;
                                                 fwrite(&sample, sizeof(sample), 1, audio_pipe);
@@ -590,11 +590,11 @@ int main(int argc, char* argv[])
                                         printf("%lf\t%lf\t%lf\n",(seqno[0]+i)/time_per_sample, plotbuffer[0][(seqno[0]+i)%buffer_size], plotbuffer[1][(seqno[1]+i)%buffer_size] );
                                     }
                                     printf("e\n");
-                                }   
+                                }
                             } else {
                                 printf("set xrange [%.2lf:%.2lf];\n",seqno[ch]/time_per_sample, (seqno[ch] + buffer_size)/time_per_sample);
                                 printf("set yrange [%.2lf:%.2lf];\n", mean_plot_buffer*0.97, mean_plot_buffer*1.5);
-                                printf("plot '-' u 1:2 notitle w l\n"); 
+                                printf("plot '-' u 1:2 notitle w l\n");
                                 for (i = 0; i< buffer_size; i++)
                                     printf("%lf\t%lf\n",(seqno[ch]+i)/time_per_sample, plotbuffer[ch][(seqno[ch]+i)%buffer_size]);
                                 printf("e\n");
@@ -622,15 +622,15 @@ int main(int argc, char* argv[])
                     std::chrono::duration<double>(time_since_last_update).count();
                 const double rate = double(last_update_samps) / time_since_last_update_s;
                 std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                
+
                 last_update_samps = 0;
                 last_update       = now;
-    
+
                 float sum_i = 0;
                 uint32_t clip_i = 0;
 
                 double datatype_max = 32768.;
-  
+
                 for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
                     auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
                     sum_i += sample_i;
@@ -653,4 +653,4 @@ int main(int argc, char* argv[])
 
     return 0;
 
-}  
+}

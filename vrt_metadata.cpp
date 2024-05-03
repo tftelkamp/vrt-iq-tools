@@ -72,7 +72,7 @@ float bearing(float dec1, float dec2, float ra1, float ra2) {
 }
 
 int main(int argc, char* argv[])
-{ 
+{
     // variables to be set by po
     std::string zmq_address;
     size_t num_requested_samples;
@@ -131,7 +131,7 @@ int main(int argc, char* argv[])
     bool int_second             = int_interval || (bool)vm.count("int-second");
     bool dt_trace               = vm.count("dt-trace") > 0;
     bool log_temp               = vm.count("temperature") > 0;
-   
+
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
     init_context(&vrt_context);
@@ -158,7 +158,7 @@ int main(int argc, char* argv[])
         start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
 
     uint32_t buffer[ZMQ_BUFFER_SIZE];
-    
+
     unsigned long long num_total_samps = 0;
     int32_t samples_per_update = 0;
     int32_t samples_last_update = 0;
@@ -185,7 +185,7 @@ int main(int argc, char* argv[])
 
         if (vrt_packet.context) {
             samples_per_update = ((double)vrt_context.sample_rate * update_time);
-            if (total_time > 0)  
+            if (total_time > 0)
                 num_requested_samples = total_time * vrt_context.sample_rate;
         }
 
@@ -214,7 +214,7 @@ int main(int argc, char* argv[])
                 printf("#   - {cal_time: %u}\n", vrt_context.timestamp_calibration_time);
             printf("# - metadata: !!omap\n");
             printf("#   - {update_time: %.2f}\n", (double)update_time);
-            
+
             printf("# datatype:\n");
             printf("# - {name: data_timestamp, datatype: float64}\n");
             printf("# - {name: context_timestamp, datatype: float64}\n");
@@ -243,12 +243,12 @@ int main(int argc, char* argv[])
                 printf("# - {name: focusbox_mm, unit: mm, datatype: float64}\n");
             }
             printf("# schema: astropy-2.0\n");
-        
+
             // Header
             printf("data_timestamp, context_timestamp, center_freq_hz, sample_rate, rx_gain");
             if (log_temp)
                 printf(", temperature_deg_c");
-            if (dt_trace) 
+            if (dt_trace)
                 printf(", ext_context_timestamp, current_az_deg, current_el_deg, current_az_error_deg, current_el_error_deg, current_az_speed_deg, current_el_speed_deg, current_az_offset_deg, current_el_offset_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
             printf("\n");
             fflush(stdout);
@@ -279,7 +279,7 @@ int main(int argc, char* argv[])
                     //     continue;
                     // }
                     int_second = false;
-                    last_update = now; 
+                    last_update = now;
                     start_time = now;
                 }
             }
@@ -298,7 +298,7 @@ int main(int argc, char* argv[])
                 printf(", %li", static_cast<long>(vrt_context.gain));
 
                 if (log_temp)
-                    printf(", %.2f", vrt_context.temperature); 
+                    printf(", %.2f", vrt_context.temperature);
                 if (dt_trace) {
                     printf(", %lu.%09li", static_cast<unsigned long>(dt_ext_context.integer_seconds_timestamp), static_cast<long>(dt_ext_context.fractional_seconds_timestamp/1e3));
                     printf(", %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f",
@@ -336,15 +336,15 @@ int main(int argc, char* argv[])
                     std::chrono::duration<double>(time_since_last_update).count();
                 const double rate = double(last_update_samps) / time_since_last_update_s;
                 std::cout << "# " << (rate / 1e6) << " Msps, ";
-                
+
                 last_update_samps = 0;
                 last_update       = now;
-    
+
                 float sum_i = 0;
                 uint32_t clip_i = 0;
 
                 double datatype_max = 32768.;
-  
+
                 for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
                     auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
                     sum_i += sample_i;
@@ -367,4 +367,4 @@ int main(int argc, char* argv[])
 
     return 0;
 
-}  
+}

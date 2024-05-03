@@ -30,9 +30,9 @@
 #include <vrt/vrt_util.h>
 
 // UDP
-#include <sys/socket.h> 
-#include <arpa/inet.h> 
-#include <netinet/in.h> 
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 
 #include <complex.h>
 // #include <fftw3.h>
@@ -133,22 +133,22 @@ int main(int argc, char* argv[])
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
 
-    int sockfd; 
-    struct sockaddr_in servaddr, cliaddr; 
-  
+    int sockfd;
+    struct sockaddr_in servaddr, cliaddr;
+
     printf("Enable UDP\n");
-        
-    // Creating socket file descriptor 
-    if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
-        perror("socket creation failed"); 
-        exit(EXIT_FAILURE); 
-    } 
-        
-    memset(&servaddr, 0, sizeof(servaddr)); 
-    memset(&cliaddr, 0, sizeof(cliaddr)); 
-        
-    // Filling server information 
-    servaddr.sin_family    = AF_INET; // IPv4 
+
+    // Creating socket file descriptor
+    if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
+        perror("socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    memset(&servaddr, 0, sizeof(servaddr));
+    memset(&cliaddr, 0, sizeof(cliaddr));
+
+    // Filling server information
+    servaddr.sin_family    = AF_INET; // IPv4
     servaddr.sin_addr.s_addr = inet_addr(udp_forward.c_str());
     servaddr.sin_port = htons(udp_port);
 
@@ -157,7 +157,7 @@ int main(int argc, char* argv[])
     auto stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
 
     uint32_t buffer[ZMQ_BUFFER_SIZE];
-    
+
     unsigned long long num_total_samps = 0;
 
     // Track time and samps between updating the BW summary
@@ -191,7 +191,7 @@ int main(int argc, char* argv[])
             // Possibly do something with context here
             // vrt_context
         }
-        
+
         if (start_rx and vrt_packet.data) {
 
             if (vrt_packet.lost_frame)
@@ -205,7 +205,7 @@ int main(int argc, char* argv[])
                         continue;
                 } else {
                     int_second = false;
-                    last_update = now; 
+                    last_update = now;
                     start_time = now;
                     stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
                 }
@@ -230,7 +230,7 @@ int main(int argc, char* argv[])
                     printf("UDP fail\n");
                 }
             }
-             
+
             num_total_samps += vrt_packet.num_rx_samps;
 
             if (start_rx and first_frame) {
@@ -253,10 +253,10 @@ int main(int argc, char* argv[])
                     std::chrono::duration<double>(time_since_last_update).count();
                 const double rate = double(last_update_samps) / time_since_last_update_s;
                 std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                
+
                 last_update_samps = 0;
                 last_update       = now;
-    
+
                 float sum_i = 0;
                 uint32_t clip_i = 0;
 
@@ -284,4 +284,4 @@ int main(int argc, char* argv[])
 
     return 0;
 
-}  
+}

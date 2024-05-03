@@ -1,5 +1,5 @@
 //
-// Copyright 2021/2022 by Thomas Telkamp 
+// Copyright 2021/2022 by Thomas Telkamp
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
@@ -222,7 +222,7 @@ int main(int argc, char* argv[])
             printf("Frequency and sample rate need to be specified.\n");
             exit(1);
     }
-    
+
     // if (dual_chan) {
     //     std::string data_filename_2(data_filename);
     //     boost::replace_all(data_filename_2,"chan0","chan1");
@@ -230,13 +230,13 @@ int main(int argc, char* argv[])
     //     read_ptr_2 = fopen(data_filename_2.c_str(),"rb");  // r for read, b for binary
     // }
 
-	size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
+    size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
 
-	unsigned long long num_requested_samples = total_num_samps;
+    unsigned long long num_requested_samples = total_num_samps;
     double time_requested = total_time;
 
     uint32_t buffer[VRT_DATA_PACKET_SIZE];
-   
+
     bool first_frame = true;
     bool context_changed = true;
 
@@ -250,9 +250,9 @@ int main(int argc, char* argv[])
 
     /* VRT init */
     vrt_init_data_packet(&p);
-    
+
     // p.fields.stream_id = stream_id;
-    
+
     // ZMQ
     void *context = zmq_ctx_new();
     void *subscriber = zmq_socket(context, ZMQ_PUB);
@@ -325,10 +325,10 @@ int main(int argc, char* argv[])
     if (timed_tx) {
         tx_buffer_size = 0;
 
-        boost::posix_time::time_duration const time_since_epoch=t1-boost::posix_time::from_time_t(0); 
-        std::chrono::time_point<std::chrono::system_clock> t_temp = std::chrono::system_clock::from_time_t(time_since_epoch.total_seconds()); 
-        long nsec=time_since_epoch.fractional_seconds()*(1000000000/time_since_epoch.ticks_per_second()); 
-        auto chrono_t1 = t_temp + std::chrono::nanoseconds(nsec); 
+        boost::posix_time::time_duration const time_since_epoch=t1-boost::posix_time::from_time_t(0);
+        std::chrono::time_point<std::chrono::system_clock> t_temp = std::chrono::system_clock::from_time_t(time_since_epoch.total_seconds());
+        long nsec=time_since_epoch.fractional_seconds()*(1000000000/time_since_epoch.ticks_per_second());
+        auto chrono_t1 = t_temp + std::chrono::nanoseconds(nsec);
 
         auto wait_time = chrono_t1 - std::chrono::system_clock::now() - std::chrono::milliseconds(150);
 
@@ -348,7 +348,7 @@ int main(int argc, char* argv[])
 
 
     while (not stop_signal_called or last_frame) {
- 
+
         const auto now = std::chrono::steady_clock::now();
 
         if (frame_count < tx_buffer_size) {
@@ -414,7 +414,7 @@ int main(int argc, char* argv[])
 
             pc.if_context.bandwidth                         = bw;
             pc.if_context.sample_rate                       = rate;
-            
+
             if (not context_changed)
                 pc.if_context.context_field_change_indicator = false;
             else {
@@ -448,7 +448,7 @@ int main(int argc, char* argv[])
             //     if (rv < 0) {
             //         fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
             //     }
-            //     zmq_send (subscriber, buffer, rv*4, 0);   
+            //     zmq_send (subscriber, buffer, rv*4, 0);
             // }
             last_frame = false;
 
@@ -495,7 +495,7 @@ int main(int argc, char* argv[])
             //         p.header.packet_count = (uint8_t)frame_count%16;
             //         p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
             //         p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
-            
+
             //         zmq_msg_t msg;
             //         int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
 
@@ -506,7 +506,7 @@ int main(int argc, char* argv[])
             //     } else {
             //         if (repeat)
             //             rewind(read_ptr_2);
-            //         else 
+            //         else
             //             break;
             //     }
             // }
@@ -522,7 +522,7 @@ int main(int argc, char* argv[])
                         std::chrono::duration<double>(time_since_last_update).count();
                     const double rate = double(last_update_samps) / time_since_last_update_s;
                     std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                    
+
                     last_update_samps = 0;
                     last_update       = now;
 
@@ -548,7 +548,7 @@ int main(int argc, char* argv[])
             }
         } else {
             printf("no more samples in data file\n");
-            if (not read_stdin and repeat) 
+            if (not read_stdin and repeat)
                 rewind(read_ptr);
             else
                 break;
@@ -569,13 +569,13 @@ int main(int argc, char* argv[])
         const double rate = (double)num_total_samps / actual_duration_seconds;
         std::cout << (rate / 1e6) << " Msps." << std::endl;
     }
-  
+
     /* clean up */
     fclose(read_ptr);
 
     // Sleep setup time
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
-  
+
     // finished
     std::cout << std::endl << "Done!" << std::endl << std::endl;
 

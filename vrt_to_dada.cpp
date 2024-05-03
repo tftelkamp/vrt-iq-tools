@@ -160,7 +160,7 @@ int main(int argc, char* argv[])
     auto stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
 
     uint32_t buffer[ZMQ_BUFFER_SIZE];
-    
+
     unsigned long long num_total_samps = 0;
 
     // Track time and samps between updating the BW summary
@@ -207,12 +207,12 @@ int main(int argc, char* argv[])
             vrt_print_context(&vrt_context);
             start_rx = true;
 
-            if (total_time > 0)  
+            if (total_time > 0)
                 num_requested_samples = total_time * vrt_context.sample_rate;
 
             // Possibly do something with context here
             // DADA
-            dada_header = 
+            dada_header =
               "HEADER DADA\n"
               "HDR_VERSION 1.0\n"
               "HDR_SIZE    4096\n"
@@ -262,7 +262,7 @@ int main(int argc, char* argv[])
                 throw std::runtime_error("Could not get write lock on DADA HDU");
             // END DADA
         }
-        
+
         if (start_rx and vrt_packet.data and (dt_ext_context.dt_ext_context_received or not dt_trace)) {
 
             if (vrt_packet.lost_frame)
@@ -292,10 +292,10 @@ int main(int argc, char* argv[])
                 if (channel_nums.size() > 1) {
                     if (ch==1)
                         dadabuffer[i*channel_nums.size()+ch] = correction*sample;
-                    else 
+                    else
                         dadabuffer[i*channel_nums.size()+ch] = sample;
                 } else {
-                    dadabuffer[i] = sample; 
+                    dadabuffer[i] = sample;
                 }
             }
 
@@ -307,7 +307,7 @@ int main(int argc, char* argv[])
 
             // data: (const char*)&buffer[vrt_packet.offset]
             // size (bytes): sizeof(uint32_t)*vrt_packet.num_rx_samps
-             
+
             num_total_samps += vrt_packet.num_rx_samps;
 
             if (start_rx and first_frame) {
@@ -351,10 +351,10 @@ int main(int argc, char* argv[])
                     std::chrono::duration<double>(time_since_last_update).count();
                 const double rate = double(last_update_samps) / time_since_last_update_s;
                 std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                
+
                 last_update_samps = 0;
                 last_update       = now;
-    
+
                 float sum_i = 0;
                 uint32_t clip_i = 0;
 
@@ -391,4 +391,4 @@ int main(int argc, char* argv[])
 
     return 0;
 
-}  
+}

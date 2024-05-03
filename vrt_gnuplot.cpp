@@ -155,7 +155,7 @@ int main(int argc, char* argv[])
         start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
 
     uint32_t buffer[ZMQ_BUFFER_SIZE];
-    
+
     unsigned long long num_total_samps = 0;
 
     // Track time and samps between updating the BW summary
@@ -203,7 +203,7 @@ int main(int argc, char* argv[])
             //             continue;
             //     } else {
             //         int_second = false;
-            //         last_update = now; 
+            //         last_update = now;
             //         start_time = now;
             //         stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
             //     }
@@ -211,7 +211,7 @@ int main(int argc, char* argv[])
 
             int mult = 1;
             for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
-                
+
                 int16_t re;
                 memcpy(&re, (char*)&buffer[vrt_packet.offset+i], 2);
                 int16_t img;
@@ -263,10 +263,10 @@ int main(int argc, char* argv[])
                     std::chrono::duration<double>(time_since_last_update).count();
                 const double rate = double(last_update_samps) / time_since_last_update_s;
                 std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                
+
                 last_update_samps = 0;
                 last_update       = now;
-    
+
                 float sum_i = 0;
                 uint32_t clip_i = 0;
 
@@ -299,4 +299,4 @@ int main(int argc, char* argv[])
 
     return 0;
 
-}  
+}

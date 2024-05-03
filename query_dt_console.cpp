@@ -1,5 +1,5 @@
 //
-// Copyright 2021/2022 by Thomas Telkamp 
+// Copyright 2021/2022 by Thomas Telkamp
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
@@ -19,9 +19,9 @@
 #include <assert.h>
 
 // TCP/UDP
-#include <sys/socket.h> 
-#include <arpa/inet.h> 
-#include <netinet/in.h> 
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
 
@@ -109,12 +109,12 @@ int main(int argc, char* argv[])
     }
 
     // bool bw_summary             = vm.count("progress") > 0;
-   
+
     #define J2000_PORT 11030
     #define STAT_PORT  11042
 
     struct sockaddr_in servaddr, cli;
- 
+
     // socket create and verification
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd == -1) {
@@ -142,12 +142,12 @@ int main(int argc, char* argv[])
         printf("console hostname not known.\n");
         exit(0);
     }
- 
+
     // assign IP, PORT
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = *(long *)(host->h_addr_list[0]);
     servaddr.sin_port = htons(J2000_PORT);
- 
+
     // connect the client socket to server socket
     if (connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr))
         != 0) {
@@ -166,7 +166,7 @@ int main(int argc, char* argv[])
     buffer[len-1] = 0; // terminate string;
 
     std::string dt_radec(buffer);
- 
+
     std::vector<std::string> radec_values;
     boost::split(radec_values, dt_radec, boost::is_any_of(" ,"));
 
@@ -201,7 +201,7 @@ int main(int argc, char* argv[])
     buffer[len-1] = 0; // terminate string;
 
     std::string dt_azel(buffer);
- 
+
     std::vector<std::string> azel_values;
     boost::split(azel_values, dt_azel, boost::is_any_of(" ,"));
 
