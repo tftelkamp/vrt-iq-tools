@@ -141,7 +141,7 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
-    bool neg_foff 		= vm.count("negative-foff") > 0;
+    bool neg_foff               = vm.count("negative-foff") > 0;
     bool int_second             = (bool)vm.count("int-second");
     bool dt_trace               = vm.count("dt-trace") > 0;
     // bool ignore_dc              = (bool)vm.count("ignore-dc");
@@ -182,7 +182,7 @@ int main(int argc, char* argv[])
     auto start_time = std::chrono::steady_clock::now();
 
     uint32_t buffer[ZMQ_BUFFER_SIZE];
-    
+
     unsigned long long num_total_samps = 0;
 
     // Track time and samps between updating the BW summary
@@ -227,7 +227,7 @@ int main(int argc, char* argv[])
                 integrations = (uint32_t)((double)integration_time/((double)num_bins/(double)vrt_context.sample_rate));
             }
 
-            if (total_time > 0)  
+            if (total_time > 0)
                 num_requested_samples = total_time * vrt_context.sample_rate;
 
             fftw_plan_with_nthreads(threads);
@@ -237,14 +237,14 @@ int main(int argc, char* argv[])
             plan = fftw_plan_dft_1d(num_bins, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
             magnitudes = (float*)malloc(num_bins * sizeof(float));
             memset(magnitudes, 0, num_bins*sizeof(float));
-            
+
             printf("# Filterbank parameters:\n");
             printf("#    Bins: %u\n", num_bins);
             printf("#    Bin size [Hz]: %.0f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
             printf("#    Integrations: %u\n", integrations);
             printf("#    Integration Time [sec]: %.4f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
         }
-        
+
         if (start_rx and vrt_packet.data and (dt_ext_context.dt_ext_context_received or not dt_trace)) {
 
             if (vrt_packet.lost_frame)
@@ -260,7 +260,7 @@ int main(int argc, char* argv[])
                         continue;
                 } else {
                     int_second = false;
-                    last_update = now; 
+                    last_update = now;
                     start_time = now;
                 }
             }
@@ -273,7 +273,7 @@ int main(int argc, char* argv[])
                                  % ((double)vrt_packet.fractional_seconds_timestamp/1e12)
                           << std::endl;
                 first_frame = false;
-                
+
                 // Filterbank Header
                 const char* keyword;
                 const char* string;
@@ -351,9 +351,9 @@ int main(int argc, char* argv[])
                 fwrite( &int_value, sizeof(int_value), 1, write_ptr);
 
                 keyword = "fch1";
-        		if (neg_foff)
+                if (neg_foff)
                     double_value = (double)vrt_context.rf_freq/1e6+(double)vrt_context.sample_rate/2e6;
-        		else
+                else
                     double_value = (double)vrt_context.rf_freq/1e6-(double)vrt_context.sample_rate/2e6;
                 len = strlen(keyword);
                 fwrite( &len, sizeof(len), 1, write_ptr);
@@ -361,9 +361,9 @@ int main(int argc, char* argv[])
                 fwrite( &double_value, sizeof(double_value), 1, write_ptr);
 
                 keyword = "foff";
-        		if (neg_foff) 
+                if (neg_foff)
                     double_value = -((double)vrt_context.sample_rate/1e6)/((double)num_bins);
-        		else
+                else
                     double_value = ((double)vrt_context.sample_rate/1e6)/((double)num_bins);
                 len = strlen(keyword);
                 fwrite( &len, sizeof(len), 1, write_ptr);
@@ -471,7 +471,7 @@ int main(int argc, char* argv[])
 
                 signal_pointer++;
 
-                if (signal_pointer >= num_bins) { 
+                if (signal_pointer >= num_bins) {
 
                     signal_pointer = 0;
 
@@ -521,15 +521,15 @@ int main(int argc, char* argv[])
                     std::chrono::duration<double>(time_since_last_update).count();
                 const double rate = double(last_update_samps) / time_since_last_update_s;
                 std::cout << "\t" << (rate / 1e6) << " Msps, ";
-                
+
                 last_update_samps = 0;
                 last_update       = now;
-    
+
                 float sum_i = 0;
                 uint32_t clip_i = 0;
 
                 double datatype_max = 32768.;
-  
+
                 for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
                     auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
                     sum_i += sample_i;
@@ -553,4 +553,4 @@ int main(int argc, char* argv[])
     fclose(write_ptr);
 
     return exit_code;
-}  
+}

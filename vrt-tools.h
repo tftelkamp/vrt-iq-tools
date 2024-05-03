@@ -76,8 +76,8 @@ void init_context(context_type* context) {
 }
 
 bool check_packet_count(int8_t counter, context_type* vrt_context) {
-    if ( (vrt_context->last_data_counter > 0) and 
-            ( (counter != (vrt_context->last_data_counter+1)%16) and 
+    if ( (vrt_context->last_data_counter > 0) and
+            ( (counter != (vrt_context->last_data_counter+1)%16) and
               (counter != (vrt_context->last_data_counter  )%16) ) ) {
         printf("# Error: lost frame (expected %i, received %i)\n", vrt_context->last_data_counter, counter);
         vrt_context->last_data_counter = counter;
@@ -151,19 +151,19 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
             vrt_context->fractional_seconds_timestamp = f.fractional_seconds_timestamp;
             if (c.has.sample_rate)
                 vrt_context->sample_rate = (uint32_t)round(c.sample_rate);
-            
+
             if (c.has.rf_reference_frequency)
                 vrt_context->rf_freq = (int64_t)round(c.rf_reference_frequency);
-            
+
             if (c.has.bandwidth)
                 vrt_context->bandwidth = c.bandwidth;
-            
+
             if (c.has.gain)
                 vrt_context->gain = c.gain.stage1;
-            
+
             if (c.state_and_event_indicators.has.reference_lock)
                 vrt_context->reflock = c.state_and_event_indicators.reference_lock;
-            
+
             if (c.state_and_event_indicators.has.calibrated_time)
                 vrt_context->time_cal = c.state_and_event_indicators.calibrated_time;
 
@@ -172,7 +172,7 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
 
             if (c.has.timestamp_calibration_time)
                 vrt_context->timestamp_calibration_time = c.timestamp_calibration_time;
-            
+
             vrt_context->context_changed = c.context_field_change_indicator;
             vrt_packet->context = true;
             vrt_context->context_received = true;
@@ -196,7 +196,7 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
 
             if (not check_packet_count(h.packet_count, vrt_context))
                 vrt_packet->lost_frame = true;
-            else 
+            else
                 vrt_packet->lost_frame = false;
 
             vrt_packet->integer_seconds_timestamp = f.integer_seconds_timestamp;
@@ -244,7 +244,7 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
 
 void vrt_init_data_packet(struct vrt_packet* p) {
 
-	p->header.packet_type         = VRT_PT_IF_DATA_WITH_STREAM_ID;
+    p->header.packet_type         = VRT_PT_IF_DATA_WITH_STREAM_ID;
 
     p->header.packet_size         = SIZE;
     p->header.tsm                 = VRT_TSM_FINE;
@@ -263,7 +263,7 @@ void vrt_init_data_packet(struct vrt_packet* p) {
 
 void vrt_init_context_packet(struct vrt_packet* pc) {
 
-	pc->header.packet_type = VRT_PT_IF_CONTEXT;
+    pc->header.packet_type = VRT_PT_IF_CONTEXT;
     pc->header.has.class_id = true;
 
     pc->fields.class_id.oui        = 0xFF5454;
