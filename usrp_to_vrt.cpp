@@ -421,10 +421,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help") || argc < 2) {
-        std::cout << boost::format("UHD RX samples to Vita49 %s") % desc << std::endl;
+        std::cout << boost::format("UHD samples to VRT. %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application streams data from a single channel of a USRP "
-                     "device to Vita49.\n"
+                  << "This application streams data from a USRP "
+                     "device to VRT.\n"
                   << std::endl;
         return ~0;
     }

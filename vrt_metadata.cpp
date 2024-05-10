@@ -115,10 +115,9 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("VRT samples to gnuplot %s") % desc << std::endl;
+        std::cout << boost::format("Print VRT metadata as CSV. %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application streams data from a VRT stream "
-                     "to gnuplot.\n"
+                  << "This application prints metadata from a VRT stream as CSV.\n"
                   << std::endl;
         return ~0;
     }

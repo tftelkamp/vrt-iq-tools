@@ -158,10 +158,10 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("RFSpace SDR RX samples to Vita49 %s") % desc << std::endl;
+        std::cout << boost::format("RFSpace SDR RX samples to VRT. %s") % desc << std::endl;
         std::cout << std::endl
                   << "This application streams data from a single channel of an RFSpace SDR "
-                     "device to Vita49.\n"
+                     "device to VRT.\n"
                   << std::endl;
         return ~0;
     }

@@ -117,7 +117,7 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("VRT samples to file %s") % desc << std::endl;
+        std::cout << boost::format("VRT samples to file. %s") % desc << std::endl;
         std::cout << std::endl
                   << "This application streams data from a VRT stream "
                      "to a file.\n"

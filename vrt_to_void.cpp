@@ -97,7 +97,7 @@ int main(int argc, char* argv[])
         std::cout << boost::format("VRT samples to nothing. %s") % desc << std::endl;
         std::cout << std::endl
                   << "This application streams data from a VRT stream "
-                     "to nowhwere.\n"
+                     "to nowhere.\n"
                   << std::endl;
         return ~0;
     }

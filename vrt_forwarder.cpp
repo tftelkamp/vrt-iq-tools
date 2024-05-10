@@ -35,10 +35,10 @@ int main(int argc, char* argv[])
 
     desc.add_options()
         ("help", "help message")
-        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "(DIFI) ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "(DIFI) ZMQ SUB port")
-        ("pub-port", po::value<uint16_t>(&pub_port)->default_value(50101), "DIFI ZMQ PUB port")
-        ("hwm", po::value<int>(&hwm)->default_value(10000), "(DIFI) ZMQ HWM")
+        ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "(VRT) ZMQ address")
+        ("port", po::value<uint16_t>(&port)->default_value(50100), "(VRT) ZMQ SUB port")
+        ("pub-port", po::value<uint16_t>(&pub_port)->default_value(50101), "VRT ZMQ PUB port")
+        ("hwm", po::value<int>(&hwm)->default_value(10000), "(VRT) ZMQ HWM")
 
     ;
     // clang-format on
@@ -48,10 +48,9 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("(DIFI) ZMQ forwarder %s") % desc << std::endl;
+        std::cout << boost::format("(VRT) ZMQ forwarder. %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application forwards "
-                     "(DIFI) ZMQ.\n"
+                  << "This application forwards (VRT) ZMQ.\n"
                   << std::endl;
         return ~0;
     }

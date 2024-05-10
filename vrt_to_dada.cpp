@@ -105,10 +105,10 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("VRT samples to nothing. %s") % desc << std::endl;
+        std::cout << boost::format("VRT samples to dada. %s") % desc << std::endl;
         std::cout << std::endl
                   << "This application streams data from a VRT stream "
-                     "to nowhwere.\n"
+                     "to a psrdada ring buffer.\n"
                   << std::endl;
         return ~0;
     }

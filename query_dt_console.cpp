@@ -103,7 +103,7 @@ int main(int argc, char* argv[])
     if (vm.count("help")) {
         std::cout << boost::format("Get pointing data from the Dwingeloo Telescope console. %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application gets RaDec en AzEl from DT console.\n"
+                  << "This application gets RaDec and AzEl from the DT console.\n"
                   << std::endl;
         return ~0;
     }

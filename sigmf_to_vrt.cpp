@@ -122,10 +122,10 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("SigMF samples to Vita49 %s") % desc << std::endl;
+        std::cout << boost::format("SigMF samples to VRT. %s") % desc << std::endl;
         std::cout << std::endl
                   << "This application streams data from a SigMF file "
-                     "to Vita49.\n"
+                     "to VRT.\n"
                   << std::endl;
         return ~0;
     }
