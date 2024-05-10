@@ -618,7 +618,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
         // set the center frequency
         if (vm.count("freq")) {
-            freq = (frequencies.size() > channel) ? frequencies[ch] : frequencies[0];
+            freq = (frequencies.size() > ch) ? frequencies[ch] : frequencies[0];
             if (freq < 5e6) {
                 throw std::runtime_error("Frequency should be given in Hz.\n" +
                                          std::to_string(freq) + "Hz is probably not what you meant!");
@@ -639,7 +639,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
         // set the rf gain(s)
         if (gains.size()) {
-            size_t gain = (gains.size() > channel) ? gains[ch] : gains[0];
+            size_t gain = (gains.size() > ch) ? gains[ch] : gains[0];
             std::cout << boost::format("Setting RX Gain: %f dB...") % gain << std::endl;
             usrp->set_rx_gain(gain, channel);
             std::cout << boost::format("Actual RX Gain: %f dB...")
@@ -661,7 +661,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
         // set the antenna(s)
         if (antennas.size()) {
-            std::string ant = (antennas.size() > channel) ? antennas[ch] : antennas[0];
+            std::string ant = (antennas.size() > ch) ? antennas[ch] : antennas[0];
             std::cout << boost::format("Setting Antenna: %s") % ant << std::endl;
             usrp->set_rx_antenna(ant, channel);
             std::cout << boost::format("Actual Antenna: %s")
