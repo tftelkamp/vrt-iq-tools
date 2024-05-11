@@ -15,8 +15,22 @@ find_library(FFTW3F_LIBRARY fftw3f REQUIRED)
 find_library(FFTW3_THREADS_LIBRARY fftw3_threads REQUIRED)
 find_path(FFTW3_INCLUDE_DIR NAMES fftw3.h REQUIRED)
 
-find_library(VRT_LIBRARY NAMES vrt REQUIRED)
-find_path(VRT_INCLUDE_DIR NAMES "vrt/vrt_init.h" REQUIRED)
+# Fetch the submodule if not found
+find_package(Git QUIET)
+if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+    message(STATUS "Fetching libvrt submodule...")
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        RESULT_VARIABLE GIT_SUBMOD_RESULT
+    )
+    if(NOT GIT_SUBMOD_RESULT EQUAL "0")
+        message(FATAL_ERROR "Failed to fetch libvrt submodule. Git returned error code ${GIT_SUBMOD_RESULT}")
+    endif()
+else()
+    message(FATAL_ERROR "Git is required to fetch libvrt submodule. Please make sure Git is installed.")
+endif()
+add_subdirectory(libvrt)
 
 find_library(ZMQ_LIBRARY NAMES zmq REQUIRED)
 find_path(ZMQ_INCLUDE_DIR NAMES "zmq.h" REQUIRED)
@@ -113,8 +127,8 @@ foreach(target ${all_targets})
   endif()
   target_include_directories(${target} PRIVATE ${ZMQ_INCLUDE_DIR})
   target_link_libraries(${target} PRIVATE ${ZMQ_LIBRARY})
-  target_include_directories(${target} PRIVATE ${VRT_INCLUDE_DIR})
-  target_link_libraries(${target} PRIVATE ${VRT_LIBRARY})
+  target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libvrt/include)
+  target_link_libraries(${target} PRIVATE vrt)
   target_include_directories(${target} PRIVATE ${Boost_INCLUDE_DIRS})
   target_link_libraries(${target} PRIVATE ${Boost_LIBRARIES})
 endforeach()

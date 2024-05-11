@@ -1,0 +1,3 @@
+[submodule "libvrt"]
+	path = libvrt
+	url = https://github.com/tftelkamp/libvrt
