@@ -384,7 +384,7 @@ int main(int argc, char* argv[])
     zmq_control = responder;
     zmq_setsockopt(zmq_control, ZMQ_SUBSCRIBE, "", 0);
 
-    // UDP DI-FI
+    // UDP VRT
 
     int vrt_sockfd; 
     struct sockaddr_in vrt_servaddr, vrt_cliaddr; 

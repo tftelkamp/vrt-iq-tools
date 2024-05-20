@@ -275,7 +275,7 @@ int main(int argc, char* argv[])
         zmq_setsockopt(merge_zmq, ZMQ_SUBSCRIBE, "", 0);
     }
 
-    // UDP DI-FI
+    // UDP VRT
 
     int sockfd; 
     struct sockaddr_in servaddr, cliaddr; 
