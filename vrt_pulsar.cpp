@@ -33,6 +33,7 @@
 #include <fftw3.h>
 
 #include "vrt-tools.h"
+#include "dt-extended-context.h"
 
 #ifdef __APPLE__
 #define DEFAULT_GNUPLOT_TERMINAL "qt"
@@ -166,6 +167,7 @@ int main(int argc, char* argv[])
         ("gnuplot", "enable gnuplot mode")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
+        ("dt-trace", "use DT trace data in VRT stream")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
@@ -196,8 +198,10 @@ int main(int argc, char* argv[])
     bool quiet                  = vm.count("quiet") > 0;
     bool squelch                = vm.count("squelch") > 0;
     bool int_second             = (bool)vm.count("int-second");
+    bool dt_trace               = vm.count("dt-trace") > 0;
 
     context_type vrt_context;
+    dt_ext_context_type dt_ext_context;
     init_context(&vrt_context);
 
     packet_type vrt_packet;
@@ -268,7 +272,7 @@ int main(int argc, char* argv[])
             continue;
         }
 
-        if (not vrt_packet.context and not vrt_packet.data)
+        if (not vrt_packet.context and not vrt_packet.data and not vrt_packet.extended_context)
             continue;
 
         uint32_t ch = 0;
@@ -522,6 +526,8 @@ int main(int argc, char* argv[])
                                                 printf("%i %i %f %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[0][index], dedisp[1][index]);
                                             }
                                         }
+                                    } else if (dt_trace) {
+                                        printf("%i %i %f %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[ch][index], (180.0/M_PI)*dt_ext_context.azimuth);
                                     } else {
                                         printf("%i %i %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[ch][index]);
                                     }
@@ -610,7 +616,10 @@ int main(int argc, char* argv[])
             }
 
             num_total_samps += vrt_packet.num_rx_samps;
+        }
 
+        if (dt_trace and vrt_packet.extended_context) {
+            dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
         }
 
         if (progress) {
