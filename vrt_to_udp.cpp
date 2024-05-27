@@ -217,8 +217,8 @@ int main(int argc, char* argv[])
                 int16_t img;
                 memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
                 // convert to float32
-                float_data[2*i] = (float)re;
-                float_data[2*i+1] = (float)img;
+                float_data[2*i] = (float)re / 65535;
+                float_data[2*i+1] = (float)img / 65535;
             }
 
             uint32_t blocks = VRT_SAMPLES_PER_PACKET/1000;
