@@ -29,8 +29,6 @@
 #include <vrt/vrt_types.h>
 #include <vrt/vrt_util.h>
 
-// #include <complex.h>
-
 // DADA
 #include <sstream>
 #include <dada_def.h>
@@ -71,7 +69,7 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string zmq_address, channel_list, sourcename;
+    std::string zmq_address, channel_list, sourcename, dadakey_str;
     uint16_t port;
     uint32_t channel;
     int hwm;
@@ -90,6 +88,7 @@ int main(int argc, char* argv[])
         ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
         ("phase", po::value<float>(&phase)->default_value(0), "phase shift on second channel [0-1]")
         ("sourcename", po::value<std::string>(&sourcename)->default_value("undefined"), "name of tracked celestial source")
+        ("key", po::value<std::string>(&dadakey_str)->default_value("c2c2"), "dada key")
         ("progress", "periodically display short-term bandwidth")
         ("channel", po::value<std::string>(&channel_list)->default_value("0"), "which VRT channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         ("continue", "don't abort on a bad packet")
@@ -144,6 +143,10 @@ int main(int argc, char* argv[])
     dada_hdu_t *dada_hdu;
     multilog_t *dada_log;
     std::string dada_header;
+    key_t dadakey;
+
+    dadakey = std::stoul(dadakey_str, nullptr, 16);
+
     std::complex<float> dadabuffer[VRT_SAMPLES_PER_PACKET*MAX_CHANNELS] __attribute((aligned(32)));
 
     // ZMQ
@@ -255,7 +258,7 @@ int main(int argc, char* argv[])
             dada_log = multilog_open ("example_dada_writer", 0);
             multilog_add(dada_log, stderr);
             dada_hdu = dada_hdu_create(dada_log);
-            dada_hdu_set_key(dada_hdu, 0xc2c2);
+            dada_hdu_set_key(dada_hdu, dadakey);
             if (dada_hdu_connect (dada_hdu) < 0)
                 throw std::runtime_error("Could not connect to DADA HDU");
             if (dada_hdu_lock_write(dada_hdu) < 0 )
