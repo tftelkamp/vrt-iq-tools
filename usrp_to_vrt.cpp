@@ -387,6 +387,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("ant", po::value<std::string>(&ant_list), "antenna selection")
         ("subdev", po::value<std::string>(&subdev), "subdevice specification")
         ("usrp-channel", po::value<std::string>(&channel_list)->default_value("0"), "which usrp channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
+        ("split", "create a ZeroMQ stream per VRT channel")
         ("bw", po::value<double>(&bw), "analog frontend filter bandwidth in Hz")
         ("ref", po::value<std::string>(&ref)->default_value("internal"), "reference source (internal, external, mimo, gpsdo)")
         ("tx", "enable tx")
@@ -438,6 +439,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool enable_temp            = vm.count("temp") > 0;
     bool enable_tx              = vm.count("tx") > 0;
     bool enable_gpio            = vm.count("gpio") > 0;
+    bool split                  = vm.count("split") > 0;
 
     struct vrt_packet p;
     vrt_init_packet(&p);
@@ -450,23 +452,41 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     /* VRT init */
     vrt_init_data_packet(&p);
 
-    // if (!vm.count("stream-id"))
-    //     p.fields.stream_id = (uint32_t)rand();
     p.fields.stream_id = 0;
 
+    // detect channels to use
+    std::vector<std::string> channel_strings;
+    std::vector<size_t> channel_nums;
+    boost::split(channel_strings, channel_list, boost::is_any_of("\"',"));
+
     // ZMQ
-    void *zmq_server;
+    void *zmq_server[MAX_CHANNELS];
     void *zmq_control;
     void *zmq_transmit;
 
     void *context = zmq_ctx_new();
-    void *responder = zmq_socket(context, ZMQ_PUB);
-    int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
-    assert(rc == 0);
-    std::string connect_string = "tcp://*:" + std::to_string(port);
-    rc = zmq_bind(responder, connect_string.c_str());
-    assert (rc == 0);
-    zmq_server = responder;
+    void *responder;
+    int rc;
+
+    if (split) {
+        for (size_t ch = 0; ch < channel_strings.size(); ch++) {
+            responder = zmq_socket(context, ZMQ_PUB);
+            rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
+            assert(rc == 0);
+            std::string connect_string = "tcp://*:" + std::to_string(port+ch);
+            rc = zmq_bind(responder, connect_string.c_str());
+            assert (rc == 0);
+            zmq_server[ch] = responder;
+        }
+    } else {
+        responder = zmq_socket(context, ZMQ_PUB);
+        rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
+        assert(rc == 0);
+        std::string connect_string = "tcp://*:" + std::to_string(port);
+        rc = zmq_bind(responder, connect_string.c_str());
+        assert (rc == 0);
+        zmq_server[0] = responder;
+    }
 
     responder = zmq_socket(context, ZMQ_SUB);
     std::string control_string = "tcp://*:" + std::to_string(port+200);
@@ -487,7 +507,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // Merge
     void *merge_zmq = zmq_socket(context, ZMQ_SUB);
     if (merge) {
-        connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
+        std::string connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
         rc = zmq_connect(merge_zmq, connect_string.c_str());
         assert(rc == 0);
         zmq_setsockopt(merge_zmq, ZMQ_SUBSCRIBE, "", 0);
@@ -551,9 +571,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     std::cout << boost::format("Using Device: %s") % usrp->get_pp_string() << std::endl;
 
     // detect which channels to use
-    std::vector<std::string> channel_strings;
-    std::vector<size_t> channel_nums;
-    boost::split(channel_strings, channel_list, boost::is_any_of("\"',"));
     for (size_t ch = 0; ch < channel_strings.size(); ch++) {
         size_t chan = std::stoi(channel_strings[ch]);
         if (chan >= usrp->get_rx_num_channels()) {
@@ -1004,7 +1021,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 else
                     pc.if_context.context_field_change_indicator = false;
 
-                pc.fields.stream_id = 1<<ch;
+                if (split)
+                    pc.fields.stream_id = 1;
+                else
+                    pc.fields.stream_id = 1<<ch;
                 pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(channel); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
                 pc.if_context.sample_rate                       = usrp->get_rx_rate(channel);
                 pc.if_context.rf_reference_frequency            = usrp->get_rx_freq(channel)+if_freq;
@@ -1026,7 +1046,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 }
 
                 // ZMQ
-                zmq_send (zmq_server, buffer, rv*4, 0);
+                if (split)
+                    zmq_send (zmq_server[ch], buffer, rv*4, 0);
+                else
+                    zmq_send (zmq_server[0], buffer, rv*4, 0);
 
                 if (enable_udp) {
                     if (sendto(sockfd, buffer, rv*4, 0,
@@ -1048,13 +1071,19 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         for (size_t i = 0; i < buffs.size(); i++) {
             size_t channel = channel_nums[i];
             p.body = (char*)buff_ptrs[i];
-            p.fields.stream_id = 1<<i;
+            if (split)
+                p.fields.stream_id = 1;
+                else
+                p.fields.stream_id = 1<<i;
             zmq_msg_t msg;
             int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
             int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE, true);
 
             // VRT
-            zmq_msg_send(&msg, zmq_server, 0);
+            if (split)
+                zmq_msg_send(&msg, zmq_server[i], 0);
+            else
+                zmq_msg_send(&msg, zmq_server[0], 0);
             zmq_msg_close(&msg);
 
             // UDP
@@ -1071,12 +1100,22 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         if (merge) {
             int mergelen;
             while ( (mergelen = zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK)) > 0  ) {
-                // zmq_send (zmq_server, buffer, mergelen, 0);
-                zmq_msg_t msg;
-                zmq_msg_init_size (&msg, mergelen);
-                memcpy (zmq_msg_data(&msg), buffer, mergelen);
-                zmq_msg_send(&msg, zmq_server, 0);
-                zmq_msg_close(&msg);
+
+                if (split) {
+                    for (size_t ch = 0; ch < channel_nums.size(); ch++) {
+                        zmq_msg_t msg;
+                        zmq_msg_init_size (&msg, mergelen);
+                        memcpy (zmq_msg_data(&msg), buffer, mergelen);
+                        zmq_msg_send(&msg, zmq_server[ch], 0);
+                        zmq_msg_close(&msg);
+                    }
+                } else {
+                    zmq_msg_t msg;
+                    zmq_msg_init_size (&msg, mergelen);
+                    memcpy (zmq_msg_data(&msg), buffer, mergelen);
+                    zmq_msg_send(&msg, zmq_server[0], 0);
+                    zmq_msg_close(&msg);
+                }
             }
         }
 
