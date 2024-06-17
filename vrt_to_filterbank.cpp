@@ -76,7 +76,7 @@ int main(int argc, char* argv[])
 
     // variables to be set by po
     std::string file, type, zmq_address, source_name, coords;
-    uint16_t port;
+    uint16_t instance, main_port, port;
     uint32_t channel;
     uint32_t integrations;
     uint32_t num_bins = 0;
@@ -119,7 +119,9 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         // ("ignore-dc", "Ignore  DC bin")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("zmq-split", "create a ZeroMQ stream per VRT channel, increasing port number for additional streams")
+        ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
+        ("port", po::value<uint16_t>(&port), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
@@ -144,6 +146,7 @@ int main(int argc, char* argv[])
     bool neg_foff               = vm.count("negative-foff") > 0;
     bool int_second             = (bool)vm.count("int-second");
     bool dt_trace               = vm.count("dt-trace") > 0;
+    bool zmq_split              = vm.count("zmq-split") > 0;
     // bool ignore_dc              = (bool)vm.count("ignore-dc");
 
     std::vector<std::string> coord_strings;
@@ -167,13 +170,24 @@ int main(int argc, char* argv[])
 
     packet_type vrt_packet;
 
-    vrt_packet.channel_filt = 1<<channel;
+    if (vm.count("port") > 0) {
+        main_port = port;
+    } else {
+        main_port = DEFAULT_MAIN_PORT + MAX_CHANNELS*instance;
+    }
+
+    if (zmq_split) {
+        main_port += channel;
+        vrt_packet.channel_filt = 1;
+    } else {
+        vrt_packet.channel_filt = 1<<channel;
+    }
 
     // ZMQ
     void *context = zmq_ctx_new();
     void *subscriber = zmq_socket(context, ZMQ_SUB);
     int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
-    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(port);
+    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(main_port);
     rc = zmq_connect(subscriber, connect_string.c_str());
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);

@@ -353,7 +353,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // variables to be set by po
     std::string file, type, ant_list, subdev, ref, channel_list, gain_list, freq_list, udp_forward, merge_address;
     size_t total_num_samps, spb;
-    uint16_t port, merge_port;
+    uint16_t instance, port, merge_port;
     uint16_t tx_gain;
     int hwm;
     uint32_t stream_id;
@@ -373,7 +373,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     desc.add_options()
         ("help,h", "help message")
         ("args", po::value<std::string>(&args)->default_value(""), "multi uhd device address args")
-        // ("file", po::value<std::string>(&file)->default_value("usrp_samples.dat"), "name of the file to write binary samples to")
         // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&total_num_samps)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
@@ -402,14 +401,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("pps", "use external pps signal")
         ("pps-offset", po::value<double>(&pps_offset)->default_value(0), "Offset of the PPS pulse in sec.")
         ("temp", "read temperature sensor")
-        // ("vrt", "publish IQ using VRT over ZeroMQ (PUB on port 50100")
         ("int-second", "align start of reception to integer second")
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
         ("skip-lo", "skip checking LO lock status")
         ("int-n", "tune USRP with integer-N tuning")
-        // ("stream-id", po::value<uint32_t>(&stream_id), "VRT Stream ID")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("port", po::value<uint16_t>(&port), "VRT ZMQ port")
+        ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
         ("merge", po::value<bool>(&merge)->default_value(true), "Merge another VRT ZMQ stream (SUB connect)")
         ("merge-port", po::value<uint16_t>(&merge_port)->default_value(50011), "VRT ZMQ merge port")
         ("merge-address", po::value<std::string>(&merge_address)->default_value("localhost"), "VRT ZMQ merge address")
@@ -468,12 +466,20 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     void *responder;
     int rc;
 
+    uint16_t main_port;
+
+    if (vm.count("port") > 0) {
+        main_port = port;
+    } else {
+        main_port = DEFAULT_MAIN_PORT + MAX_CHANNELS*instance;
+    }
+
     if (split) {
         for (size_t ch = 0; ch < channel_strings.size(); ch++) {
             responder = zmq_socket(context, ZMQ_PUB);
             rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
             assert(rc == 0);
-            std::string connect_string = "tcp://*:" + std::to_string(port+ch);
+            std::string connect_string = "tcp://*:" + std::to_string(main_port+ch);
             rc = zmq_bind(responder, connect_string.c_str());
             assert (rc == 0);
             zmq_server[ch] = responder;
@@ -482,14 +488,14 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         responder = zmq_socket(context, ZMQ_PUB);
         rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
         assert(rc == 0);
-        std::string connect_string = "tcp://*:" + std::to_string(port);
+        std::string connect_string = "tcp://*:" + std::to_string(main_port);
         rc = zmq_bind(responder, connect_string.c_str());
         assert (rc == 0);
         zmq_server[0] = responder;
     }
 
     responder = zmq_socket(context, ZMQ_SUB);
-    std::string control_string = "tcp://*:" + std::to_string(port+200);
+    std::string control_string = "tcp://*:" + std::to_string(main_port+200);
     rc = zmq_bind(responder, control_string.c_str());
     assert (rc == 0);
     zmq_control = responder;
@@ -497,7 +503,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     if (enable_tx) {
         responder = zmq_socket(context, ZMQ_SUB);
-        std::string tx_string = "tcp://*:" + std::to_string(port+400);
+        std::string tx_string = "tcp://*:" + std::to_string(main_port+400);
         rc = zmq_bind(responder, tx_string.c_str());
         assert (rc == 0);
         zmq_transmit = responder;
