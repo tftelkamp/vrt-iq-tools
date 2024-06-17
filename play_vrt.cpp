@@ -404,14 +404,10 @@ int main(int argc, char* argv[])
                 pc.if_context.has.if_band_offset = false;
             }
 
-            if (gain != 0) {
-                pc.if_context.has.gain = true;
-                pc.if_context.gain.stage1                       = gain;
-                pc.if_context.gain.stage2                       = 0;
-            } else {
-                pc.if_context.has.gain = false;
-            }
-
+            pc.if_context.has.gain = true;
+            pc.if_context.gain.stage1                       = gain;
+            pc.if_context.gain.stage2                       = 0;
+       
             pc.if_context.bandwidth                         = bw;
             pc.if_context.sample_rate                       = rate;
 
