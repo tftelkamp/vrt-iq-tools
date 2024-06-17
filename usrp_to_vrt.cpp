@@ -439,7 +439,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool enable_temp            = vm.count("temp") > 0;
     bool enable_tx              = vm.count("tx") > 0;
     bool enable_gpio            = vm.count("gpio") > 0;
-    bool split                  = vm.count("split") > 0;
+    bool split                  = vm.count("zmq-split") > 0;
 
     struct vrt_packet p;
     vrt_init_packet(&p);
