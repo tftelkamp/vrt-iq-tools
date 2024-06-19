@@ -79,7 +79,7 @@ int main(int argc, char* argv[])
     // variables to be set by po
     std::string file, auto_file, type, zmq_address, channel_list, author, description;
     size_t num_requested_samples, total_time;
-    uint16_t port;
+    uint16_t instance, main_port, port;
     int hwm;
 
     // DT trace data
@@ -107,7 +107,9 @@ int main(int argc, char* argv[])
         ("dt-trace", "add DT trace data")
         ("vrt", "write VRT stream to file")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("zmq-split", "create a ZeroMQ stream per VRT channel, increasing port number for additional streams")
+        ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
+        ("port", po::value<uint16_t>(&port), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
@@ -136,12 +138,20 @@ int main(int argc, char* argv[])
     bool has_author             = vm.count("author") > 0;
     bool has_desc               = vm.count("description") > 0;
     bool vrt                    = vm.count("vrt") > 0;
+    bool zmq_split              = vm.count("zmq-split") > 0;
 
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
     init_context(&vrt_context);
 
     packet_type vrt_packet;
+
+    if (vm.count("port") > 0) {
+        main_port = port;
+    } else {
+        main_port = DEFAULT_MAIN_PORT + MAX_CHANNELS*instance;
+    }
+
     vrt_packet.channel_filt = 0;
 
     // detect which channels to use
@@ -152,6 +162,16 @@ int main(int argc, char* argv[])
         size_t chan = std::stoi(channel_strings[ch]);
         channel_nums.push_back(std::stoi(channel_strings[ch]));
         vrt_packet.channel_filt |= 1<<std::stoi(channel_strings[ch]);
+    }
+
+    if (zmq_split) {
+        if (channel_nums.size()>1) {
+            printf("Multiple channels with --zmq-split is not supported.\n");
+            exit(EXIT_FAILURE);
+        }
+        main_port += channel_nums[0];
+        channel_nums[0] = 0;
+        vrt_packet.channel_filt = 1;
     }
 
     std::vector<std::shared_ptr<std::ofstream>> outfiles;
@@ -183,7 +203,7 @@ int main(int argc, char* argv[])
     void *context = zmq_ctx_new();
     void *subscriber = zmq_socket(context, ZMQ_SUB);
     int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
-    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(port);
+    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(main_port);
     rc = zmq_connect(subscriber, connect_string.c_str());
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);

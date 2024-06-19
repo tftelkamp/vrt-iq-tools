@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
     uint32_t bins;
     int gain;
     double total_time;
-    uint16_t port;
+    uint16_t instance, main_port, port;
     uint32_t channel;
     int hwm;
     float dm, period, agg_time;
@@ -167,7 +167,9 @@ int main(int argc, char* argv[])
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("zmq-split", "create a ZeroMQ stream per VRT channel, increasing port number for additional streams")
+        ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
+        ("port", po::value<uint16_t>(&port), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
 
     ;
@@ -196,11 +198,18 @@ int main(int argc, char* argv[])
     bool quiet                  = vm.count("quiet") > 0;
     bool squelch                = vm.count("squelch") > 0;
     bool int_second             = (bool)vm.count("int-second");
+    bool zmq_split              = vm.count("zmq-split") > 0;
 
     context_type vrt_context;
     init_context(&vrt_context);
 
     packet_type vrt_packet;
+
+    if (vm.count("port") > 0) {
+        main_port = port;
+    } else {
+        main_port = DEFAULT_MAIN_PORT + MAX_CHANNELS*instance;
+    }
 
     vrt_packet.channel_filt = 0;
 
@@ -219,6 +228,16 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
+    if (zmq_split) {
+        if (channel_nums.size()>1) {
+            printf("Multiple channels with --zmq-split is not supported.\n");
+            exit(EXIT_FAILURE);
+        }
+        main_port += channel_nums[0];
+        channel_nums[0] = 0;
+        vrt_packet.channel_filt = 1;
+    }
+
     // FILE *write_ptr;
     // write_ptr = fopen("dedisp.fc32","wb");  // w for write, b for binary
 
@@ -227,7 +246,7 @@ int main(int argc, char* argv[])
     void *context = zmq_ctx_new();
     void *subscriber = zmq_socket(context, ZMQ_SUB);
     int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
-    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(port);
+    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(main_port);
     rc = zmq_connect(subscriber, connect_string.c_str());
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);

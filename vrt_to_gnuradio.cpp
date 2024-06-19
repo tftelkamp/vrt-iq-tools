@@ -79,7 +79,7 @@ int main(int argc, char* argv[])
     std::string file, type, zmq_address;
     size_t num_requested_samples;
     double total_time;
-    uint16_t port, gnuradioport;
+    uint16_t instance, main_port, port, gnuradioport;
     uint32_t channel;
     int hwm;
 
@@ -100,8 +100,10 @@ int main(int argc, char* argv[])
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
-        ("gnuradioport", po::value<uint16_t>(&gnuradioport)->default_value(0), "GNURadio ZMQ port (default 10 above VRT ZMQ port)")
+        ("zmq-split", "create a ZeroMQ stream per VRT channel, increasing port number for additional streams")
+        ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
+        ("port", po::value<uint16_t>(&port), "VRT ZMQ port")
+        ("gnuradioport", po::value<uint16_t>(&gnuradioport)->default_value(0), "GNURadio ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
 
     ;
@@ -113,9 +115,9 @@ int main(int argc, char* argv[])
     // print the help message
     if (vm.count("help")) {
         std::cout << "Split VRT stream into metadata and data for GNURadio\n"
-                  << "Output streams: port + 100 (default 50200): data\n"
-                  << "                port + 110 (default 50210): frequency\n"
-                  << "                port + 120 (default 50220): bandwidth\n"
+                  << "Output streams: port 50200 + channel: data\n"
+                  << "                port 50210 + channel: frequency\n"
+                  << "                port 50220 + channel: bandwidth\n"
                   << desc << std::endl;
         std::cout << std::endl
                   << "This application streams data from a VRT stream "
@@ -128,25 +130,37 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
+    bool zmq_split              = vm.count("zmq-split") > 0;
 
     context_type vrt_context;
     init_context(&vrt_context);
 
     packet_type vrt_packet;
 
-    vrt_packet.channel_filt = 1<<channel;
+    if (vm.count("port") > 0) {
+        main_port = port;
+    } else {
+        main_port = DEFAULT_MAIN_PORT + MAX_CHANNELS*instance;
+    }
+
+    if (zmq_split) {
+        main_port += channel;
+        vrt_packet.channel_filt = 1;
+    } else {
+        vrt_packet.channel_filt = 1<<channel;
+    }
 
     // ZMQ
 
     void *context = zmq_ctx_new();
     void *subscriber = zmq_socket(context, ZMQ_SUB);
     int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
-    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(port);
+    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(main_port);
     rc = zmq_connect(subscriber, connect_string.c_str());
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
     if (gnuradioport == 0) {
-        gnuradioport = port + 100;
+        gnuradioport = DEFAULT_GNURADIO_PORT + channel;
     }
 
     void *zmq_gr_data;

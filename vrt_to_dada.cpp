@@ -70,7 +70,7 @@ int main(int argc, char* argv[])
 {
     // variables to be set by po
     std::string zmq_address, channel_list, sourcename, dadakey_str;
-    uint16_t port;
+    uint16_t instance, main_port, port;
     uint32_t channel;
     int hwm;
     size_t num_requested_samples;
@@ -94,7 +94,9 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("dt-trace", "add DT trace data")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("zmq-split", "create a ZeroMQ stream per VRT channel, increasing port number for additional streams")
+        ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
+        ("port", po::value<uint16_t>(&port), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
@@ -116,6 +118,7 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool dt_trace               = vm.count("dt-trace") > 0;
+    bool zmq_split              = vm.count("zmq-split") > 0;
 
     std::complex<float> z(0,-2*(float)M_PI*phase);
     std::complex<float> a(amplitude,0);
@@ -127,6 +130,12 @@ int main(int argc, char* argv[])
 
     packet_type vrt_packet;
 
+     if (vm.count("port") > 0) {
+        main_port = port;
+    } else {
+        main_port = DEFAULT_MAIN_PORT + MAX_CHANNELS*instance;
+    }
+
     vrt_packet.channel_filt = 0;
 
      // detect which channels to use
@@ -137,6 +146,16 @@ int main(int argc, char* argv[])
         size_t chan = std::stoi(channel_strings[ch]);
         channel_nums.push_back(std::stoi(channel_strings[ch]));
         vrt_packet.channel_filt |= 1<<std::stoi(channel_strings[ch]);
+    }
+
+    if (zmq_split) {
+        if (channel_nums.size()>1) {
+            printf("Multiple channels with --zmq-split is not supported.\n");
+            exit(EXIT_FAILURE);
+        }
+        main_port += channel_nums[0];
+        channel_nums[0] = 0;
+        vrt_packet.channel_filt = 1;
     }
 
     // DADA
@@ -153,7 +172,7 @@ int main(int argc, char* argv[])
     void *context = zmq_ctx_new();
     void *subscriber = zmq_socket(context, ZMQ_SUB);
     int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
-    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(port);
+    std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(main_port);
     rc = zmq_connect(subscriber, connect_string.c_str());
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
