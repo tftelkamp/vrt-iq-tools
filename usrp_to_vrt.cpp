@@ -355,7 +355,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     size_t total_num_samps, spb;
     uint16_t instance, port, merge_port;
     uint16_t tx_gain;
-    int hwm;
+    int hwm, io_threads;
     uint32_t stream_id;
     double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, if_freq, pps_offset, gpio_delay;
     uint32_t timestamp_calibration_time = 0;
@@ -411,6 +411,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("merge", po::value<bool>(&merge)->default_value(true), "Merge another VRT ZMQ stream (SUB connect)")
         ("merge-port", po::value<uint16_t>(&merge_port)->default_value(50011), "VRT ZMQ merge port")
         ("merge-address", po::value<std::string>(&merge_address)->default_value("localhost"), "VRT ZMQ merge address")
+        ("io-threads", po::value<int>(&io_threads)->default_value(1), "ZMQ IO threads")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
     // clang-format on
@@ -465,6 +466,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     void *context = zmq_ctx_new();
     void *responder;
     int rc;
+
+    zmq_ctx_set (context, ZMQ_IO_THREADS, io_threads);
 
     uint16_t main_port;
 
