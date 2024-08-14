@@ -22,8 +22,12 @@ CFLAGS = -std=c++11
 INCLUDES = -I. -I/opt/local/include -I../libvrt/include -I/opt/homebrew/include/
 LIBS = -L. -L../libvrt/build/ -L/usr/local/lib -L/opt/local/lib -L/opt/homebrew/lib/
 
-BOOSTLIBS = -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lboost_date_time
-# BOOSTLIBS = -lboost_system-mt -lboost_program_options-mt -lboost_chrono-mt -lboost_filesystem-mt -lboost_thread-mt -lboost_date_time-mt
+OS := $(shell uname)
+ifeq ($(OS), Darwin)
+	BOOSTLIBS = -lboost_system-mt -lboost_program_options-mt -lboost_chrono-mt -lboost_filesystem-mt -lboost_thread-mt -lboost_date_time-mt
+else
+	BOOSTLIBS = -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread-mt -lboost_date_time
+endif
 
 usrp_to_vrt: usrp_to_vrt.cpp
 		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) usrp_to_vrt.cpp -o usrp_to_vrt \

@@ -110,6 +110,7 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("stdin", "read stream from stdin")
         ("repeat", "repeat the input file")
+        ("listen", "listen on the socket instead of connecting to a remote host (run as a server)")
         ("port", po::value<uint16_t>(&port)->default_value(50500), "VRT ZMQ transmit port")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ transmit address")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
@@ -141,6 +142,7 @@ int main(int argc, char* argv[])
     bool repeat                 = vm.count("repeat") > 0;
     bool read_stdin             = vm.count("stdin") > 0;
     bool timed_tx               = vm.count("timed-tx") > 0;
+    bool listen                 = vm.count("listen") > 0;
     bool send_context           = true;
 
     size_t filesize = 0;
@@ -257,7 +259,12 @@ int main(int argc, char* argv[])
     void *context = zmq_ctx_new();
     void *subscriber = zmq_socket(context, ZMQ_PUB);
     std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(port);
-    int rc = zmq_connect(subscriber, connect_string.c_str());
+    int rc;
+    if (listen) {
+        rc = zmq_bind(subscriber, connect_string.c_str());
+    } else {
+        rc = zmq_connect(subscriber, connect_string.c_str());
+    }
     assert(rc == 0);
 
     // stdin binary
