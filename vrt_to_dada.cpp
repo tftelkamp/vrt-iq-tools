@@ -197,6 +197,11 @@ int main(int argc, char* argv[])
 
     uint32_t signal_pointer = 0;
 
+    if (num_requested_samples == 0 and total_time == 0) {
+        std::signal(SIGINT, &sig_int_handler);
+        std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
+    }
+
     while (not stop_signal_called
            and (num_requested_samples*channel_nums.size() > num_total_samps or num_requested_samples == 0)) {
 
