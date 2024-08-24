@@ -48,6 +48,7 @@ namespace po = boost::program_options;
 static bool stop_signal_called = false;
 void sig_int_handler(int)
 {
+    std::cout<<"Stop signal caught\n";
     stop_signal_called = true;
 }
 
@@ -197,8 +198,8 @@ int main(int argc, char* argv[])
 
     uint32_t signal_pointer = 0;
 
+    std::signal(SIGINT, &sig_int_handler);
     if (num_requested_samples == 0 and total_time == 0) {
-        std::signal(SIGINT, &sig_int_handler);
         std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
     }
 
@@ -328,8 +329,12 @@ int main(int argc, char* argv[])
 
             // send when all channels have been received
             if (ch == channel_nums.size()-1) {
-                if (ipcio_write(dada_hdu->data_block, (char*)dadabuffer, channel_nums.size()*vrt_packet.num_rx_samps*sizeof(std::complex<float>)) < 0)
+                if (ipcio_write(dada_hdu->data_block, (char*)dadabuffer, channel_nums.size()*vrt_packet.num_rx_samps*sizeof(std::complex<float>)) < 0) {
+                    if (stop_signal_called) {
+                        break;
+                    }
                     throw std::runtime_error("Error writing buffer to DADA");
+                }
             }
 
             // data: (const char*)&buffer[vrt_packet.offset]
@@ -399,7 +404,6 @@ int main(int argc, char* argv[])
                 std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
                 std::cout << "" << boost::format("%.0f") % (100.0*clip_i/vrt_packet.num_rx_samps) << "% I clip, ";
                 std::cout << std::endl;
-
             }
         }
     }
@@ -415,7 +419,7 @@ int main(int argc, char* argv[])
 
     zmq_close(subscriber);
     zmq_ctx_destroy(context);
+    std::cout<<"vrt_to_dada cleaned up properly after SIGINT\n";
 
     return 0;
-
 }
