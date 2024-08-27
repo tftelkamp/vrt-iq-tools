@@ -250,10 +250,11 @@ int main(int argc, char* argv[])
               "RECEIVER VRT\n"
               "INSTRUMENT dspsr\n"
               "SOURCE " + sourcename + "\n"
-              "NBIT " + "32\n" +
-              "NDIM " + "2\n" +
-              "NPOL " + std::to_string(channel_nums.size()) + "\n" +
+              "NBIT " + "32\n"
+              "NDIM " + "2\n"
+              "NPOL " + std::to_string(channel_nums.size()) + "\n"
               "RESOLUTION 1\n"
+              "OBS_OFFSET 0\n"
               "TSAMP " + std::to_string(1e6/vrt_context.sample_rate) + "\n";
 
             if (dt_trace) {
@@ -356,9 +357,7 @@ int main(int argc, char* argv[])
                 std::tm *starttime_tm = std::gmtime(&starttime_time_t);
                 starttime_str << std::put_time(starttime_tm, "%Y-%m-%d-%H:%M:%S");
                 dada_header.append("UTC_START " + starttime_str.str() + "\n");
-                const int bytes_per_sample = 4;
-                int obs_offset = int(vrt_context.sample_rate * vrt_packet.fractional_seconds_timestamp/1e12 * bytes_per_sample);
-                dada_header.append("OBS_OFFSET " + std::to_string(obs_offset));  // OBS_OFFSET is offset of the first sample in bytes recorded after UTC_START
+                dada_header.append("PICOSECONDS " + std::to_string(vrt_packet.fractional_seconds_timestamp) + "\n");
                 dada_header.resize(4096, ' ');
                 // Write dada header to dada_header.txt for debugging
                 std::ofstream dada_header_txt("dada_header.txt");
