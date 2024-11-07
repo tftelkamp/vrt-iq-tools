@@ -98,8 +98,11 @@ int main(int argc, char* argv[])
 
     bool power2;
     float bin_size, integration_time = 0.0;
+    float binsize;
     double alpha, tau;
+    double min_offset, max_offset;
     uint32_t output_counter = 0;
+    int32_t min_bin, max_bin;
 
     // variables to be set by po
     std::string file, type, zmq_address, gnuplot_terminal, gnuplot_commands, source;
@@ -142,6 +145,9 @@ int main(int argc, char* argv[])
         ("poly", po::value<std::vector<double> >(&poly)->multitoken(), "Polynomal coefficients to compensate bandpass")
         ("source", po::value<std::string>(&source), "Source description (ECSV)")
         ("gnuplot", "Gnuplot mode")
+        ("fftmax", "fftmax mode")
+        ("min-offset", po::value<double>(&min_offset), "min. freq. offset to track (Hz)")
+        ("max-offset", po::value<double>(&max_offset), "max. freq. offset to track (Hz)")
         ("gnuplot-commands", po::value<std::string>(&gnuplot_commands)->default_value(""), "Extra gnuplot commands like \"set yr [ymin:ymax];\"")
         ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
         ("minmax", "min/max hold for y-axis scale (gnuplot)")
@@ -187,6 +193,7 @@ int main(int argc, char* argv[])
     bool log_freq               = vm.count("center-freq") > 0;
     bool log_temp               = vm.count("temperature") > 0;
     bool gnuplot                = vm.count("gnuplot") > 0;
+    bool fftmax                 = vm.count("fftmax") > 0;
     bool poly_calib             = vm.count("poly") > 0;
     bool iir                    = vm.count("tau") > 0;
     bool minmax                 = vm.count("minmax") > 0;
@@ -293,6 +300,23 @@ int main(int argc, char* argv[])
             if (total_time > 0)
                 num_requested_samples = total_time * vrt_context.sample_rate;
 
+            min_bin = 0;
+            max_bin = num_bins;
+
+            binsize = ((double)vrt_context.sample_rate)/((double)num_bins);
+
+            if (vm.count("min-offset")) {
+                min_bin = (min_offset/binsize)+num_bins/2;
+                min_bin = min_bin < 0 ? 0 : min_bin;
+                min_bin = min_bin > num_bins ? num_bins : min_bin;
+            }
+
+            if (vm.count("max-offset")) {
+                max_bin = (max_offset/binsize)+num_bins/2;
+                max_bin = max_bin < 0 ? 0 : max_bin;
+                max_bin = max_bin > num_bins ? num_bins : max_bin;
+            }
+
             signal = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
             result = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * num_bins);
             plan = fftw_plan_dft_1d(num_bins, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
@@ -304,7 +328,7 @@ int main(int argc, char* argv[])
             if (!ecsv) {
                 printf("# Spectrum parameters:\n");
                 printf("#    Bins: %u\n", num_bins);
-                printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
+                printf("#    Bin size [Hz]: %.2f\n", binsize);
                 printf("#    Integrations: %u\n", integrations);
                 printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
             } else {
@@ -367,16 +391,19 @@ int main(int argc, char* argv[])
                     printf("# - {name: radec_error_bearing_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: focusbox_mm, unit: mm, datatype: float64}\n");
                 }
-                float binsize = (double)vrt_context.sample_rate/(double)num_bins;
-                for (uint32_t i = 0; i < num_bins; ++i) {
-                        printf("# - {name: \'%.0f\', datatype: float64}\n", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
+                if (fftmax) {
+                    printf("# - {name: max_frequency, unit: Hz, datatype: float64}\n");
+                    printf("# - {name: max_power, datatype: float64}\n");
+                } else {
+                    for (uint32_t i = 0; i < num_bins; ++i) {
+                            printf("# - {name: \'%.0f\', datatype: float64}\n", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
+                    }
                 }
                 printf("# schema: astropy-2.0\n");
             }
 
             // Header
             if (!gnuplot) {
-                float binsize = (double)vrt_context.sample_rate/(double)num_bins;
                 printf("timestamp");
                 if (log_freq)
                     printf(", center_freq_hz");
@@ -384,8 +411,12 @@ int main(int argc, char* argv[])
                     printf(", temperature_deg_c");
                 if (dt_trace)
                     printf(", current_az_deg, current_el_deg, current_az_error_deg, current_el_error_deg, current_az_speed_deg, current_el_speed_deg, current_az_offset_deg, current_el_offset_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
-                for (uint32_t i = 0; i < num_bins; ++i) {
-                        printf(", %.0f", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
+                if (fftmax) {
+                    printf(", max_frequency, max_power");
+                } else {
+                    for (uint32_t i = 0; i < num_bins; ++i) {
+                            printf(", %.0f", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
+                    }
                 }
                 printf("\n");
                 fflush(stdout);
@@ -523,6 +554,12 @@ int main(int argc, char* argv[])
                             int N = poly.size();
                             output_counter++;
 
+                            double max_power = 0; // change this to minimal double
+                            int32_t max_i = -1;
+
+                            double value;
+                            // uint32_t dc = num_points/2;
+
                             for (uint32_t i = 0; i < num_bins; ++i) {
                                 magnitudes[i] /= (double)integrations;
 
@@ -533,7 +570,6 @@ int main(int argc, char* argv[])
                                     filter_out[i] = magnitudes[i];
                                 }
 
-                                float binsize = (double)vrt_context.sample_rate/(double)num_bins;
                                 double offset = i*binsize - vrt_context.sample_rate/2;
 
                                 double correction = 1;
@@ -544,36 +580,59 @@ int main(int argc, char* argv[])
                                         correction += poly[p] * pow(offset, int(N-p-1));
                                     }
                                 }
-                                if (db) {
-                                    correction = 10*log10(correction);
-                                    double value = 10*log10(filter_out[i])-correction;
-                                    if (not binary) {
-                                        printf(", %.3f", value);
+                                if (!fftmax) {
+                                    if (db) {
+                                        correction = 10*log10(correction);
+                                        value = 10*log10(filter_out[i])-correction;
+                                        if (not binary) {
+                                            printf(", %.3f", value);
+                                        } else {
+                                            fwrite(&value,sizeof(double),1,outfile);
+                                        }
                                     } else {
-                                        fwrite(&value,sizeof(double),1,outfile);
+                                        value = filter_out[i]/correction;
+                                        if (not binary) {
+                                            printf(", %.3f", value);
+                                        } else {
+                                            fwrite(&value,sizeof(double),1,outfile);
+                                        }
                                     }
                                 } else {
-                                    double value = filter_out[i]/correction;
-                                    if (not binary) {
-                                        printf(", %.3f", value);
+                                    if (db) {
+                                        correction = 10*log10(correction);
+                                        value = 10*log10(filter_out[i])-correction;
                                     } else {
-                                        fwrite(&value,sizeof(double),1,outfile);
+                                        value = filter_out[i]/correction;
                                     }
+                                    if ( (value > max_power) and (i >= min_bin) and (i <= max_bin) and not (dc && i==num_bins/2)) {
+                                        max_power = value;
+                                        max_i = i;
+                                    }
+                        
                                 }
+                            }
+                            if (fftmax) {
+                                printf(", %.2f", (double)((double)vrt_context.rf_freq + max_i*binsize - vrt_context.sample_rate/2));
+                                printf(", %.3f", max_power);
                             }
                             if (not binary)
                                 printf("\n");
                         } else {
                             // gnuplot
+                            double max_power = -1e10; // change this to minimal double
+                            double max_freq = -1;
+
                             float ticks = vrt_context.sample_rate/(4e6);
-                            float binsize = (double)vrt_context.sample_rate/(double)num_bins;
                             printf("set term %s 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ", gnuplot_terminal.c_str(), ticks);
                             printf("%s; ", gnuplot_commands.c_str());
                             if (minmax && (min_y < max_y))
                                 printf("set yr [%f:%f];", min_y, max_y);
                             else
                                 printf("set offsets 0, 0, 0.2, 0.2;");
-                            printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
+                            if (!fftmax)
+                                printf("plot \"-\" u 1:2 with lines title \"signal\";\n");
+                            else
+                                printf("plot \"-\" u 1:2 with lines title \"signal\", \"-\" u 1:2 with points title \"max\";\n");
 
                             int N = poly.size();
                             output_counter++;
@@ -604,8 +663,18 @@ int main(int argc, char* argv[])
                                     max_y = (value > max_y) ? value : max_y;
                                 }
                                 printf("%.6f, %.6f\n", freq, value);
+                                if ( (value > max_power) and (i >= min_bin) and (i <= max_bin) and not (dc && i==num_bins/2)) {
+                                        max_power = value;
+                                        max_freq = freq;
+                                }
                             }
                             printf("e\n");
+                            if (fftmax) {
+                                printf("%.6f, %.6f\n", max_freq, max_power);
+                                printf("e\n");
+                                printf("snr_str = sprintf(\"%.1f\");\n", max_power);
+                                printf("set label 1 snr_str at %.6f, %.6f offset 1,-1;\n", max_freq, max_power);
+                            }
                         }
 
                         integration_counter = 0;
