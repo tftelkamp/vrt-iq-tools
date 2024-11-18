@@ -90,6 +90,7 @@ add_executable(play_vrt play_vrt.cpp)
 add_executable(control_vrt control_vrt.cpp)
 add_executable(vrt_rffft vrt_rffft.cpp)
 add_executable(vrt_metadata vrt_metadata.cpp)
+add_executable(vrt_channelizer vrt_channelizer.cpp)
 
 find_library(GNURADIO_PMT_LIBRARY gnuradio-pmt QUIET)
 if(GNURADIO_PMT_LIBRARY)

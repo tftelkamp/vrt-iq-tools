@@ -13,3 +13,4 @@ query_dt_console
 control_vrt
 sigmf_to_vrt
 .DS_Store
+build/*
