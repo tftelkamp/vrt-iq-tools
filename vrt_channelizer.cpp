@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
     uint32_t decimation;
     uint32_t taps_per_decimation;
     uint32_t num_taps;
-    float *taps;
+    double *taps;
     float **poly_taps;
 
     std::complex<double> f0;
@@ -258,22 +258,22 @@ int main(int argc, char* argv[])
             } 
 
             // create FIR filter
-            num_taps = taps_per_decimation*decimation;
-            taps = (float*)malloc(sizeof(float)*num_taps);
+            uint32_t fir_order = taps_per_decimation*decimation-1;
+            num_taps = fir_order+1;
+            taps = (double*)malloc(sizeof(double)*num_taps);
 
-            uint32_t K = 0.97*(num_taps/decimation);
+            double K = 0.97*(fir_order/decimation);
 
-            // float sum_taps = 0;
-
-            for (int i=0;i<num_taps;i++) {
-                int j = -(i - num_taps/2);
-                float w = 0.42-0.5*cos(2*pi*i/(num_taps-1))+0.08*cos(4*pi*i/(num_taps-1));
+            for (int i=0;i<fir_order;i++) {
+                int j = -(i - fir_order/2);
+                double blackman_window = 0.42-0.5*cos(2*pi*(double)i/((double)fir_order-1))+0.08*cos(4*pi*(double)i/((double)fir_order-1));
                 if (j==0) {
-                    taps[i]= w*((float)K/(float)num_taps);
+                    taps[i]= blackman_window*((double)K/(double)fir_order);
                 } else {
-                    taps[i] = w*(1.0/(float)num_taps)*sin(pi*(float)j*(float)K/(float)num_taps)/sin(pi*(float)j/(float)num_taps);
+                    taps[i] = blackman_window*(1.0/(double)fir_order)*sin(pi*(double)j*(double)K/(double)fir_order)/sin(pi*(double)j/(double)fir_order);
                 }
             }
+            taps[fir_order] = 0;
         
             // Create polyphase partitions of filter
             // float poly_taps[decimation][taps_per_decimation];
@@ -283,14 +283,14 @@ int main(int argc, char* argv[])
                 poly_taps[dec] = (float*)malloc(sizeof(float)*taps_per_decimation);
 
             for (uint32_t i=0; i<num_taps; i++) {
-                poly_taps[i%decimation][i/decimation] = taps[i];
+                poly_taps[i%decimation][i/decimation] = (float)taps[i];
             }
 
             if (channel_mode) {
                 polyfir_channel = round(freq_offset/bandwidth);
-                printf("Channel: %.0f\n", polyfir_channel);
+                printf("# Selected channel: %.0f\n", polyfir_channel);
                 freq_offset = polyfir_channel*bandwidth;
-                printf("Offset: %.0f Hz\n", freq_offset);
+                printf("# New offset: %.0f Hz\n", freq_offset);
             } else {
                 polyfir_channel = 0;
             }
@@ -305,6 +305,9 @@ int main(int argc, char* argv[])
 
             x = (std::complex<float>*)malloc(sizeof(std::complex<float>)*(M+L+num_taps));
             y = (std::complex<float>*)malloc(sizeof(std::complex<float>)*(L/M));
+
+            for (uint32_t i = 0; i < M+L+num_taps; i++)
+                x[i] = std::complex<float>(0,0);
         }
 
         if (start_rx and vrt_packet.context) {
@@ -372,9 +375,6 @@ int main(int argc, char* argv[])
             int M = decimation;
             int L = vrt_packet.num_rx_samps;
 
-            for (uint32_t i = 0; i < M+L+num_taps; i++)
-                x[i] = std::complex<float>(0,0);
-
             for (uint32_t i = 0; i < L/M; i++)
                 y[i] = std::complex<float>(0,0);
 
@@ -384,13 +384,13 @@ int main(int argc, char* argv[])
                 int16_t img;
                 memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
 
-                x[M+i] = std::complex<float>(re,img);
+                x[M+i+num_taps] = std::complex<float>(re,img);
             }
 
             if (!channel_mode && freq_offset!=0) {
                 for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
                     phasor = phasor * step;
-                    x[M+i] *= (std::complex<float>)phasor;   
+                    x[M+i+num_taps] *= (std::complex<float>)phasor;   
                 }
             }
 
@@ -409,6 +409,11 @@ int main(int argc, char* argv[])
                     y[k] += tmp_acc;
                 }
 
+            }
+
+            // overlap between blocks
+            for (int32_t i = 0; i < num_taps; i++) {
+                x[M+i] = x[M+i+L];
             }
 
             for (uint32_t k = 0; k < L/M; k++) {
