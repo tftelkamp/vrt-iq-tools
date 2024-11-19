@@ -395,13 +395,13 @@ int main(int argc, char* argv[])
                 }
             }
 
-            for (int32_t i = 0; i < M; i++) {
+            for (uint32_t i = 0; i < M; i++) {
 
-                for (int32_t k = 0; k < L/M; k++) {
+                for (uint32_t k = 0; k < L/M; k++) {
 
                     tmp_acc[k] = std::complex<float>(0,0);
 
-                    for (int32_t j = 0; j < taps_per_decimation; j++) {
+                    for (uint32_t j = 0; j < taps_per_decimation; j++) {
                         tmp = poly_taps[i][taps_per_decimation-j-1] * x[M-i+j*M+k*M];
                         tmp_acc[k] += tmp;
                     }
@@ -409,17 +409,17 @@ int main(int argc, char* argv[])
 
                 if (channel_mode && polyfir_channel !=0) {
                     std::complex<float> phase_rotation = std::exp(alpha2*(float)i );
-                    for (int32_t k = 0; k < L/M; k++)
+                    for (uint32_t k = 0; k < L/M; k++)
                         y[k] += phase_rotation*tmp_acc[k];
                 } else {
-                    for (int32_t k = 0; k < L/M; k++)
+                    for (uint32_t k = 0; k < L/M; k++)
                         y[k] += tmp_acc[k];
                 }
                 
             }
 
             // overlap between blocks
-            for (int32_t i = 0; i < num_taps; i++) {
+            for (uint32_t i = 0; i < num_taps; i++) {
                 x[M+i] = x[M+i+L];
             }
 
