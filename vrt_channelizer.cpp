@@ -278,9 +278,9 @@ int main(int argc, char* argv[])
 
             for (int i=0;i<fir_order;i++) {
                 int j = -(i - fir_order/2);
-                double blackman_window = a0 - a1*cos(2*pi*(double)i/((double)fir_order)) + 
-                                            a2*cos(4*pi*(double)i/((double)fir_order)) + 
-                                            a3*cos(6*pi*(double)i/((double)fir_order));
+                double blackman_window = a0 - a1*cos(2*pi*(double)i/((double)fir_order-1)) + 
+                                            a2*cos(4*pi*(double)i/((double)fir_order-1)) + 
+                                            a3*cos(6*pi*(double)i/((double)fir_order-1));
                 if (j==0) {
                     taps[i] = blackman_window*((double)K/(double)fir_order);
                 } else {
