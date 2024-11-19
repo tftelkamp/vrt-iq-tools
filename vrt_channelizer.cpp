@@ -264,11 +264,25 @@ int main(int argc, char* argv[])
 
             double K = 0.97*(fir_order/decimation);
 
+            // Blackman window
+            // double a0 = 0.42;
+            // double a1 = 0.50;
+            // double a2 = 0.08;
+            // double a3 = 0.00;
+
+            // Blackman-Harris window
+            double a0 = 0.35875;
+            double a1 = 0.48829;
+            double a2 = 0.14128;
+            double a3 = 0.01168;
+
             for (int i=0;i<fir_order;i++) {
                 int j = -(i - fir_order/2);
-                double blackman_window = 0.42-0.5*cos(2*pi*(double)i/((double)fir_order-1))+0.08*cos(4*pi*(double)i/((double)fir_order-1));
+                double blackman_window = a0 - a1*cos(2*pi*(double)i/((double)fir_order)) + 
+                                            a2*cos(4*pi*(double)i/((double)fir_order)) + 
+                                            a3*cos(6*pi*(double)i/((double)fir_order));
                 if (j==0) {
-                    taps[i]= blackman_window*((double)K/(double)fir_order);
+                    taps[i] = blackman_window*((double)K/(double)fir_order);
                 } else {
                     taps[i] = blackman_window*(1.0/(double)fir_order)*sin(pi*(double)j*(double)K/(double)fir_order)/sin(pi*(double)j/(double)fir_order);
                 }
