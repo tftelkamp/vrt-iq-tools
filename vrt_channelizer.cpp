@@ -89,7 +89,7 @@ int main(int argc, char* argv[])
     std::complex<float>*x;
     std::complex<float>*y;
     std::complex<float>tmp;
-    std::complex<float>tmp_acc;
+    std::complex<float>*tmp_acc;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -305,6 +305,7 @@ int main(int argc, char* argv[])
 
             x = (std::complex<float>*)malloc(sizeof(std::complex<float>)*(M+L+num_taps));
             y = (std::complex<float>*)malloc(sizeof(std::complex<float>)*(L/M));
+            tmp_acc = (std::complex<float>*)malloc(sizeof(std::complex<float>)*(L/M));
 
             for (uint32_t i = 0; i < M+L+num_taps; i++)
                 x[i] = std::complex<float>(0,0);
@@ -398,17 +399,23 @@ int main(int argc, char* argv[])
 
                 for (int32_t k = 0; k < L/M; k++) {
 
-                    tmp_acc = std::complex<float>(0,0);
+                    tmp_acc[k] = std::complex<float>(0,0);
 
                     for (int32_t j = 0; j < taps_per_decimation; j++) {
                         tmp = poly_taps[i][taps_per_decimation-j-1] * x[M-i+j*M+k*M];
-                        tmp_acc += tmp;
+                        tmp_acc[k] += tmp;
                     }
-                    if (channel_mode && polyfir_channel !=0)
-                        tmp_acc = tmp_acc * std::exp(alpha2*(float)i );
-                    y[k] += tmp_acc;
                 }
 
+                if (channel_mode && polyfir_channel !=0) {
+                    std::complex<float> phase_rotation = std::exp(alpha2*(float)i );
+                    for (int32_t k = 0; k < L/M; k++)
+                        y[k] += phase_rotation*tmp_acc[k];
+                } else {
+                    for (int32_t k = 0; k < L/M; k++)
+                        y[k] += tmp_acc[k];
+                }
+                
             }
 
             // overlap between blocks
