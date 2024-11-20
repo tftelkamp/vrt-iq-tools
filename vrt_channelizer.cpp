@@ -88,7 +88,6 @@ int main(int argc, char* argv[])
 
     std::complex<float>*x;
     std::complex<float>*y;
-    std::complex<float>tmp;
     std::complex<float>*tmp_acc;
 
     // setup the program options
@@ -416,8 +415,7 @@ int main(int argc, char* argv[])
                     tmp_acc[k] = std::complex<float>(0,0);
 
                     for (uint32_t j = 0; j < taps_per_decimation; j++) {
-                        tmp = poly_taps[i][taps_per_decimation-j-1] * x[M-i+j*M+k*M];
-                        tmp_acc[k] += tmp;
+                        tmp_acc[k] += poly_taps[i][taps_per_decimation-j-1] * x[M-i+j*M+k*M];
                     }
                 }
 
