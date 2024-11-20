@@ -47,6 +47,8 @@ namespace po = boost::program_options;
 #define REAL 0
 #define IMAG 1
 
+const double pi = std::acos(-1.0);
+
 static bool stop_signal_called = false;
 void sig_int_handler(int)
 {
@@ -93,8 +95,12 @@ int main(int argc, char* argv[])
     fftw_plan plan;
     double *magnitudes, *filter_out;
 
+    std::complex<float> *wola_buffer;
+    float *wola_taps;
+
     uint32_t num_points = 0;
     uint32_t num_bins = 0;
+    uint32_t wola_partitions;
 
     bool power2;
     float bin_size, integration_time = 0.0;
@@ -146,6 +152,8 @@ int main(int argc, char* argv[])
         ("source", po::value<std::string>(&source), "Source description (ECSV)")
         ("gnuplot", "Gnuplot mode")
         ("fftmax", "fftmax mode")
+        ("wola", "apply Weighted OverLap Add method")
+        ("wola-partitions", po::value<uint32_t>(&wola_partitions)->default_value(4), "number of WOLA partitions")
         ("min-offset", po::value<double>(&min_offset), "min. freq. offset to track (Hz)")
         ("max-offset", po::value<double>(&max_offset), "max. freq. offset to track (Hz)")
         ("gnuplot-commands", po::value<std::string>(&gnuplot_commands)->default_value(""), "Extra gnuplot commands like \"set yr [ymin:ymax];\"")
@@ -202,6 +210,7 @@ int main(int argc, char* argv[])
     bool dc                     = vm.count("dc") > 0;
     bool has_source             = vm.count("source") > 0;
     bool zmq_split              = vm.count("zmq-split") > 0;
+    bool wola                   = vm.count("wola") > 0;
 
     if (iir) {
         alpha = (1.0 - exp(-1/(tau/integration_time)));
@@ -324,6 +333,35 @@ int main(int argc, char* argv[])
             memset(magnitudes, 0, num_bins*sizeof(double));
             filter_out = (double*)malloc(num_bins * sizeof(double));
             memset(filter_out, 0, num_bins*sizeof(double));
+
+            if (wola) {
+                int wola_len = wola_partitions*num_bins;
+                wola_buffer = (std::complex<float>*)malloc(sizeof(std::complex<float>) * wola_len);
+                wola_taps = (float*)malloc(sizeof(float) * wola_len);
+
+                for (uint32_t i = 0; i < wola_len; i++)
+                    wola_buffer[i] = std::complex<float>(0,0);
+
+                // Blackman-Harris window
+                double a0 = 0.35875;
+                double a1 = 0.48829;
+                double a2 = 0.14128;
+                double a3 = 0.01168;
+
+                for (int i=0;i<wola_len;i++) {
+                    int j = i - (wola_len)/2;
+
+                    double blackman_window = a0 - a1*cos(2*pi*(double)i/((double)wola_len-1)) + 
+                                                a2*cos(4*pi*(double)i/((double)wola_len-1)) + 
+                                                a3*cos(6*pi*(double)i/((double)wola_len-1));
+                 
+                    double x = ((double)wola_partitions*pi)*((double)j/(double)wola_len);
+                    if (x!=0)
+                        wola_taps[i] = blackman_window*sin(x)/(x);
+                    else
+                        wola_taps[i] = blackman_window*1.0;
+                }
+            }
 
             if (!ecsv) {
                 printf("# Spectrum parameters:\n");
@@ -451,9 +489,15 @@ int main(int argc, char* argv[])
                 memcpy(&re, (char*)&buffer[vrt_packet.offset+i], 2);
                 int16_t img;
                 memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
-                signal[signal_pointer][REAL] = mult*re;
-                signal[signal_pointer][IMAG] = mult*img;
-                mult *= -1;
+
+                if (wola) {
+                    wola_buffer[signal_pointer+((wola_partitions-1)*num_bins)] = std::complex<float>(mult*re,mult*img);
+                    mult *= -1;
+                } else {
+                    signal[signal_pointer][REAL] = mult*re;
+                    signal[signal_pointer][IMAG] = mult*img;
+                    mult *= -1;
+                }
 
                 signal_pointer++;
 
@@ -470,7 +514,25 @@ int main(int argc, char* argv[])
                     }
 
                     if (num_bins > 1) {
-                        fftw_execute(plan);
+                        if (wola) {
+                            for (int j=0; j < num_bins; j++) {
+                                signal[j][REAL] = 0;
+                                signal[j][IMAG] = 0;
+                            }
+                            for (int p=0; p<wola_partitions; p++) {
+                                for (int j=0; j < num_bins; j++) {
+                                    signal[j][REAL] += wola_taps[p*num_bins+j] * wola_buffer[p*num_bins+j].real();
+                                    signal[j][IMAG] += wola_taps[p*num_bins+j] * wola_buffer[p*num_bins+j].imag();
+                                }
+                            }
+                            fftw_execute(plan);
+
+                            // shift wola buffer
+                            memcpy(&wola_buffer[0], &wola_buffer[num_bins], (wola_partitions-1)*num_bins*sizeof(std::complex<float>));
+
+                        } else {
+                            fftw_execute(plan);
+                        }
 
                         for (uint32_t i = 0; i < num_bins; ++i) {
                             magnitudes[i] += (result[i][REAL] * result[i][REAL] +
