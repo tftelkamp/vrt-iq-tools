@@ -732,10 +732,14 @@ int main(int argc, char* argv[])
                             }
                             printf("e\n");
                             if (fftmax) {
+                                int numdigits = 6-int(log10(bin_size));
+                                numdigits = numdigits < 0 ? 0 : numdigits;
                                 printf("%.6f, %.6f\n", max_freq, max_power);
                                 printf("e\n");
                                 printf("snr_str = sprintf(\"%.1f\");\n", max_power);
                                 printf("set label 1 snr_str at %.6f, %.6f offset 1,-1;\n", max_freq, max_power);
+                                printf("freq_str = sprintf(\"%.*f\");\n", numdigits, max_freq);
+                                printf("set label 2 freq_str at %.6f, %.6f offset 1,-2;\n", max_freq, max_power);
                             }
                         }
 
