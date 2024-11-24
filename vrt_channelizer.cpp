@@ -31,7 +31,6 @@
 
 // #include <complex.h>
 #include <complex> 
-// #include <fftw3.h>
 
 #include "vrt-tools.h"
 
@@ -69,7 +68,7 @@ int main(int argc, char* argv[])
     uint16_t pub_instance, instance, main_port, port, pub_port;
     uint32_t channel;
     int hwm;
-    float freq_offset, bandwidth;
+    float freq_offset, bandwidth, doppler_rate;
     double frequency;
     size_t num_requested_samples;
     double total_time;
@@ -82,8 +81,10 @@ int main(int argc, char* argv[])
 
     std::complex<double> f0;
     std::complex<double> alpha;
+    std::complex<double> alpha_dop;
     std::complex<float>  alpha2;
     std::complex<double> step;
+    std::complex<double> step_dop;
     float polyfir_channel;
 
     std::complex<float>*x;
@@ -107,6 +108,7 @@ int main(int argc, char* argv[])
         ("decimation", po::value<uint32_t>(&decimation)->default_value(2), "decimation factor")
         ("taps-per-decimation", po::value<uint32_t>(&taps_per_decimation)->default_value(20), "taps per decimation")
         ("bandwidth", po::value<float>(&bandwidth)->default_value(0), "bandwidth")
+        ("doppler", po::value<float>(&doppler_rate)->default_value(0), "doppler rate in Hz/s")
         ("freq-offset", po::value<float>(&freq_offset)->default_value(0), "frequency offset")
         ("frequency", po::value<double>(&frequency)->default_value(0), "center frequency")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
@@ -211,6 +213,8 @@ int main(int argc, char* argv[])
 
     std::complex<double> phasor = 1;
 
+    double total_phase = 0;
+
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
            and (total_time == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
@@ -310,8 +314,10 @@ int main(int argc, char* argv[])
 
             f0 = -freq_offset;
             alpha = complexi*2.0*pi*f0;
-            alpha2 = (std::complex<float>)complexi*polyfir_channel*2.0f*(float)pi/(float(decimation));
+            alpha_dop = complexi*2.0*pi*(double)-doppler_rate;
             step = std::exp(alpha/(double)vrt_context.sample_rate);
+            step_dop = std::exp(alpha_dop/pow((double)vrt_context.sample_rate,2));
+            alpha2 = (std::complex<float>)complexi*polyfir_channel*2.0f*(float)pi/(float(decimation));
 
             int M = decimation;
             int L = vrt_packet.num_rx_samps;
@@ -334,9 +340,11 @@ int main(int argc, char* argv[])
             pc.fields.integer_seconds_timestamp = vrt_context.integer_seconds_timestamp;
             pc.fields.fractional_seconds_timestamp = vrt_context.fractional_seconds_timestamp;
 
+            double doppler_offset = total_phase/(double)vrt_context.sample_rate;
+            pc.if_context.rf_reference_frequency = (double)vrt_context.rf_freq+(double)freq_offset-doppler_offset;
+
             pc.if_context.bandwidth = vrt_context.bandwidth;
             pc.if_context.sample_rate = vrt_context.sample_rate/decimation;
-            pc.if_context.rf_reference_frequency = (double)vrt_context.rf_freq+(double)freq_offset;
             pc.if_context.rf_reference_frequency_offset = 0;
             pc.if_context.if_reference_frequency = 0;
             pc.if_context.if_band_offset = 0;
@@ -401,7 +409,18 @@ int main(int argc, char* argv[])
                 x[M+i+num_taps] = std::complex<float>(re,img);
             }
 
-            if (!channel_mode && freq_offset!=0) {
+            // nomalize phasor and step (for doppler)
+            phasor = phasor/std::abs(phasor);
+            step = step/std::abs(step);
+
+            if (!channel_mode && freq_offset!=0 && doppler_rate!=0) {
+                for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
+                    total_phase -= doppler_rate;
+                    step = step * step_dop;
+                    phasor = phasor * step;
+                    x[M+i+num_taps] *= (std::complex<float>)phasor;   
+                }
+            } else if (!channel_mode && freq_offset!=0 && doppler_rate==0) {
                 for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
                     phasor = phasor * step;
                     x[M+i+num_taps] *= (std::complex<float>)phasor;   
