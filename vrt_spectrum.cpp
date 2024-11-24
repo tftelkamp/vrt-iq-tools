@@ -149,7 +149,7 @@ int main(int argc, char* argv[])
         ("integration-time", po::value<float>(&integration_time)->default_value(1.0), "integration time (seconds)")
         ("tau", po::value<double>(&tau), "Exponential weighted moving average time constant (sec)")
         ("poly", po::value<std::vector<double> >(&poly)->multitoken(), "Polynomal coefficients to compensate bandpass")
-        ("source", po::value<std::string>(&source), "Source description (ECSV)")
+        ("source", po::value<std::string>(&source), "Source description (ECSV and gnuplot)")
         ("gnuplot", "Gnuplot mode")
         ("fftmax", "fftmax mode")
         ("wola", "apply Weighted OverLap Add method")
@@ -684,9 +684,18 @@ int main(int argc, char* argv[])
                             double max_power = -1e10; // change this to minimal double
                             double max_freq = -1;
 
-                            float ticks = vrt_context.sample_rate/(4e6);
+                            float scale = 1e6; // MHz
+
+                            float ticks = vrt_context.sample_rate/(4*scale);
                             printf("set term %s 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ", gnuplot_terminal.c_str(), ticks);
                             printf("%s; ", gnuplot_commands.c_str());
+                            if (has_source) {
+                                printf("set title \"%s\" font \",14\"\n;", source.c_str());
+                            }
+                            if (vrt_context.sample_rate <= 100e3)
+                                printf("set format x \"%%.4f\";\n");
+                            else
+                                printf("set format x \"%%.3f\";\n");
                             if (minmax && (min_y < max_y))
                                 printf("set yr [%f:%f];", min_y, max_y);
                             else
@@ -709,7 +718,7 @@ int main(int argc, char* argv[])
                                     filter_out[i] = magnitudes[i];
                                 }
                                 double offset = i*binsize - vrt_context.sample_rate/2;
-                                double freq = ((double)vrt_context.rf_freq + offset)/1e6;
+                                double freq = ((double)vrt_context.rf_freq + offset)/scale;
 
                                 double correction = 0;
 
