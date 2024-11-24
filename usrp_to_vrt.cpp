@@ -351,9 +351,9 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
 int UHD_SAFE_MAIN(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string file, type, ant_list, subdev, ref, channel_list, gain_list, freq_list, udp_forward, merge_address;
+    std::string file, type, ant_list, subdev, ref, channel_list, gain_list, freq_list, udp_forward, merge_address_list, merge_port_list;
     size_t total_num_samps, spb;
-    uint16_t instance, port, merge_port;
+    uint16_t instance, port;
     uint16_t tx_gain;
     int hwm, io_threads;
     uint32_t stream_id;
@@ -409,8 +409,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("port", po::value<uint16_t>(&port), "VRT ZMQ port")
         ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
         ("merge", po::value<bool>(&merge)->default_value(true), "Merge another VRT ZMQ stream (SUB connect)")
-        ("merge-port", po::value<uint16_t>(&merge_port)->default_value(50011), "VRT ZMQ merge port")
-        ("merge-address", po::value<std::string>(&merge_address)->default_value("localhost"), "VRT ZMQ merge address")
+        ("merge-port", po::value<std::string>(&merge_port_list)->default_value("50011"), "VRT ZMQ merge port")
+        ("merge-address", po::value<std::string>(&merge_address_list)->default_value("localhost"), "VRT ZMQ merge address")
         ("io-threads", po::value<int>(&io_threads)->default_value(1), "ZMQ IO threads")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
@@ -514,12 +514,37 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     }
 
     // Merge
-    void *merge_zmq = zmq_socket(context, ZMQ_SUB);
+    std::vector<void*>merge_zmq;
     if (merge) {
-        std::string connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
-        rc = zmq_connect(merge_zmq, connect_string.c_str());
-        assert(rc == 0);
-        zmq_setsockopt(merge_zmq, ZMQ_SUBSCRIBE, "", 0);
+        std::vector<std::string>merge_address_strings;
+        std::vector<std::string>merge_port_strings;
+
+        std::vector<std::string>merge_addresses;
+        std::vector<uint16_t>merge_ports;
+
+        boost::split(merge_address_strings, merge_address_list, boost::is_any_of("\"',"));
+        boost::split(merge_port_strings, merge_port_list, boost::is_any_of("\"',"));
+        for (size_t i = 0; i < merge_address_strings.size(); i++) {
+            merge_addresses.push_back(merge_address_strings[i]);
+        }
+        for (size_t i = 0; i < merge_port_strings.size(); i++) {
+            merge_ports.push_back(std::stod(merge_port_strings[i]));
+        }
+
+        size_t number_of_mergers = merge_addresses.size() > merge_ports.size() ? merge_addresses.size() : merge_ports.size();
+
+        for (size_t i = 0; i < number_of_mergers; i++) {
+
+            uint16_t merge_port = (merge_ports.size() > i) ? merge_ports[i] : merge_ports[0];
+            std::string merge_address = (merge_addresses.size() > i) ? merge_addresses[i] : merge_addresses[0];
+
+            merge_zmq.push_back(zmq_socket(context, ZMQ_SUB));
+
+            std::string connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
+            rc = zmq_connect(merge_zmq[i], connect_string.c_str());
+            assert(rc == 0);
+            zmq_setsockopt(merge_zmq[i], ZMQ_SUBSCRIBE, "", 0);
+        }
     }
 
     // UDP VRT
@@ -948,7 +973,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     // flush merge queue
     if (merge)
-        while ( zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
+        for (size_t m = 0; m < merge_zmq.size(); m++)
+            while ( zmq_recv(merge_zmq[m], buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
 
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
@@ -1108,22 +1134,24 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         // Merge
         if (merge) {
             int mergelen;
-            while ( (mergelen = zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK)) > 0  ) {
+            for (size_t m = 0; m < merge_zmq.size(); m++) {
+                while ( (mergelen = zmq_recv(merge_zmq[m], buffer, 100000, ZMQ_NOBLOCK)) > 0  ) {
 
-                if (split) {
-                    for (size_t ch = 0; ch < channel_nums.size(); ch++) {
+                    if (split) {
+                        for (size_t ch = 0; ch < channel_nums.size(); ch++) {
+                            zmq_msg_t msg;
+                            zmq_msg_init_size (&msg, mergelen);
+                            memcpy (zmq_msg_data(&msg), buffer, mergelen);
+                            zmq_msg_send(&msg, zmq_server[ch], 0);
+                            zmq_msg_close(&msg);
+                        }
+                    } else {
                         zmq_msg_t msg;
                         zmq_msg_init_size (&msg, mergelen);
                         memcpy (zmq_msg_data(&msg), buffer, mergelen);
-                        zmq_msg_send(&msg, zmq_server[ch], 0);
+                        zmq_msg_send(&msg, zmq_server[0], 0);
                         zmq_msg_close(&msg);
                     }
-                } else {
-                    zmq_msg_t msg;
-                    zmq_msg_init_size (&msg, mergelen);
-                    memcpy (zmq_msg_data(&msg), buffer, mergelen);
-                    zmq_msg_send(&msg, zmq_server[0], 0);
-                    zmq_msg_close(&msg);
                 }
             }
         }
