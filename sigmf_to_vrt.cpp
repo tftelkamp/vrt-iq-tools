@@ -272,6 +272,12 @@ int main(int argc, char* argv[])
 
     timeval time_first_sample;
 
+
+    auto pos = start_time_str.find_last_of("+-Z");
+    if (pos != start_time_str.npos) {
+        start_time_str.resize(pos);
+    }
+
     boost::posix_time::ptime t1(boost::posix_time::from_iso_extended_string(start_time_str));
 
     time_t integer_time_first_sample = boost::posix_time::to_time_t(t1);
