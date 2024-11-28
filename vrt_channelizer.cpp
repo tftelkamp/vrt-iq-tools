@@ -30,7 +30,7 @@
 #include <vrt/vrt_util.h>
 
 // #include <complex.h>
-#include <complex> 
+#include <complex>
 
 #include "vrt-tools.h"
 #include "tracker-extended-context.h"
@@ -233,7 +233,7 @@ int main(int argc, char* argv[])
             continue;
         }
 
-        if (not start_rx and vrt_packet.context 
+        if (not start_rx and vrt_packet.context
             and not (tracking and not tracker_ext_context.tracker_ext_context_received)) {
             vrt_print_context(&vrt_context);
             start_rx = true;
@@ -241,10 +241,10 @@ int main(int argc, char* argv[])
             if (tracking) {
                 frequency = tracker_ext_context.frequency+tracker_ext_context.doppler;
                 doppler_rate = tracker_ext_context.doppler_rate;
-                printf("# Setting freq. to %f Hz with %f Hz/s dopppler rate for \"%s\" (source \"%s\")\n", 
+                printf("# Setting freq. to %f Hz with %f Hz/s dopppler rate for \"%s\" (source \"%s\")\n",
                     frequency, tracker_ext_context.doppler_rate, tracker_ext_context.object_name, tracker_ext_context.tracking_source);
             }
-            
+
             if (frequency > 0) {
                 freq_offset = frequency-(double)vrt_context.rf_freq;
             }
@@ -265,12 +265,12 @@ int main(int argc, char* argv[])
             if (VRT_SAMPLES_PER_PACKET % decimation != 0) {
                 printf("decimation needs to be a divisor of %u.\n", VRT_SAMPLES_PER_PACKET);
                 exit(1);
-            } 
+            }
 
             if ((uint64_t)vrt_context.sample_rate % decimation != 0) {
                 printf("decimation needs to be a divisor of the sample rate (%u).\n", vrt_context.sample_rate);
                 exit(1);
-            } 
+            }
 
             // create FIR filter
             uint32_t fir_order = taps_per_decimation*decimation-1;
@@ -293,8 +293,8 @@ int main(int argc, char* argv[])
 
             for (int i=0;i<fir_order;i++) {
                 int j = -(i - fir_order/2);
-                double blackman_window = a0 - a1*cos(2*pi*(double)i/((double)fir_order-1)) + 
-                                            a2*cos(4*pi*(double)i/((double)fir_order-1)) + 
+                double blackman_window = a0 - a1*cos(2*pi*(double)i/((double)fir_order-1)) +
+                                            a2*cos(4*pi*(double)i/((double)fir_order-1)) +
                                             a3*cos(6*pi*(double)i/((double)fir_order-1));
                 if (j==0) {
                     taps[i] = blackman_window*((double)K/(double)fir_order);
@@ -303,7 +303,7 @@ int main(int argc, char* argv[])
                 }
             }
             taps[fir_order] = 0;
-        
+
             // Create polyphase partitions of filter
             // float poly_taps[decimation][taps_per_decimation];
 
@@ -362,7 +362,7 @@ int main(int argc, char* argv[])
             pc.if_context.if_band_offset = 0;
             pc.if_context.gain.stage1 = vrt_context.gain;
             pc.if_context.gain.stage2 = 0;
-            
+
             pc.if_context.state_and_event_indicators.has.reference_lock = true;
             pc.if_context.state_and_event_indicators.reference_lock = vrt_context.reflock;
             pc.if_context.state_and_event_indicators.has.calibrated_time = true;
@@ -430,12 +430,12 @@ int main(int argc, char* argv[])
                     total_phase -= doppler_rate;
                     step = step * step_dop;
                     phasor = phasor * step;
-                    x[M+i+num_taps] *= (std::complex<float>)phasor;   
+                    x[M+i+num_taps] *= (std::complex<float>)phasor;
                 }
             } else if (!channel_mode && freq_offset!=0 && doppler_rate==0) {
                 for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
                     phasor = phasor * step;
-                    x[M+i+num_taps] *= (std::complex<float>)phasor;   
+                    x[M+i+num_taps] *= (std::complex<float>)phasor;
                 }
             }
 
@@ -458,7 +458,7 @@ int main(int argc, char* argv[])
                     for (uint32_t k = 0; k < L/M; k++)
                         y[k] += tmp_acc[k];
                 }
-                
+
             }
 
             // overlap between blocks
