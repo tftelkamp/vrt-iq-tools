@@ -741,7 +741,7 @@ int main(int argc, char* argv[])
                             }
                             printf("e\n");
                             if (fftmax) {
-                                int numdigits = 6-int(log10(bin_size));
+                                int numdigits = 6-int(log10(binsize));
                                 numdigits = numdigits < 0 ? 0 : numdigits;
                                 printf("%.6f, %.6f\n", max_freq, max_power);
                                 printf("e\n");
