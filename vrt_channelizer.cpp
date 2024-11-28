@@ -33,6 +33,7 @@
 #include <complex> 
 
 #include "vrt-tools.h"
+#include "tracker-extended-context.h"
 
 const double pi = std::acos(-1.0);
 const std::complex<double> complexi(0.0, 1.0);
@@ -105,6 +106,7 @@ int main(int argc, char* argv[])
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("channel-mode", "use frequency/offset to select channel")
+        ("tracking", "use VRT tracking data")
         ("decimation", po::value<uint32_t>(&decimation)->default_value(2), "decimation factor")
         ("taps-per-decimation", po::value<uint32_t>(&taps_per_decimation)->default_value(20), "taps per decimation")
         ("bandwidth", po::value<float>(&bandwidth)->default_value(0), "bandwidth")
@@ -140,9 +142,11 @@ int main(int argc, char* argv[])
     bool int_second             = (bool)vm.count("int-second");
     bool zmq_split              = vm.count("zmq-split") > 0;
     bool channel_mode           = vm.count("channel-mode") > 0;
+    bool tracking               = vm.count("tracking") > 0;
 
     context_type vrt_context;
     init_context(&vrt_context);
+    tracker_ext_context_type tracker_ext_context;
 
     packet_type vrt_packet;
 
@@ -183,7 +187,8 @@ int main(int argc, char* argv[])
     auto start_time = std::chrono::steady_clock::now();
     auto stop_time = start_time + std::chrono::milliseconds(int64_t(1000 * total_time));
 
-    uint32_t buffer[ZMQ_BUFFER_SIZE];
+    uint32_t rx_buffer[ZMQ_BUFFER_SIZE];
+    uint32_t tx_buffer[ZMQ_BUFFER_SIZE];
 
     unsigned long long num_total_samps = 0;
 
@@ -219,18 +224,26 @@ int main(int argc, char* argv[])
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
            and (total_time == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
 
-        int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
+        int len = zmq_recv(subscriber, rx_buffer, ZMQ_BUFFER_SIZE, 0);
 
         const auto now = std::chrono::steady_clock::now();
 
-        if (not vrt_process(buffer, sizeof(buffer), &vrt_context, &vrt_packet)) {
+        if (not vrt_process(rx_buffer, sizeof(rx_buffer), &vrt_context, &vrt_packet)) {
             printf("Not a Vita49 packet?\n");
             continue;
         }
 
-        if (not start_rx and vrt_packet.context) {
+        if (not start_rx and vrt_packet.context 
+            and not (tracking and not tracker_ext_context.tracker_ext_context_received)) {
             vrt_print_context(&vrt_context);
             start_rx = true;
+
+            if (tracking) {
+                frequency = tracker_ext_context.frequency+tracker_ext_context.doppler;
+                doppler_rate = tracker_ext_context.doppler_rate;
+                printf("# Setting freq. to %f Hz with %f Hz/s dopppler rate for \"%s\" (source \"%s\")\n", 
+                    frequency, tracker_ext_context.doppler_rate, tracker_ext_context.object_name, tracker_ext_context.tracking_source);
+            }
             
             if (frequency > 0) {
                 freq_offset = frequency-(double)vrt_context.rf_freq;
@@ -241,7 +254,6 @@ int main(int argc, char* argv[])
             } else {
                 bandwidth = vrt_context.sample_rate/decimation;
             }
-
 
             // check for valid frequency offset
             if ( fabs(freq_offset) > vrt_context.sample_rate/2) {
@@ -363,13 +375,13 @@ int main(int argc, char* argv[])
             pc.if_context.timestamp_calibration_time = vrt_context.timestamp_calibration_time;
 
 
-            int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
+            int32_t rv = vrt_write_packet(&pc, tx_buffer, VRT_DATA_PACKET_SIZE, true);
             if (rv < 0) {
                 fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
             }
 
             // ZMQ
-            zmq_send (responder, buffer, rv*4, 0);
+            zmq_send (responder, tx_buffer, rv*4, 0);
 
         }
 
@@ -402,9 +414,9 @@ int main(int argc, char* argv[])
 
             for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
                 int16_t re;
-                memcpy(&re, (char*)&buffer[vrt_packet.offset+i], 2);
+                memcpy(&re, (char*)&rx_buffer[vrt_packet.offset+i], 2);
                 int16_t img;
-                memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
+                memcpy(&img, (char*)&rx_buffer[vrt_packet.offset+i]+2, 2);
 
                 x[M+i+num_taps] = std::complex<float>(re,img);
             }
@@ -493,6 +505,18 @@ int main(int argc, char* argv[])
             }
         }
 
+        if (vrt_packet.extended_context) {
+            if (tracking) {
+                tracker_process(rx_buffer, sizeof(rx_buffer), &vrt_packet, &tracker_ext_context);
+                if (!isnan(tracker_ext_context.doppler_rate)) {
+                    doppler_rate = tracker_ext_context.doppler_rate;
+                    alpha_dop = complexi*2.0*pi*(double)-doppler_rate;
+                    step_dop = std::exp(alpha_dop/pow((double)vrt_context.sample_rate,2));
+                    // printf("# Doppler rate update (%s): %f\n", tracker_ext_context.object_name, doppler_rate);
+                }
+            }
+        }
+
         if (progress) {
             if (vrt_packet.data)
                 last_update_samps += vrt_packet.num_rx_samps;
@@ -512,7 +536,7 @@ int main(int argc, char* argv[])
                 double datatype_max = 32768.;
 
                 for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
-                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
+                    auto sample_i = get_abs_val((std::complex<int16_t>)rx_buffer[vrt_packet.offset+i]);
                     sum_i += sample_i;
                     if (sample_i > datatype_max*0.99)
                         clip_i++;
