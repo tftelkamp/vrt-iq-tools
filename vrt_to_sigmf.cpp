@@ -34,6 +34,7 @@
 
 #include "vrt-tools.h"
 #include "dt-extended-context.h"
+#include "tracker-extended-context.h"
 
 namespace po = boost::program_options;
 
@@ -107,6 +108,7 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("meta-only", "only create sigmf-meta file")
         ("dt-trace", "add DT trace data")
+        ("tracking", "add tracking context data")
         ("vrt", "write VRT stream to file")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
         ("zmq-split", "create a ZeroMQ stream per VRT channel, increasing port number for additional streams")
@@ -135,6 +137,7 @@ int main(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool meta_only              = vm.count("meta-only") > 0;
     bool dt_trace               = vm.count("dt-trace") > 0;
+    bool tracking               = vm.count("tracking") > 0;
     bool do_auto_file           = vm.count("auto-file") > 0;
     bool int_second             = vm.count("int-second") > 0;
     bool has_author             = vm.count("author") > 0;
@@ -144,6 +147,7 @@ int main(int argc, char* argv[])
 
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
+    tracker_ext_context_type tracker_ext_context;
     init_context(&vrt_context);
 
     packet_type vrt_packet;
@@ -267,7 +271,8 @@ int main(int argc, char* argv[])
             outfiles[0]->write((const char*)&buffer, len);
 
         if ( not (context_recv & vrt_packet.stream_id) and vrt_packet.context
-             and not first_frame and not (dt_trace and not dt_ext_context.dt_ext_context_received)) {
+             and not first_frame and not (dt_trace and not dt_ext_context.dt_ext_context_received)
+             and not (tracking and not tracker_ext_context.tracker_ext_context_received)) {
 
             context_recv |= vrt_packet.stream_id;
 
@@ -364,6 +369,36 @@ int main(int argc, char* argv[])
                         % dt_ext_context.model_aa
                         % dt_ext_context.focusbox );
                     }
+                    if (tracking) {
+                        json += str(boost::format(
+                        "        \"tracker:datetime\": \"%s.%06.0f\",\n"
+                        "        \"tracker:object_name\": \"%s\",\n"
+                        "        \"tracker:tracking_source\": \"%s\",\n"
+                        "        \"tracker:object_id\": %i,\n"
+                        "        \"tracker:az_deg\": %.3f,\n"
+                        "        \"tracker:el_deg\": %.3f,\n"
+                        "        \"tracker:ra_h\": %.3f,\n"
+                        "        \"tracker:dec_deg\": %.3f,\n"
+                        "        \"tracker:distance\": %.2f,\n"
+                        "        \"tracker:speed\": %.2f,\n"
+                        "        \"tracker:frequency\": %.0f,\n"
+                        "        \"tracker:doppler\": %.4f,\n"
+                        "        \"tracker:doppler_rate\": %.4f,\n" )
+                        % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(tracker_ext_context.integer_seconds_timestamp)))
+                        % ((double)(tracker_ext_context.fractional_seconds_timestamp/1e6))
+                        % (tracker_ext_context.object_name)
+                        % (tracker_ext_context.tracking_source)
+                        % (tracker_ext_context.object_id)
+                        % (tracker_ext_context.azimuth)
+                        % (tracker_ext_context.elevation)
+                        % ((12.0/180.0)*tracker_ext_context.ra)
+                        % (tracker_ext_context.dec)
+                        % (tracker_ext_context.distance)
+                        % (tracker_ext_context.speed)
+                        % (tracker_ext_context.frequency)
+                        % (tracker_ext_context.doppler)
+                        % (tracker_ext_context.doppler_rate) );
+                    }
                     if (vrt_context.timestamp_calibration_time != 0) {
                         json += str(boost::format("        \"vrt:cal_time\": %u,\n") % vrt_context.timestamp_calibration_time);
                     }
@@ -412,6 +447,8 @@ int main(int argc, char* argv[])
                 dt_trace_warning_given = true;
             }
             dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
+            if (tracking)
+                tracker_process(buffer, sizeof(buffer), &vrt_packet, &tracker_ext_context);
         }
 
         if (vrt_packet.data) {
