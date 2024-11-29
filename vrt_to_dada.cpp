@@ -78,7 +78,7 @@ int main(int argc, char* argv[])
     double total_time;
     float amplitude, phase;
 
-    bool stream_has_dt_extended_context = false, dt_trace_warning_given = false;
+    bool dt_trace_warning_given = false;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -225,11 +225,11 @@ int main(int argc, char* argv[])
         uint32_t channel = channel_nums[ch];
 
         if (vrt_packet.extended_context) {
-            if (not dt_trace_warning_given and stream_has_dt_extended_context and not dt_trace) {
+            if (not dt_trace_warning_given and dt_ext_context.dt_ext_context_received and not dt_trace) {
                 std::cerr << "WARNING: DT metadata is present in the stream, but it is ignored. Did you forget --dt-trace?" << std::endl;
                 dt_trace_warning_given = true;
             }
-            stream_has_dt_extended_context |= dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
+            dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
         }
 
         if (not start_rx and vrt_packet.context and (dt_ext_context.dt_ext_context_received or not dt_trace)) {
