@@ -34,6 +34,7 @@
 
 #include "vrt-tools.h"
 #include "dt-extended-context.h"
+#include "tracker-extended-context.h"
 
 #ifdef __APPLE__
 #define DEFAULT_GNUPLOT_TERMINAL "qt"
@@ -224,6 +225,7 @@ int main(int argc, char* argv[])
 
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
+    tracker_ext_context_type tracker_ext_context;
     init_context(&vrt_context);
 
     packet_type vrt_packet;
@@ -693,7 +695,10 @@ int main(int argc, char* argv[])
                             printf("%s; ", gnuplot_commands.c_str());
                             if (has_source) {
                                 printf("set title \"%s\" font \",14\"\n;", source.c_str());
+                            } else if (tracker_ext_context.tracker_ext_context_received) {
+                                printf("set title \"%s\" font \",14\"\n;", tracker_ext_context.object_name);
                             }
+                                
                             if (vrt_context.sample_rate <= 100e3)
                                 printf("set format x \"%%.4f\";\n");
                             else
@@ -774,6 +779,7 @@ int main(int argc, char* argv[])
                 dt_trace_warning_given = true;
             }
             stream_has_dt_extended_context |= dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
+            tracker_process(buffer, sizeof(buffer), &vrt_packet, &tracker_ext_context);   
         }
 
         if (progress) {
