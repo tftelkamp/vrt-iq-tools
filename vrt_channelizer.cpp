@@ -515,6 +515,11 @@ int main(int argc, char* argv[])
                     // printf("# Doppler rate update (%s): %f\n", tracker_ext_context.object_name, doppler_rate);
                 }
             }
+            zmq_msg_t msg;
+            zmq_msg_init_size (&msg, len);
+            memcpy (zmq_msg_data(&msg), rx_buffer, len);
+            zmq_msg_send(&msg, responder, 0);
+            zmq_msg_close(&msg);
         }
 
         if (progress) {
