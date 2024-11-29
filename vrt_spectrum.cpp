@@ -121,6 +121,8 @@ int main(int argc, char* argv[])
     uint32_t channel;
     int hwm;
 
+    bool stream_has_dt_extended_context = false, dt_trace_warning_given = false;
+
     float min_y = 1e10;
     float max_y = -1e10;
 
@@ -772,12 +774,11 @@ int main(int argc, char* argv[])
         }
 
         if (vrt_packet.extended_context) {
-            // TODO: Find some other variable to avoid giving this warning for every extended context packet
-            // This now assumes that any extended context is a DT extended context
-            if (not dt_ext_context.dt_ext_context_received and not dt_trace) {
+            if (not dt_trace_warning_given and stream_has_dt_extended_context and not dt_trace) {
                 std::cerr << "WARNING: DT metadata is present in the stream, but it is ignored. Did you forget --dt-trace?" << std::endl;
+                dt_trace_warning_given = true;
             }
-            dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
+            stream_has_dt_extended_context |= dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
             tracker_process(buffer, sizeof(buffer), &vrt_packet, &tracker_ext_context);   
         }
 
