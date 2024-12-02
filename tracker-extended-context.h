@@ -6,7 +6,7 @@ struct tracker_ext_context_type {
 
     char object_name[32] = "";
     char tracking_source[32] = "";
-    int32_t object_id = NAN;
+    int32_t object_id = 0;
     float azimuth = NAN;
     float elevation = NAN;
     float ra = NAN;
