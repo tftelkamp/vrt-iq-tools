@@ -670,6 +670,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         // set the center frequency
         if (vm.count("freq")) {
             freq = (frequencies.size() > ch) ? frequencies[ch] : frequencies[0];
+            freq = freq - if_freq;
             if (freq < 5e6) {
                 throw std::runtime_error("Frequency should be given in Hz.\n" +
                                          std::to_string(freq) + "Hz is probably not what you meant!");
