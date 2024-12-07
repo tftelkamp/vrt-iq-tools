@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <cmath>
 
 #include <boost/format.hpp>
 #include <boost/lexical_cast.hpp>
@@ -508,7 +509,7 @@ int main(int argc, char* argv[])
         if (vrt_packet.extended_context) {
             if (tracking) {
                 tracker_process(rx_buffer, sizeof(rx_buffer), &vrt_packet, &tracker_ext_context);
-                if (!isnan(tracker_ext_context.doppler_rate)) {
+                if (!std::isnan(tracker_ext_context.doppler_rate)) {
                     doppler_rate = tracker_ext_context.doppler_rate;
                     alpha_dop = complexi*2.0*pi*(double)-doppler_rate;
                     step_dop = std::exp(alpha_dop/pow((double)vrt_context.sample_rate,2));
