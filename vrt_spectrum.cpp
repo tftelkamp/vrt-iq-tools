@@ -699,7 +699,7 @@ int main(int argc, char* argv[])
                             if (has_source) {
                                 printf("set title \"%s\" font \",14\"\n;", source.c_str());
                             } else if (tracker_ext_context.tracker_ext_context_received) {
-                                printf("set title \"%s (%s)\" font \",14\"\n;", tracker_ext_context.object_name, 
+                                printf("set title \"%s (%sZ)\" font \",14\"\n;", tracker_ext_context.object_name, 
                                     boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(seconds)).c_str());
                             }
                                 
