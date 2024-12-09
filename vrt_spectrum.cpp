@@ -778,7 +778,7 @@ int main(int argc, char* argv[])
         }
 
         if (vrt_packet.extended_context) {
-            if (not dt_trace_warning_given and dt_ext_context.dt_ext_context_received and not dt_trace) {
+            if (not dt_trace_warning_given and not gnuplot and dt_ext_context.dt_ext_context_received and not dt_trace) {
                 std::cerr << "WARNING: DT metadata is present in the stream, but it is ignored. Did you forget --dt-trace?" << std::endl;
                 dt_trace_warning_given = true;
             }
