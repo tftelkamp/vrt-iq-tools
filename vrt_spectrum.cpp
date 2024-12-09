@@ -697,7 +697,8 @@ int main(int argc, char* argv[])
                             printf("set term %s 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ", gnuplot_terminal.c_str(), ticks);
                             printf("%s; ", gnuplot_commands.c_str());
                             if (has_source) {
-                                printf("set title \"%s\" font \",14\"\n;", source.c_str());
+                                printf("set title \"%s (%sZ)\" font \",14\"\n;", source.c_str(), 
+                                    boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(seconds)).c_str());
                             } else if (tracker_ext_context.tracker_ext_context_received) {
                                 printf("set title \"%s (%sZ)\" font \",14\"\n;", tracker_ext_context.object_name, 
                                     boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(seconds)).c_str());
