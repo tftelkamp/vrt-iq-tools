@@ -220,6 +220,8 @@ int main(int argc, char* argv[])
 
     double total_phase = 0;
 
+    bool first_context = true;
+
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
            and (total_time == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
@@ -355,6 +357,13 @@ int main(int argc, char* argv[])
             double doppler_offset = total_phase/(double)vrt_context.sample_rate;
             pc.if_context.rf_reference_frequency = (double)vrt_context.rf_freq+(double)freq_offset-doppler_offset;
 
+            if (doppler_rate!=0 || first_context) {
+                pc.if_context.context_field_change_indicator = true;
+                first_context = false;
+            }
+            else
+                pc.if_context.context_field_change_indicator = false;
+
             pc.if_context.bandwidth = vrt_context.bandwidth;
             pc.if_context.sample_rate = vrt_context.sample_rate/decimation;
             pc.if_context.rf_reference_frequency_offset = 0;
@@ -368,7 +377,7 @@ int main(int argc, char* argv[])
             pc.if_context.state_and_event_indicators.has.calibrated_time = true;
             pc.if_context.state_and_event_indicators.calibrated_time = vrt_context.time_cal;
 
-             // TODO: check if present
+            // TODO: check if present
             pc.if_context.has.temperature  = true;
             pc.if_context.temperature = vrt_context.temperature;
             pc.if_context.has.timestamp_calibration_time = true;
@@ -425,7 +434,7 @@ int main(int argc, char* argv[])
             phasor = phasor/std::abs(phasor);
             step = step/std::abs(step);
 
-            if (!channel_mode && freq_offset!=0 && doppler_rate!=0) {
+            if (!channel_mode && doppler_rate!=0) {
                 for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
                     total_phase -= doppler_rate;
                     step = step * step_dop;
