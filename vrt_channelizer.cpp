@@ -243,7 +243,7 @@ int main(int argc, char* argv[])
             if (tracking) {
                 frequency = tracker_ext_context.frequency+tracker_ext_context.doppler+freq_offset;
                 doppler_rate = tracker_ext_context.doppler_rate;
-                printf("# Setting freq. to %f Hz with %f Hz/s dopppler rate for \"%s\" (source \"%s\")\n",
+                printf("# Setting freq. to %f Hz with %f Hz/s dopppler rate for \"%.32s\" (source \"%.32s\")\n",
                     frequency, tracker_ext_context.doppler_rate, tracker_ext_context.object_name, tracker_ext_context.tracking_source);
             }
 

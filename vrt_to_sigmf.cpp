@@ -372,8 +372,8 @@ int main(int argc, char* argv[])
                     if (tracking) {
                         json += str(boost::format(
                         "        \"tracker:datetime\": \"%s.%06.0f\",\n"
-                        "        \"tracker:object_name\": \"%s\",\n"
-                        "        \"tracker:tracking_source\": \"%s\",\n"
+                        "        \"tracker:object_name\": \"%.32s\",\n"
+                        "        \"tracker:tracking_source\": \"%.32s\",\n"
                         "        \"tracker:object_id\": %i,\n"
                         "        \"tracker:az_deg\": %.3f,\n"
                         "        \"tracker:el_deg\": %.3f,\n"
