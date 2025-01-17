@@ -251,6 +251,12 @@ int main(int argc, char* argv[])
                 freq_offset = frequency-(double)vrt_context.rf_freq;
             }
 
+            // check for valid bandwidth
+            if ( fmod((float)vrt_context.sample_rate,bandwidth) != 0) {
+                printf("bandwidth needs to be a divisor of the sample rate (%u).\n", vrt_context.sample_rate);
+                exit(1);
+            }
+
             if (bandwidth > 0) {
                 decimation = vrt_context.sample_rate/bandwidth;
             } else {
@@ -268,7 +274,8 @@ int main(int argc, char* argv[])
                 printf("decimation needs to be a divisor of %u.\n", VRT_SAMPLES_PER_PACKET);
                 exit(1);
             }
-
+            
+            // check for valid decimation
             if ((uint64_t)vrt_context.sample_rate % decimation != 0) {
                 printf("decimation needs to be a divisor of the sample rate (%u).\n", vrt_context.sample_rate);
                 exit(1);
@@ -342,6 +349,8 @@ int main(int argc, char* argv[])
 
             for (uint32_t i = 0; i < M+L+num_taps; i++)
                 x[i] = std::complex<float>(0,0);
+
+            continue;
         }
 
         if (start_rx and vrt_packet.context) {
