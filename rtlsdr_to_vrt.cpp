@@ -88,11 +88,11 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string gain_list, udp_forward, merge_address;
-    size_t total_num_samps;
+    std::string udp_forward, merge_address;
+    size_t total_num_samps = 0;
     uint16_t port, merge_port;
     uint32_t stream_id;
-    int hwm;
+    int hwm, gain;
     double rate, freq, bw, total_time, setup_time, lo_offset, if_freq;
     bool merge;
 
@@ -111,7 +111,7 @@ int main(int argc, char* argv[])
         ("if-freq", po::value<double>(&if_freq)->default_value(0.0), "IF center frequency in Hz")
         // ("lo-offset", po::value<double>(&lo_offset)->default_value(0.0),
         //     "Offset for frontend LO in Hz (optional)")
-        ("gain", po::value<std::string>(&gain_list), "gain(s) for the RF chain")
+        ("gain", po::value<int>(&gain)->default_value(0), "gain for the RF chain (default AGC)")
         ("bw", po::value<double>(&bw), "analog frontend filter bandwidth in Hz")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
         ("udp", po::value<std::string>(&udp_forward), "VRT UDP forward address")
@@ -121,7 +121,7 @@ int main(int argc, char* argv[])
         ("int-second", "align start of reception to integer second")
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
-        ("skip-lo", "skip checking LO lock status")
+        ("bias-tee", "Enable Bias Tee power")
         // ("stream-id", po::value<uint32_t>(&stream_id), "VRT Stream ID")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("merge", po::value<bool>(&merge)->default_value(true), "Merge another VRT ZMQ stream (SUB connect)")
@@ -152,13 +152,13 @@ int main(int argc, char* argv[])
     bool vrt                    = vm.count("vrt") > 0;
     bool zmq                    = vm.count("zmq") > 0;
     bool enable_udp             = vm.count("udp") > 0;
+    bool bias_tee               = vm.count("bias-tee") > 0;
 
     vrt = true;
 
     // create an rtlsdr device
 
     int r, opt;
-    int gain = 0;
     int ppm_error = 0;
     int sync_mode = 0;
     int dev_index = 0;
@@ -204,11 +204,16 @@ int main(int argc, char* argv[])
         verbose_auto_gain(dev);
     } else {
         /* Enable manual gain */
-        gain = nearest_gain(dev, gain);
+        gain = nearest_gain(dev, gain*10);
         verbose_gain_set(dev, gain);
+        gain = gain/10;
     }
 
     verbose_ppm_set(dev, ppm_error);
+
+    // Bias Tee
+
+    rtlsdr_set_bias_tee(dev, bias_tee);
 
     /* Reset endpoint before we start reading from it (mandatory) */
     verbose_reset_buffer(dev);
@@ -519,6 +524,7 @@ int main(int argc, char* argv[])
     }
   
      /* clean up */
+    rtlsdr_set_bias_tee(dev, false);
     rtlsdr_close(dev);
 
     // finished
