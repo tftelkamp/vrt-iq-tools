@@ -138,5 +138,5 @@ int verbose_reset_buffer(rtlsdr_dev_t *dev);
  * \return dev_index int, -1 on error
  */
 
-int verbose_device_search(char *s);
+int verbose_device_search(const char *s);
 

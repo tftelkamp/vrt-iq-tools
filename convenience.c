@@ -245,7 +245,7 @@ int verbose_reset_buffer(rtlsdr_dev_t *dev)
 	return r;
 }
 
-int verbose_device_search(char *s)
+int verbose_device_search(const char *s)
 {
 	int i, device_count, device, offset;
 	char *s2;
