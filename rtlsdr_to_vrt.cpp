@@ -174,7 +174,7 @@ int main(int argc, char* argv[])
 
     rtl_buffer = (uint8_t*)malloc(out_block_size * sizeof(uint8_t));
 
-    if (vm.count("dev_given") > 0) {
+    if (vm.count("device") > 0) {
         dev_index = verbose_device_search(dev_given.c_str());
     }
 
