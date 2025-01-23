@@ -88,7 +88,7 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string udp_forward, merge_address;
+    std::string udp_forward, merge_address, dev_given;
     size_t total_num_samps = 0;
     uint16_t port, merge_port;
     uint32_t stream_id;
@@ -96,18 +96,14 @@ int main(int argc, char* argv[])
     double rate, freq, bw, total_time, setup_time, lo_offset, if_freq;
     bool merge;
 
-    // recv_frame_size=1024, num_recv_frames=1024, recv_buff_size
-    std::string stdargs = "num_recv_frames=1024";
-    std::string args;
-
     // setup the program options
     po::options_description desc("Allowed options");
     // clang-format off
     desc.add_options()
         ("help", "help message")
-        ("args", po::value<std::string>(&args)->default_value(""), "multi uhd device address args")
         ("rate", po::value<double>(&rate)->default_value(1e6), "rate of incoming samples")
         ("freq", po::value<double>(&freq)->default_value(0.0), "RF center frequency in Hz")
+        ("device", po::value<std::string>(&dev_given), "device name or index")
         ("if-freq", po::value<double>(&if_freq)->default_value(0.0), "IF center frequency in Hz")
         // ("lo-offset", po::value<double>(&lo_offset)->default_value(0.0),
         //     "Offset for frontend LO in Hz (optional)")
@@ -162,7 +158,6 @@ int main(int argc, char* argv[])
     int ppm_error = 0;
     int sync_mode = 0;
     int dev_index = 0;
-    int dev_given = 0;
     uint32_t frequency = freq;
     uint32_t samp_rate = rate;
 
@@ -179,8 +174,8 @@ int main(int argc, char* argv[])
 
     rtl_buffer = (uint8_t*)malloc(out_block_size * sizeof(uint8_t));
 
-    if (!dev_given) {
-        dev_index = verbose_device_search((char*)"0");
+    if (vm.count("device") > 0) {
+        dev_index = verbose_device_search(dev_given.c_str());
     }
 
     if (dev_index < 0) {
