@@ -29,11 +29,6 @@
 #include <vrt/vrt_write.h>
 #include <vrt/vrt_read.h>
 
-// UDP
-#include <sys/socket.h> 
-#include <arpa/inet.h> 
-#include <netinet/in.h> 
-
 #include <boost/thread/thread.hpp>
 
 #include <inttypes.h>
@@ -88,12 +83,12 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string udp_forward, merge_address, dev_given;
+    std::string merge_address, dev_given;
     size_t total_num_samps = 0;
-    uint16_t port, merge_port;
+    uint16_t instance, port, merge_port;
     uint32_t stream_id;
     int hwm, gain;
-    double rate, freq, bw, total_time, setup_time, lo_offset, if_freq;
+    double rate, freq, total_time, setup_time, if_freq;
     bool merge;
 
     // setup the program options
@@ -105,21 +100,16 @@ int main(int argc, char* argv[])
         ("freq", po::value<double>(&freq)->default_value(0.0), "RF center frequency in Hz")
         ("device", po::value<std::string>(&dev_given), "device name or index")
         ("if-freq", po::value<double>(&if_freq)->default_value(0.0), "IF center frequency in Hz")
-        // ("lo-offset", po::value<double>(&lo_offset)->default_value(0.0),
-        //     "Offset for frontend LO in Hz (optional)")
         ("gain", po::value<int>(&gain)->default_value(0), "gain for the RF chain (default AGC)")
-        ("bw", po::value<double>(&bw), "analog frontend filter bandwidth in Hz")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
-        ("udp", po::value<std::string>(&udp_forward), "VRT UDP forward address")
         ("progress", "periodically display short-term bandwidth")
         ("stats", "show average bandwidth on exit")
-        ("vrt", "publish IQ using VRT over ZeroMQ (PUB on port 50100")
         ("int-second", "align start of reception to integer second")
         ("null", "run without streaming")
         ("continue", "don't abort on a bad packet")
         ("bias-tee", "Enable Bias Tee power")
-        // ("stream-id", po::value<uint32_t>(&stream_id), "VRT Stream ID")
-        ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
+        ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
+        ("port", po::value<uint16_t>(&port), "VRT ZMQ port")
         ("merge", po::value<bool>(&merge)->default_value(true), "Merge another VRT ZMQ stream (SUB connect)")
         ("merge-port", po::value<uint16_t>(&merge_port)->default_value(50011), "VRT ZMQ merge port")
         ("merge-address", po::value<std::string>(&merge_address)->default_value("localhost"), "VRT ZMQ merg address")
@@ -145,12 +135,45 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
-    bool vrt                    = vm.count("vrt") > 0;
-    bool zmq                    = vm.count("zmq") > 0;
-    bool enable_udp             = vm.count("udp") > 0;
     bool bias_tee               = vm.count("bias-tee") > 0;
 
-    vrt = true;
+    /* VRT init */
+    struct vrt_packet p;
+    vrt_init_packet(&p);
+    vrt_init_data_packet(&p);
+    
+    p.fields.stream_id = 1;
+
+    uint16_t main_port;
+
+    if (vm.count("port") > 0) {
+        main_port = port;
+    } else {
+        main_port = DEFAULT_MAIN_PORT + MAX_CHANNELS*instance;
+    }
+    
+    // ZMQ
+    void *zmq_server;
+
+    void *context = zmq_ctx_new();
+    void *responder = zmq_socket(context, ZMQ_PUB);
+    int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
+    assert(rc == 0);
+
+    std::string connect_string = "tcp://*:" + std::to_string(main_port);
+    rc = zmq_bind(responder, connect_string.c_str());
+    assert (rc == 0);
+    zmq_server = responder;
+
+    // Merge
+    void *merge_zmq = zmq_socket(context, ZMQ_SUB);
+    if (merge) {
+        connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
+        rc = zmq_connect(merge_zmq, connect_string.c_str());
+        assert(rc == 0);
+        zmq_setsockopt(merge_zmq, ZMQ_SUBSCRIBE, "", 0);
+    }
+
 
     // create an rtlsdr device
 
@@ -158,8 +181,6 @@ int main(int argc, char* argv[])
     int ppm_error = 0;
     int sync_mode = 0;
     int dev_index = 0;
-    uint32_t frequency = freq;
-    uint32_t samp_rate = rate;
 
     if(out_block_size < MINIMAL_BUF_LENGTH ||
        out_block_size > MAXIMAL_BUF_LENGTH ){
@@ -189,10 +210,14 @@ int main(int argc, char* argv[])
     }
 
     /* Set the sample rate */
-    verbose_set_sample_rate(dev, samp_rate);
+    verbose_set_sample_rate(dev, (uint32_t)rate);
+
+    rate = (double)rtlsdr_get_sample_rate(dev);
 
     /* Set the frequency */
-    verbose_set_frequency(dev, frequency);
+    verbose_set_frequency(dev, (uint32_t)freq);
+
+    freq =  (double)rtlsdr_get_center_freq(dev);
 
     if (0 == gain) {
          /* Enable automatic gain */
@@ -206,8 +231,7 @@ int main(int argc, char* argv[])
 
     verbose_ppm_set(dev, ppm_error);
 
-    // Bias Tee
-
+    /* Bias Tee */
     rtlsdr_set_bias_tee(dev, bias_tee);
 
     /* Reset endpoint before we start reading from it (mandatory) */
@@ -229,7 +253,7 @@ int main(int argc, char* argv[])
         std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
     }
 
-	size_t samps_per_buff = 10000; // spb
+	size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
 
 	unsigned long long num_requested_samples = total_num_samps;
     double time_requested = total_time;
@@ -239,63 +263,9 @@ int main(int argc, char* argv[])
    
     bool first_frame = true;
 
-    struct vrt_packet p;
-    vrt_init_packet(&p);
-
     /* Warn if not standards compliant */
     if (vrt_is_platform_little_endian()) {
         printf("Warning: little endian support is work in progress.\n");
-    }
-
-    /* VRT init */
-    vrt_init_data_packet(&p);
-    
-    p.fields.stream_id = 1;
-    
-    // ZMQ
-    void *zmq_server;
-
-    void *context = zmq_ctx_new();
-    void *responder = zmq_socket(context, ZMQ_PUB);
-    int rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
-    assert(rc == 0);
-
-    std::string connect_string = "tcp://*:" + std::to_string(port);
-    rc = zmq_bind(responder, connect_string.c_str());
-    assert (rc == 0);
-    zmq_server = responder;
-
-
-    // Merge
-    void *merge_zmq = zmq_socket(context, ZMQ_SUB);
-    if (merge) {
-        connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
-        rc = zmq_connect(merge_zmq, connect_string.c_str());
-        assert(rc == 0);
-        zmq_setsockopt(merge_zmq, ZMQ_SUBSCRIBE, "", 0);
-    }
-
-    // UDP VRT
-
-    int sockfd; 
-    struct sockaddr_in servaddr, cliaddr; 
-    if (enable_udp) {
-
-        printf("Enable UDP\n");
-            
-        // Creating socket file descriptor 
-        if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
-            perror("socket creation failed"); 
-            exit(EXIT_FAILURE); 
-        } 
-            
-        memset(&servaddr, 0, sizeof(servaddr)); 
-        memset(&cliaddr, 0, sizeof(cliaddr)); 
-            
-        // Filling server information 
-        servaddr.sin_family    = AF_INET; // IPv4 
-        servaddr.sin_addr.s_addr = inet_addr(udp_forward.c_str()); /* Server's Address   */
-        servaddr.sin_port = htons(50000);  // 4991?
     }
 
     // time keeping
@@ -349,7 +319,7 @@ int main(int argc, char* argv[])
         	num_words_read = n_read/2; 
         	// printf("buffer bytes read: %u\n", n_read);
         	for (uint32_t i = 0; i < n_read; i++) {
-        		cb.push_back( (int16_t)rtl_buffer[i]-127 );
+        		cb.push_back( (int16_t)rtl_buffer[i]-127);
         	}
 
         	while (cb.size() > 2*samps_per_buff ) {
@@ -387,20 +357,8 @@ int main(int argc, char* argv[])
 
 		        frame_count++;
 
-		        // UDP
-		        if (enable_udp) {
-		            if (sendto(sockfd, zmq_msg_data(&msg), SIZE*4, 0,
-		                         (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
-		            {
-		               printf("UDP fail\n");
-		            }
-		        }
-
 		        // VRT
-		        if (vrt) {
-		            zmq_msg_send(&msg, zmq_server, 0);
-		        }
-
+		        zmq_msg_send(&msg, zmq_server, 0);
 		        zmq_msg_close(&msg);
 
 		        const auto time_since_last_context = now - last_context;
@@ -440,17 +398,8 @@ int main(int argc, char* argv[])
 		            }
 
 		            // ZMQ
-		            if (vrt) {
-		                  zmq_send (zmq_server, buffer, rv*4, 0);
-		            }
+                    zmq_send (zmq_server, buffer, rv*4, 0);
 
-		            if (enable_udp) {
-		                if (sendto(sockfd, buffer, rv*4, 0,
-		                     (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
-		                {
-		                   printf("UDP fail\n");
-		                }
-		            }
 		        }
 	        
 		        if (bw_summary) {
