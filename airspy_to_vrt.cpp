@@ -120,10 +120,10 @@ double true_freq(uint64_t freq_hz){
     offset = 0.25;
     break;
   case 4:
-    offset = 0.5;
+    offset = 0.25; //0.5;
     break;
   case 5:
-    offset = 1.0;
+    offset = 0.5; //1.0;
     break;
   }
 
