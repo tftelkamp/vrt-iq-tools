@@ -8,7 +8,7 @@ CXX=g++
 # VRT IQ tools
 all: clients dt
 clients: vrt_fftmax vrt_to_sigmf sigmf_to_vrt play_vrt vrt_forwarder vrt_spectrum vrt_to_void control_vrt vrt_to_rtl_tcp vrt_fftmax_quad vrt_to_filterbank vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_channelizer
-sdr: usrp_to_vrt rfspace_to_vrt rtlsdr_to_vrt
+sdr: usrp_to_vrt rfspace_to_vrt rtlsdr_to_vrt airspy_to_vrt
 gnuradio: vrt_to_gnuradio
 gpu: vrt_gpu_fftmax
 dada: vrt_to_dada
@@ -19,7 +19,7 @@ strf: vrt_rffft
 #LIBS = -L.
 
 CFLAGS = -std=c++11
-INCLUDES = -I. -I/opt/local/include -I../libvrt/include -I/opt/homebrew/include/
+INCLUDES = -I. -I/opt/local/include -I../libvrt/include -I/opt/homebrew/include/ -I/usr/local/include/libairspy/
 LIBS = -L. -L../libvrt/build/ -L/usr/local/lib -L/opt/local/lib -L/opt/homebrew/lib/
 
 BOOSTLIBS = -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lboost_date_time
@@ -93,6 +93,10 @@ rtlsdr_to_vrt: convenience.o rtlsdr_to_vrt.cpp
 		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) convenience.o rtlsdr_to_vrt.cpp -o rtlsdr_to_vrt \
 		$(BOOSTLIBS) -lzmq -lvrt -lrtlsdr
 
+airspy_to_vrt: airspy_to_vrt.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) airspy_to_vrt.cpp -o airspy_to_vrt \
+		$(BOOSTLIBS) -lpthread -lzmq -lvrt -lairspy
+
 rfspace_to_vrt: rfspace_to_vrt.cpp
 		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) rfspace_to_vrt.cpp -o rfspace_to_vrt \
 		$(BOOSTLIBS) -lzmq -lvrt
@@ -143,4 +147,4 @@ install: all
 		install -m 755 query_dt_console   $(DESTDIR)$(PREFIX)/bin/
 
 clean:
-		$(RM) usrp_to_vrt vrt_fftmax vrt_to_gnuradio vrt_to_sigmf convenience.o rtlsdr_to_vrt rfspace_to_vrt vrt_forwarder vrt_to_void vrt_spectrum sigmf_to_vrt play_vrt vrt_gpu_fftmax control_vrt vrt_to_dada vrt_to_rtl_tcp vrt_to_vrt_quad vrt_fftmax_quad vrt_to_filterbank query_dt_console vrt_rffft vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_channelizer
+		$(RM) usrp_to_vrt vrt_fftmax vrt_to_gnuradio vrt_to_sigmf convenience.o rtlsdr_to_vrt rfspace_to_vrt vrt_forwarder vrt_to_void vrt_spectrum sigmf_to_vrt play_vrt vrt_gpu_fftmax control_vrt vrt_to_dada vrt_to_rtl_tcp vrt_to_vrt_quad vrt_fftmax_quad vrt_to_filterbank query_dt_console vrt_rffft vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_channelizer airspy_to_vrt
