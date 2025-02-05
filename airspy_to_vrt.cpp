@@ -88,7 +88,7 @@ double true_freq(uint64_t freq_hz){
   // const uint32_t pll_ref = 25000000u/2; // 12.5 MHz
 
   // For external ref (10 MHz) this works only if I set pll_ref to 10e6, but the R820T clock is 25 MHz. Why?
-  const uint32_t pll_ref = 10000000u; // 10 MHz ???? 
+  const uint32_t pll_ref = 20000000u/2; // 10 MHz ???? 
  
   // Find divider to put VCO = f*2^(d+1) in range VCO_MIN to VCO_MAX
   //          MHz             step, Hz
@@ -443,6 +443,9 @@ int main(int argc, char* argv[])
     printf("External reference used: %s\n", ref ? "yes" : "no"); 
 
     // Frequency
+
+    freq = freq - if_freq;
+    
     if (ref) {
         real_freq = true_freq(freq);
         printf("True frequency (R820T): %f Hz\n",real_freq);
