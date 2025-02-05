@@ -220,6 +220,7 @@ int main(int argc, char* argv[])
         ("mixer", po::value<uint32_t>(&mixer_gain)->default_value(DEFAULT_MIXER_GAIN), "MIXER gain for the RF chain")
         ("sensitivity", po::value<uint32_t>(&sensitivity_gain_val), "Sensitivity gain for the RF chain")
         ("linearity", po::value<uint32_t>(&linearity_gain_val), "Linearity gain for the RF chain")
+        ("packed", "set packing for samples")
         ("progress", "periodically display short-term bandwidth")
         ("stats", "show average bandwidth on exit")
         ("int-second", "align start of reception to integer second")
@@ -257,6 +258,7 @@ int main(int argc, char* argv[])
     bool sensitivity_gain       = vm.count("sensitivity") > 0;
     bool linearity_gain         = vm.count("linearity") > 0;
     bool serial_number          = vm.count("serial") > 0;
+    bool packing                = vm.count("packed") > 0;
 
     if (serial_number) {
         parse_u64(dev_given.c_str(), &serial_number_val);
@@ -406,13 +408,15 @@ int main(int argc, char* argv[])
                 read_partid_serialno.serial_no[2],
                 read_partid_serialno.serial_no[3]);
 
-
-    result = airspy_set_packing(device, 0);
-    if( result != AIRSPY_SUCCESS ) {
-        fprintf(stderr, "airspy_set_packing() failed: %s (%d)\n", airspy_error_name((airspy_error)result), result);
-        airspy_close(device);
-        airspy_exit();
-        return EXIT_FAILURE;
+    if (packing) {
+        result = airspy_set_packing(device, (uint8_t)packing);
+        if( result != AIRSPY_SUCCESS ) {
+            fprintf(stderr, "airspy_set_packing() failed: %s (%d)\n", airspy_error_name((airspy_error)result), result);
+            airspy_close(device);
+            airspy_exit();
+            return EXIT_FAILURE;
+        }
+        fprintf(stderr, "Packing enabled\n");
     }
 
     result = airspy_set_rf_bias(device, (int)bias_tee);
@@ -433,14 +437,14 @@ int main(int argc, char* argv[])
         if ((register_value & 16) == 0)
             ref_signal = true;
 
-    printf("External reference signal: %s\n", ref_signal ? "on" : "off"); 
+    fprintf(stderr, "External reference signal: %s\n", ref_signal ? "on" : "off"); 
 
     result = airspy_si5351c_read(device, 15, &register_value); 
     if (result == AIRSPY_SUCCESS)
         if ((register_value & 0x0C) != 0)
             ref = true;
 
-    printf("External reference used: %s\n", ref ? "yes" : "no"); 
+    fprintf(stderr, "External reference used: %s\n", ref ? "yes" : "no"); 
 
     // Frequency
 
