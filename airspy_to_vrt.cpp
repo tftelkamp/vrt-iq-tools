@@ -33,8 +33,7 @@
 
 #include <inttypes.h>
 
-// #include <airspyhf.h>
-#include <airspy.h>
+#include <libairspy/airspy.h>
 
 // VRT tools functions
 #include "vrt-tools.h"

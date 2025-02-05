@@ -19,7 +19,7 @@ strf: vrt_rffft
 #LIBS = -L.
 
 CFLAGS = -std=c++11
-INCLUDES = -I. -I/opt/local/include -I../libvrt/include -I/opt/homebrew/include/ -I/usr/local/include/libairspy/
+INCLUDES = -I. -I/opt/local/include -I../libvrt/include -I/opt/homebrew/include/
 LIBS = -L. -L../libvrt/build/ -L/usr/local/lib -L/opt/local/lib -L/opt/homebrew/lib/
 
 BOOSTLIBS = -lboost_system -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lboost_date_time
