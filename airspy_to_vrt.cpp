@@ -529,6 +529,7 @@ int main(int argc, char* argv[])
     uint32_t buffer[SIZE];
    
     bool first_frame = true;
+    bool context_changed = true;
 
     /* Warn if not standards compliant */
     if (vrt_is_platform_little_endian()) {
@@ -648,6 +649,11 @@ int main(int argc, char* argv[])
 
 	            pc.if_context.state_and_event_indicators.calibrated_time = false;
 
+                if (context_changed)
+                    pc.if_context.context_field_change_indicator = true;
+                else
+                    pc.if_context.context_field_change_indicator = false;
+
 	            int32_t rv = vrt_write_packet(&pc, buffer, SIZE, true);
 	            if (rv < 0) {
 	                fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
@@ -656,6 +662,7 @@ int main(int argc, char* argv[])
 	            // ZMQ
                 zmq_send (zmq_server, buffer, rv*4, 0);
 
+                context_changed = false;
 	        }
         
 	        if (bw_summary) {
