@@ -56,6 +56,17 @@ else()
     WARNING "RTL-SDR library library not found, not building rtlsdr_to_vrt")
 endif()
 
+find_library(AIRSPY_LIBRARY airspy)
+if(AIRSPY_LIBRARY)
+  find_path(AIRSPY_INCLUDE_DIR NAMES libairspy/airspy.h REQUIRED)
+  add_executable(airspy_to_vrt airspy_to_vrt.cpp)
+  target_include_directories(airspy_to_vrt PRIVATE ${AIRSPY_INCLUDE_DIR})
+  target_link_libraries(airspy_to_vrt PRIVATE ${AIRSPY_LIBRARY})
+else()
+  message(
+    WARNING "Airspy library not found, not building airspy_to_vrt")
+endif()
+
 find_package(CUDAToolkit)
 if(NOT CUDAToolkit_FOUND)
   message(WARNING "CUDA not found, building without GPU support")
