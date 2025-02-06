@@ -53,7 +53,7 @@ unsigned long long num_total_samps = 0;
 namespace po = boost::program_options;
 
 // Create a circular buffer with a capacity for xxx.
-boost::circular_buffer<int16_t> cb(65536*2*4);
+boost::circular_buffer<int16_t> cb(65536*2*4*2);
 
 boost::shared_mutex _access;
 
@@ -78,17 +78,22 @@ inline float get_abs_val(std::complex<int8_t> t)
     return std::fabs(t.real());
 }
 
-// From Phil Karn ka9q
-double true_freq(uint64_t freq_hz){
+// From Phil Karn ka9q (modified)
+double true_freq(uint64_t freq_hz, uint32_t rate) {
   const int VCO_MIN=1770000000u; // 1.77 GHz
   const int VCO_MAX=3900000000u; // 3.54 GHz
   const int MAX_DIV = 5;
 
   // Clock divider set to 2 for the best resolution
-  // const uint32_t pll_ref = 25000000u/2; // 12.5 MHz
+  // const uint32_t pll_ref = 20000000u/2; // v1.0.0-rc10-0-g946184a 2016-09-19
+  const uint32_t pll_ref = 25000000u/2; // v1.0.0-rc10-6-g4008185 2020-05-08
+  
+  uint32_t lo_freq = rate/2;
+  freq_hz += lo_freq;
 
-  // For external ref (10 MHz) this works only if I set pll_ref to 10e6, but the R820T clock is 25 MHz. Why?
-  const uint32_t pll_ref = 20000000u/2; // 10 MHz ???? 
+  if ( (freq_hz % pll_ref) == 0) {
+    return (double)freq_hz-lo_freq;
+  }
  
   // Find divider to put VCO = f*2^(d+1) in range VCO_MIN to VCO_MAX
   //          MHz             step, Hz
@@ -113,22 +118,24 @@ double true_freq(uint64_t freq_hz){
   uint32_t r = (((uint64_t) freq_hz << (div_num + 16)) + (pll_ref >> 1)) / pll_ref;
  
   // This is a puzzle; is it related to spur suppression?
-  double offset = 0;
-  switch(div_num){
-  default: // 2, 1, 0
-   case 3:
-    offset = 0.25;
-    break;
-  case 4:
-    offset = 0.25; //0.5;
-    break;
-  case 5:
-    offset = 0.5; //1.0;
-    break;
-  }
+  double offset = 0.25;
+
+  // printf("div_num: %u\n", div_num);
+  // switch(div_num){
+  // default: // 2, 1, 0
+  //  case 3:
+  //   offset = 0.25;
+  //   break;
+  // case 4:
+  //   offset = 0.5;
+  //   break;
+  // case 5:
+  //   offset = 1.0;
+  //   break;
+  // }
 
   // Compute true frequency
-  return ((double)(r + offset) * pll_ref) / (double)(1 << (div_num + 16));
+  return ((double)(r + offset) * pll_ref) / (double)(1 << (div_num + 16)) - lo_freq;
 }
 
 int parse_u64(const char* s, uint64_t* const value) {
@@ -192,10 +199,12 @@ int main(int argc, char* argv[])
 
     // Airspy
     struct airspy_device* device = 0;
+    char airspy_version[255 + 1];
     uint64_t serial_number_val;
     uint32_t *supported_samplerates;
     uint32_t sample_rate_u32 = 0;
     uint32_t nsrates;
+    uint8_t register_value;
 
     uint32_t vga_gain = DEFAULT_VGA_IF_GAIN;
     uint32_t lna_gain = DEFAULT_LNA_GAIN;
@@ -396,7 +405,7 @@ int main(int argc, char* argv[])
 
     rate = sample_rate_u32;
 
-    fprintf(stderr, "%f MS/s %s\n", sample_rate_u32 * 0.000001f, "IQ");
+    fprintf(stderr, "Sample rate: %f MS/s %s\n", sample_rate_u32 * 0.000001f, "IQ");
 
     airspy_read_partid_serialno_t read_partid_serialno;
 
@@ -408,6 +417,14 @@ int main(int argc, char* argv[])
                 read_partid_serialno.serial_no[2],
                 read_partid_serialno.serial_no[3]);
 
+    result = airspy_version_string_read(device, &airspy_version[0], 255);
+    if (result != AIRSPY_SUCCESS) {
+        fprintf(stderr, "airspy_version_string_read() failed: %s (%d)\n",
+            airspy_error_name((airspy_error)result), result);
+    }
+    fprintf(stderr, "Firmware Version: %s\n", airspy_version);
+
+    result = airspy_set_packing(device, (uint8_t)0);
     if (packing) {
         result = airspy_set_packing(device, (uint8_t)packing);
         if( result != AIRSPY_SUCCESS ) {
@@ -428,7 +445,6 @@ int main(int argc, char* argv[])
     }
 
     // check external ref
-    uint8_t register_value;
     bool ref = false;
     bool ref_signal = false;
 
@@ -451,7 +467,7 @@ int main(int argc, char* argv[])
     freq = freq - if_freq;
     
     if (ref) {
-        real_freq = true_freq(freq);
+        real_freq = true_freq(freq, sample_rate_u32);
         printf("True frequency (R820T): %f Hz\n",real_freq);
     } else
         real_freq = freq;
