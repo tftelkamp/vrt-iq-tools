@@ -79,14 +79,19 @@ inline float get_abs_val(std::complex<int8_t> t)
 }
 
 // From Phil Karn ka9q (modified)
-double true_freq(uint64_t freq_hz, uint32_t rate) {
+double true_freq(uint64_t freq_hz, uint32_t rate, int8_t fw_version) {
   const int VCO_MIN=1770000000u; // 1.77 GHz
   const int VCO_MAX=3900000000u; // 3.54 GHz
   const int MAX_DIV = 5;
 
+  uint32_t pll_ref;
   // Clock divider set to 2 for the best resolution
-  // const uint32_t pll_ref = 20000000u/2; // v1.0.0-rc10-0-g946184a 2016-09-19
-  const uint32_t pll_ref = 25000000u/2; // v1.0.0-rc10-6-g4008185 2020-05-08
+  if (fw_version == 0)
+    pll_ref = 20000000u/2; // v1.0.0-rc10-0-g946184a 2016-09-19
+  else if (fw_version == 1)
+    pll_ref = 25000000u/2; // v1.0.0-rc10-6-g4008185 2020-05-08
+  else
+    pll_ref = 25000000u/2; // assume no changed in newer firmware?
   
   uint32_t lo_freq = rate/2;
   freq_hz += lo_freq;
@@ -205,6 +210,7 @@ int main(int argc, char* argv[])
     uint32_t sample_rate_u32 = 0;
     uint32_t nsrates;
     uint8_t register_value;
+    int8_t fw_version = -1;
 
     uint32_t vga_gain = DEFAULT_VGA_IF_GAIN;
     uint32_t lna_gain = DEFAULT_LNA_GAIN;
@@ -422,7 +428,13 @@ int main(int argc, char* argv[])
         fprintf(stderr, "airspy_version_string_read() failed: %s (%d)\n",
             airspy_error_name((airspy_error)result), result);
     }
-    fprintf(stderr, "Firmware Version: %s\n", airspy_version);
+
+    if (strcmp(airspy_version,"AirSpy NOS v1.0.0-rc10-6-g4008185 2020-05-08") == 0)
+        fw_version = 1;
+    else if (strcmp(airspy_version,"AirSpy NOS v1.0.0-rc10-0-g946184a 2016-09-19") == 0)
+        fw_version = 0;
+
+    fprintf(stderr, "Firmware Version: %s (airspy_to_vrt: %i)\n", airspy_version, fw_version);
 
     result = airspy_set_packing(device, (uint8_t)0);
     if (packing) {
@@ -467,7 +479,7 @@ int main(int argc, char* argv[])
     freq = freq - if_freq;
     
     if (ref) {
-        real_freq = true_freq(freq, sample_rate_u32);
+        real_freq = true_freq(freq, sample_rate_u32, fw_version);
         printf("True frequency (R820T): %f Hz\n",real_freq);
     } else
         real_freq = freq;
