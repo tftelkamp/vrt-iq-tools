@@ -12,8 +12,8 @@
 #include <uhd/types/tune_request.hpp>
 #include <uhd/usrp/multi_usrp.hpp>
 #include <uhd/utils/safe_main.hpp>
-#include <uhd/utils/thread.hpp>
 #include <uhd/types/sensors.hpp>
+#include <boost/thread.hpp>
 #include <boost/format.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
