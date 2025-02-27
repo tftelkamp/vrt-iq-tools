@@ -339,6 +339,11 @@ int main(int argc, char* argv[])
         }
         // Print parsed time
         std::cout << "UTC start time: " << utc_time << std::endl;
+        if (boost::posix_time::second_clock::universal_time() > utc_time) {
+            printf("Start time in the past\n");
+            exit(1);
+        }
+
         t1 = utc_time;
         timed_tx = true;
     }
