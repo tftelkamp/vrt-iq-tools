@@ -78,7 +78,7 @@ int main(int argc, char* argv[])
 {
 
     // variables to be set by po
-    std::string file, auto_file, type, zmq_address, channel_list, author, description;
+    std::string file, auto_file, type, zmq_address, channel_list, author, description, start_reception;
     size_t num_requested_samples, total_time;
     uint16_t instance, main_port, port;
     int hwm;
@@ -104,6 +104,7 @@ int main(int argc, char* argv[])
         ("author", po::value<std::string>(&author), "core:author in sigmf-meta")
         ("description", po::value<std::string>(&description), "core:description in sigmf-meta")
         ("int-second", "align start of reception to integer second")
+        ("start-time", po::value<std::string>(&start_reception), "start reception at given timestamp")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
         ("meta-only", "only create sigmf-meta file")
@@ -140,10 +141,42 @@ int main(int argc, char* argv[])
     bool tracking               = vm.count("tracking") > 0;
     bool do_auto_file           = vm.count("auto-file") > 0;
     bool int_second             = vm.count("int-second") > 0;
+    bool start_at_timestamp     = vm.count("start-time") > 0;
     bool has_author             = vm.count("author") > 0;
     bool has_desc               = vm.count("description") > 0;
     bool vrt                    = vm.count("vrt") > 0;
     bool zmq_split              = vm.count("zmq-split") > 0;
+
+    boost::posix_time::ptime utc_time;
+    if (start_at_timestamp) {
+        // Check for unix time
+        try {
+            boost::lexical_cast<double>(start_reception);
+            double unix_start = boost::lexical_cast<double>(start_reception);
+            utc_time = boost::posix_time::from_time_t(unix_start);
+            double fraction = unix_start - ((int64_t)unix_start);
+            utc_time += boost::posix_time::microseconds((int64_t)(fraction*1000000));
+        } catch (boost::bad_lexical_cast&) {
+            // not unix time
+
+            // Replace 'T' with space
+            size_t t_pos = start_reception.find('T');
+            if (t_pos != std::string::npos) {
+                start_reception[t_pos] = ' ';
+            }
+
+            // Remove 'Z' if present
+            size_t z_pos = start_reception.find('Z');
+            if (z_pos != std::string::npos) {
+                start_reception.erase(z_pos, 1);
+            }
+            
+            // Parse the string into a ptime object
+            utc_time = boost::posix_time::time_from_string(start_reception);
+        }
+        // Print parsed time
+        std::cout << "UTC start time: " << utc_time << std::endl;
+    }
 
     context_type vrt_context;
     dt_ext_context_type dt_ext_context;
@@ -456,6 +489,19 @@ int main(int argc, char* argv[])
             if (vrt_packet.lost_frame)
                if (not continue_on_bad_packet)
                     break;
+
+            if (start_at_timestamp) {
+                boost::posix_time::ptime vrt_timestamp = boost::posix_time::from_time_t(vrt_packet.integer_seconds_timestamp);
+                vrt_timestamp += boost::posix_time::microseconds((int64_t)vrt_packet.fractional_seconds_timestamp/1000000);
+                // std::cout << "vrt time: " << vrt_timestamp << std::endl;
+                if (vrt_timestamp <= utc_time) {
+                    continue;
+                } else {
+                    start_at_timestamp = false;
+                    last_update = now;
+                    start_time = now;
+                }
+            }
 
             if (int_second) {
                 // check if fractional second has wrapped

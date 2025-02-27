@@ -72,7 +72,7 @@ void sig_int_handler(int)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string ref, file, time_cal, type, start_time_str, zmq_address;
+    std::string ref, file, time_cal, type, start_time_str, zmq_address, start_tx_str;
     size_t total_num_samps, tx_int;
     uint16_t port, tx_buffer_size;
     uint32_t stream_id;
@@ -104,6 +104,7 @@ int main(int argc, char* argv[])
         // ("dual-chan", "use two SigMF files for dual channel stream (chan0+chan1)")
         ("progress", "periodically display short-term bandwidth")
         ("timed-tx", "Start transmission at given time (SigMF)")
+        ("start-time", po::value<std::string>(&start_tx_str), "start transmission at given timestamp")
         ("tx-interval", po::value<size_t>(&tx_int)->default_value(0), "start transmission at multiple of interval")
         ("stats", "show average bandwidth on exit")
         ("null", "run without streaming")
@@ -141,6 +142,7 @@ int main(int argc, char* argv[])
     bool repeat                 = vm.count("repeat") > 0;
     bool read_stdin             = vm.count("stdin") > 0;
     bool timed_tx               = vm.count("timed-tx") > 0;
+    bool start_at_timestamp     = vm.count("start-time") > 0;
     bool send_context           = true;
 
     size_t filesize = 0;
@@ -305,6 +307,40 @@ int main(int argc, char* argv[])
         time_t integer_time_tx = tx_int*(boost::posix_time::to_time_t(t1) / tx_int) + tx_int;
         printf("tx time: %li\n", integer_time_tx);
         t1 = boost::posix_time::from_time_t(integer_time_tx);
+    }
+
+    if (start_at_timestamp) {
+
+        boost::posix_time::ptime utc_time;
+        // Check for unix time
+        try {
+            boost::lexical_cast<double>(start_tx_str);
+            double unix_start = boost::lexical_cast<double>(start_tx_str);
+            utc_time = boost::posix_time::from_time_t(unix_start);
+            double fraction = unix_start - ((int64_t)unix_start);
+            utc_time += boost::posix_time::microseconds((int64_t)(fraction*1000000));
+        } catch (boost::bad_lexical_cast&) {
+            // not unix time
+
+            // Replace 'T' with space
+            size_t t_pos = start_tx_str.find('T');
+            if (t_pos != std::string::npos) {
+                start_tx_str[t_pos] = ' ';
+            }
+
+            // Remove 'Z' if present
+            size_t z_pos = start_tx_str.find('Z');
+            if (z_pos != std::string::npos) {
+                start_tx_str.erase(z_pos, 1);
+            }
+            
+            // Parse the string into a ptime object
+            utc_time = boost::posix_time::time_from_string(start_tx_str);
+        }
+        // Print parsed time
+        std::cout << "UTC start time: " << utc_time << std::endl;
+        t1 = utc_time;
+        timed_tx = true;
     }
 
     time_t integer_time_first_sample = boost::posix_time::to_time_t(t1);
