@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <cmath>
 
 #include <boost/format.hpp>
 #include <boost/lexical_cast.hpp>
