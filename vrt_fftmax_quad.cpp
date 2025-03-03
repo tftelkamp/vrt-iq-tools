@@ -93,6 +93,7 @@ int main(int argc, char* argv[])
         ("progress", "periodically display short-term bandwidth")
         ("channel", po::value<uint32_t>(&channel)->default_value(0), "VRT channel")
         // ("stats", "show average bandwidth on exit")
+        ("squared", "square samples")
         ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
         ("continue", "don't abort on a bad packet")
@@ -121,6 +122,7 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
+    bool squared                = (bool)vm.count("squared");
     // bool ignore_dc              = (bool)vm.count("ignore-dc");
 
     context_type vrt_context;
@@ -239,8 +241,13 @@ int main(int argc, char* argv[])
                         double real2 = real * real - imag * imag;
                         double imag2 = 2 * real * imag;
 
-                        signal[i][REAL] = mult * (real2 * real2 - imag2 * imag2);
-                        signal[i][IMAG] = mult * 2 * real2 * imag2;
+                        if (!squared) {
+                            signal[i][REAL] = mult * (real2 * real2 - imag2 * imag2);
+                            signal[i][IMAG] = mult * 2 * real2 * imag2;
+                        } else {
+                            signal[i][REAL] = mult * real2;
+                            signal[i][IMAG] = mult * imag2;
+                        }
 
                         mult *= -1;
                     }
