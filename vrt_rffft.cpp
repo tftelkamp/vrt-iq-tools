@@ -95,7 +95,7 @@ void usage(void)
 int main(int argc, char* argv[])
 {
   int i,j,k,l,nchan,m=0,nint=1,nsub=60,flag,nuse=1,imin,imax,partial=0;
-  fftwf_complex *c,*d,*ct;
+  fftwf_complex *c,*d;
   fftwf_plan fft;
   FILE *outfile;
   char outfname[128]="",prefix[32]="";
@@ -135,8 +135,8 @@ int main(int argc, char* argv[])
       ("freq-min", po::value<double>(&freqmin), "Frequency range to store (Hz)")
       ("freq-max", po::value<double>(&freqmax), "Frequency range to store (Hz)")
       ("progress", "periodically display short-term bandwidth")
-    ("two", "square signal before processing (to detect BPSK signals)")
-    ("four", "square-square signal before processing (to detect QPSK signals")
+      ("two", "square signal before processing (to detect BPSK signals)")
+      ("four", "square-square signal before processing (to detect QPSK signals")
       ("int-second", "align start of reception to integer second")
       ("quiet", "Quiet mode, no output")
       ("continue", "don't abort on a bad packet")
@@ -165,7 +165,7 @@ int main(int argc, char* argv[])
   bool useoutput              = vm.count("output") > 0;
   bool quiet                  = vm.count("quiet") > 0;
   bool flag_x2                = vm.count("two") > 0;
-  bool flag_x4                = vm.count("four") > 0;  
+  bool flag_x4                = vm.count("four") > 0;
 
   context_type vrt_context;
   init_context(&vrt_context);
@@ -341,29 +341,29 @@ int main(int argc, char* argv[])
               signal_pointer++;
 
               if (signal_pointer >= nchan) {
-
+                  float square_real, square_imag;
                   signal_pointer = 0;
 
-		  // Square once
-		  if (flag_x2 || flag_x4) {
-		    for (uint32_t i = 0; i < nchan; i++) {
-		      ct[0] = c[i][0] * c[i][0] - c[i][1] * c[i][1];
-		      ct[1] = 2 * c[i][0] * c[i][1];
-		      c[i][0] = ct[0];
-		      c[i][1] = ct[1];
-		    }
-		  }
+                  // Square once
+                  if (flag_x2 || flag_x4) {
+                    for (uint32_t i = 0; i < nchan; i++) {
+                      square_real = c[i][0] * c[i][0] - c[i][1] * c[i][1];
+                      square_imag = 2 * c[i][0] * c[i][1];
+                      c[i][0] = square_real;
+                      c[i][1] = square_imag;
+                    }
+                  }
 
-		  // Square twice
-		  if (flag_x4) {
-		    for (uint32_t i = 0; i < nchan; i++) {
-		      ct[0] = c[i][0] * c[i][0] - c[i][1] * c[i][1];
-		      ct[1] = 2 * c[i][0] * c[i][1];
-		      c[i][0] = ct[0];
-		      c[i][1] = ct[1];
-		    }
-		  }
-		  
+                  // Square twice
+                  if (flag_x4) {
+                    for (uint32_t i = 0; i < nchan; i++) {
+                      square_real = c[i][0] * c[i][0] - c[i][1] * c[i][1];
+                      square_imag = 2 * c[i][0] * c[i][1];
+                      c[i][0] = square_real;
+                      c[i][1] = square_imag;
+                    }
+                  }
+
                   // Execute
                   fftwf_execute(fft);
 
@@ -403,11 +403,11 @@ int main(int argc, char* argv[])
                     strftime(tbuf,30,"%Y-%m-%dT%T",gmtime(&start.tv_sec));
                     sprintf(nfd,"%s.%03ld",tbuf,start.tv_usec/1000);
 
-		    if (flag_x2)
-		      fac=2;
-		    else if (flag_x4)
-		      fac=4;
-		    
+                    if (flag_x2)
+                      fac=2;
+                    else if (flag_x4)
+                      fac=4;
+
                     // Header
                     if (partial==0) {
                       if (outformat=='f')
