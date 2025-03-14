@@ -179,7 +179,7 @@ int main(int argc, char* argv[])
         printf("      Start time: %s\n", start_time_str.c_str());
         printf("     Sample rate: %i\n", (int)rate);
         printf("            Gain: %i\n", (int)gain);
-        printf("       Frequency: %i\n", (int)freq);
+        printf("       Frequency: %i\n", (int64_t)freq);
         printf("       Data type: %s\n", type.c_str());
         printf("       Stream ID: %u\n", stream_id);
 

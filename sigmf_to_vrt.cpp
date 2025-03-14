@@ -170,7 +170,7 @@ int main(int argc, char* argv[])
     printf("SigMF meta data:\n");
     printf("    Start time: %s\n", start_time_str.c_str());
     printf("    Sample rate: %i\n", (int)rate);
-    printf("    Frequency: %i\n", (int)freq);
+    printf("    Frequency: %i\n", (int64_t)freq);
     printf("    Reference: %s\n", ref.c_str());
     printf("    Time calibration: %s\n", time_cal.c_str());
     printf("    Data type: %s\n", type.c_str());
