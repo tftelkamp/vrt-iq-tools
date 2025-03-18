@@ -341,7 +341,7 @@ int main(int argc, char* argv[])
             alpha2 = (std::complex<float>)complexi*polyfir_channel*2.0f*(float)pi/(float(decimation));
 
             int M = decimation;
-            int L = vrt_packet.num_rx_samps;
+            int L = VRT_SAMPLES_PER_PACKET;
 
             x = (std::complex<float>*)malloc(sizeof(std::complex<float>)*(M+L+num_taps));
             y = (std::complex<float>*)malloc(sizeof(std::complex<float>)*(L/M));
@@ -349,8 +349,7 @@ int main(int argc, char* argv[])
 
             for (uint32_t i = 0; i < M+L+num_taps; i++)
                 x[i] = std::complex<float>(0,0);
-
-            continue;
+            
         }
 
         if (start_rx and vrt_packet.context) {
