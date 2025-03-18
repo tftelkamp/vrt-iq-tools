@@ -222,6 +222,9 @@ int main(int argc, char* argv[])
 
     bool first_context = true;
 
+    uint64_t next_integer_seconds_timestamp = 0;
+    uint64_t next_fractional_seconds_timestamp = 0;
+
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
            and (total_time == 0.0 or std::chrono::steady_clock::now() <= stop_time)) {
@@ -488,15 +491,23 @@ int main(int argc, char* argv[])
                 iq_counter++;
             }
 
+            if (next_integer_seconds_timestamp == 0) {
+                next_integer_seconds_timestamp = vrt_packet.integer_seconds_timestamp;
+                next_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
+            }
+
             if (iq_counter==VRT_SAMPLES_PER_PACKET) {
 
                 iq_counter = 0;
                 t_samp = 0;
 
-                p.fields.integer_seconds_timestamp = vrt_packet.integer_seconds_timestamp;
-                p.fields.fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
+                p.fields.integer_seconds_timestamp = next_integer_seconds_timestamp;
+                p.fields.fractional_seconds_timestamp = next_fractional_seconds_timestamp;
                 p.header.packet_count = (uint8_t)frame_count%16;
                 frame_count++;
+
+                next_integer_seconds_timestamp = 0;
+                next_fractional_seconds_timestamp = 0;
 
                 p.body = (char*)iq_buff;
                 p.fields.stream_id = 1;
