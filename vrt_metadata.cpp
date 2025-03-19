@@ -174,9 +174,9 @@ int main(int argc, char* argv[])
 
     uint32_t buffer[ZMQ_BUFFER_SIZE];
 
-    unsigned long long num_total_samps = 0;
-    int32_t samples_per_update = 0;
-    int32_t samples_last_update = 0;
+    int64_t num_total_samps = 0;
+    int64_t samples_per_update = 0;
+    int64_t samples_last_update = 0;
 
     // Track time and samps between updating the BW summary
     auto last_update                     = start_time;
