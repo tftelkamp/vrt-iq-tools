@@ -397,7 +397,7 @@ int main(int argc, char* argv[])
             start_time = now;
         } else {
             // wait
-            auto wait_time = start_time - std::chrono::milliseconds(200) + std::chrono::microseconds((frame_count-tx_buffer_size)*update_interval) - now;
+            auto wait_time = start_time + std::chrono::milliseconds(200) + std::chrono::microseconds((frame_count-tx_buffer_size)*update_interval) - now;
             if (wait_time > std::chrono::microseconds(0))
                 std::this_thread::sleep_for(wait_time);
         }
