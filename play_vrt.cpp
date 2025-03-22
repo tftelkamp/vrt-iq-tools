@@ -395,7 +395,7 @@ int main(int argc, char* argv[])
         if (frame_count < tx_buffer_size) {
             // don't wait
             start_time = now;
-        } else {
+        } else if (frame_count > 0) {
             // wait
             auto wait_time = start_time + std::chrono::milliseconds(200) + std::chrono::microseconds((frame_count-tx_buffer_size)*update_interval) - now;
             if (wait_time > std::chrono::microseconds(0))
