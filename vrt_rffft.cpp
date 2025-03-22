@@ -275,6 +275,7 @@ int main(int argc, char* argv[])
       }
 
       if (start_rx and vrt_packet.data) {
+          freq = vrt_context.rf_freq;
 
           if (vrt_packet.lost_frame)
              if (not continue_on_bad_packet)
