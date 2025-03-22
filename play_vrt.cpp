@@ -371,7 +371,7 @@ int main(int argc, char* argv[])
         long nsec=time_since_epoch.fractional_seconds()*(1000000000/time_since_epoch.ticks_per_second());
         auto chrono_t1 = t_temp + std::chrono::nanoseconds(nsec);
 
-        auto wait_time = chrono_t1 - std::chrono::system_clock::now() - std::chrono::milliseconds(150);
+        auto wait_time = chrono_t1 - std::chrono::system_clock::now() - std::chrono::milliseconds(350);
 
         if (wait_time > std::chrono::microseconds(0))
             std::this_thread::sleep_for(wait_time);
@@ -397,7 +397,7 @@ int main(int argc, char* argv[])
             start_time = now;
         } else {
             // wait
-            auto wait_time = start_time + std::chrono::microseconds((frame_count-tx_buffer_size)*update_interval) - now;
+            auto wait_time = start_time - std::chrono::milliseconds(200) + std::chrono::microseconds((frame_count-tx_buffer_size)*update_interval) - now;
             if (wait_time > std::chrono::microseconds(0))
                 std::this_thread::sleep_for(wait_time);
         }
