@@ -158,6 +158,8 @@ int main(int argc, char* argv[])
         ("source", po::value<std::string>(&source), "Source description (ECSV and gnuplot)")
         ("gnuplot", "Gnuplot mode")
         ("fftmax", "fftmax mode")
+        ("two", "square signal before processing (to detect BPSK signals)")
+        ("four", "square-square signal before processing (to detect QPSK signals")
         ("wola", "apply Weighted OverLap Add method")
         ("wola-partitions", po::value<uint32_t>(&wola_partitions)->default_value(4), "number of WOLA partitions")
         ("min-offset", po::value<double>(&min_offset), "min. freq. offset to track (Hz)")
@@ -217,6 +219,8 @@ int main(int argc, char* argv[])
     bool has_source             = vm.count("source") > 0;
     bool zmq_split              = vm.count("zmq-split") > 0;
     bool wola                   = vm.count("wola") > 0;
+    bool flag_x2                = vm.count("two") > 0;
+    bool flag_x4                = vm.count("four") > 0;  
 
     if (iir) {
         alpha = (1.0 - exp(-1/(tau/integration_time)));
@@ -224,6 +228,14 @@ int main(int argc, char* argv[])
 
     if (int_interval && int(integration_time) == 0) {
         throw(std::runtime_error("--int-interval requires --integration_time > 1"));
+    }
+
+    double freq_div;
+
+    if (flag_x2 || flag_x4) {
+        freq_div = (flag_x4) ? 4 : 2;
+    } else {
+        freq_div = 1;
     }
 
     context_type vrt_context;
@@ -441,7 +453,7 @@ int main(int argc, char* argv[])
                     printf("# - {name: max_power, datatype: float64}\n");
                 } else {
                     for (uint32_t i = 0; i < num_bins; ++i) {
-                            printf("# - {name: \'%.0f\', datatype: float64}\n", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
+                            printf("# - {name: \'%.0f\', datatype: float64}\n", (double)((double)vrt_context.rf_freq + (i*binsize - vrt_context.sample_rate/2)/freq_div));
                     }
                 }
                 printf("# schema: astropy-2.0\n");
@@ -460,7 +472,7 @@ int main(int argc, char* argv[])
                     printf(", max_frequency, max_power");
                 } else {
                     for (uint32_t i = 0; i < num_bins; ++i) {
-                            printf(", %.0f", (double)((double)vrt_context.rf_freq + i*binsize - vrt_context.sample_rate/2));
+                            printf(", %.0f", (double)((double)vrt_context.rf_freq + (i*binsize - vrt_context.sample_rate/2)/freq_div));
                     }
                 }
                 printf("\n");
@@ -518,6 +530,28 @@ int main(int argc, char* argv[])
                     if (frac_seconds > 1e12) {
                         frac_seconds -= 1e12;
                         seconds++;
+                    }
+
+                    // (double) square signal
+                    if (flag_x2 || flag_x4) {
+                        int mult = 1;
+                        for (uint32_t i = 0; i < num_bins; i++) {
+
+                            double real = signal[i][REAL];
+                            double imag = signal[i][IMAG];
+
+                            double real2 = real * real - imag * imag;
+                            double imag2 = 2 * real * imag;
+
+                            if (flag_x4) {
+                                signal[i][REAL] = mult*(real2 * real2 - imag2 * imag2);
+                                signal[i][IMAG] = mult*(2 * real2 * imag2);
+                            } else {
+                                signal[i][REAL] = mult*real2;
+                                signal[i][IMAG] = mult*imag2;
+                            }
+                            mult *= -1;
+                        }
                     }
 
                     if (num_bins > 1) {
@@ -681,7 +715,7 @@ int main(int argc, char* argv[])
                                 }
                             }
                             if (fftmax) {
-                                printf(", %.2f", (double)((double)vrt_context.rf_freq + max_i*binsize - vrt_context.sample_rate/2));
+                                printf(", %.2f", (double)vrt_context.rf_freq + (max_i*binsize - vrt_context.sample_rate/2)/freq_div);
                                 printf(", %.3f", max_power);
                             }
                             if (not binary)
@@ -693,7 +727,7 @@ int main(int argc, char* argv[])
 
                             float scale = 1e6; // MHz
 
-                            float ticks = vrt_context.sample_rate/(4*scale);
+                            float ticks = (vrt_context.sample_rate/freq_div)/(4*scale);
                             printf("set term %s 1 noraise; set xtics %f; set xlabel \"Frequency (MHz)\"; set ylabel \"Power (dB)\"; ", gnuplot_terminal.c_str(), ticks);
                             printf("%s; ", gnuplot_commands.c_str());
                             if (has_source) {
@@ -730,7 +764,7 @@ int main(int argc, char* argv[])
                                     filter_out[i] = magnitudes[i];
                                 }
                                 double offset = i*binsize - vrt_context.sample_rate/2;
-                                double freq = ((double)vrt_context.rf_freq + offset)/scale;
+                                double freq = ((double)vrt_context.rf_freq + offset/freq_div)/scale;
 
                                 double correction = 0;
 
