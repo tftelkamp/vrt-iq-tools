@@ -244,8 +244,15 @@ int main(int argc, char* argv[])
             start_rx = true;
 
             if (tracking) {
-                frequency = tracker_ext_context.frequency+tracker_ext_context.doppler+freq_offset;
+                if (tracker_ext_context.frequency == 0) {
+                    double scale_freq = (double)vrt_context.rf_freq/1e9;
+                    frequency = (double)vrt_context.rf_freq+tracker_ext_context.doppler*scale_freq+freq_offset;
+                } else {
+                    frequency = tracker_ext_context.frequency+tracker_ext_context.doppler+freq_offset;
+                }
                 doppler_rate = tracker_ext_context.doppler_rate;
+                if (strcmp(tracker_ext_context.tracking_source, "LSR") == 0)
+                    printf("# LSR mode.\n");
                 printf("# Setting freq. to %f Hz with %f Hz/s dopppler rate for \"%.32s\" (source \"%.32s\")\n",
                     frequency, tracker_ext_context.doppler_rate, tracker_ext_context.object_name, tracker_ext_context.tracking_source);
             }
@@ -366,7 +373,10 @@ int main(int argc, char* argv[])
             pc.fields.fractional_seconds_timestamp = vrt_context.fractional_seconds_timestamp;
 
             double doppler_offset = total_phase/(double)vrt_context.sample_rate;
-            pc.if_context.rf_reference_frequency = (double)vrt_context.rf_freq+(double)freq_offset-doppler_offset;
+            if (strcmp(tracker_ext_context.tracking_source, "LSR") == 0)
+                pc.if_context.rf_reference_frequency = (double)vrt_context.rf_freq;
+            else
+                pc.if_context.rf_reference_frequency = (double)vrt_context.rf_freq+(double)freq_offset-doppler_offset;
 
             if (doppler_rate!=0 || first_context) {
                 pc.if_context.context_field_change_indicator = true;
