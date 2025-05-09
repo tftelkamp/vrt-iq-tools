@@ -119,7 +119,7 @@ int main(int argc, char* argv[])
     size_t num_requested_samples;
     uint32_t bins, updates_per_second;
     double total_time;
-    uint32_t integrations;
+    uint32_t integrations, num_integrations;
     uint16_t instance, main_port, port;
     uint32_t channel;
     int hwm;
@@ -153,6 +153,7 @@ int main(int argc, char* argv[])
         ("power2", po::value<bool>(&power2)->default_value(false), "Round number of bins to nearest power of two")
         ("integrations", po::value<uint32_t>(&integrations), "number of integrations")
         ("integration-time", po::value<float>(&integration_time)->default_value(1.0), "integration time (seconds)")
+        ("num-integrations", po::value<uint32_t>(&num_integrations)->default_value(0), "exit after number of integrations")
         ("tau", po::value<double>(&tau), "Exponential weighted moving average time constant (sec)")
         ("poly", po::value<std::vector<double> >(&poly)->multitoken(), "Polynomal coefficients to compensate bandpass")
         ("source", po::value<std::string>(&source), "Source description (ECSV and gnuplot)")
@@ -288,6 +289,7 @@ int main(int argc, char* argv[])
 
     uint32_t signal_pointer = 0;
     uint32_t integration_counter = 0;
+    uint32_t num_integrations_counter = 0;
 
     if (binary) {
         outfile=fopen(file.c_str(),"w");
@@ -591,6 +593,7 @@ int main(int argc, char* argv[])
 
                     integration_counter++;
                     if (integration_counter == integrations) {
+                        num_integrations_counter++;
                         if (!gnuplot) {
                             if (binary) {
                                 double timestamp = (double)seconds + (double)(frac_seconds/1e12);
@@ -805,6 +808,8 @@ int main(int argc, char* argv[])
                         else
                             fflush(stdout);
                     }
+                    if ( (num_integrations > 0) && (num_integrations_counter == num_integrations))
+                        stop_signal_called = true;
                 }
             }
 
