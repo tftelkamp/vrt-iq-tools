@@ -44,7 +44,7 @@ void sig_int_handler(int)
     stop_signal_called = true;
 }
 
-//! Change to filename, e.g. from usrp_samples.dat to usrp_samples.chan0.dat,
+//! Change to filename, e.g. from vrt_samples.dat to vrt_samples.chan0.dat,
 //  but only if multiple names are to be generated.
 std::string generate_out_filename(
     const std::string& base_fn, size_t n_names, size_t this_name, bool vrt=false)
@@ -57,6 +57,37 @@ std::string generate_out_filename(
     base_fn_fp.replace_extension(boost::filesystem::path(
         str(boost::format("chan%d%s") % this_name % base_fn_fp.extension().string())));
     return base_fn_fp.string();
+}
+
+// Return whether a .sigmf-data of .sigmf-vrt exists and is larger than zero bytes
+bool vrt_data_file_exists(std::string base_filename) {
+    std::vector<std::string> extensions = {".sigmf-data", ".sigmf-vrt"};
+    for (auto extension : extensions) {
+        bool exists = boost::filesystem::exists(boost::filesystem::path(base_filename + extension));
+        exists = exists and boost::filesystem::file_size(boost::filesystem::path(base_filename + extension)) > 0;
+        if (exists) {
+            return true;
+        }
+    }
+    return false;
+}
+
+//! Get suffix  _1, _2 so that base_filename_suffix does not overwrite existing data
+std::string generate_nonexisting_base_filename_suffix(std::string base_filename, bool multiple_chans) {
+    if (multiple_chans) {
+        base_filename = generate_out_filename(base_filename, 2, 0);
+    }
+
+    if (not vrt_data_file_exists(base_filename)) {
+        return "";
+    } else {
+        for (int i=1;; i++) {
+            std::string new_basename = base_filename + "_" + std::to_string(i);
+            if (not vrt_data_file_exists(new_basename)) {
+                return "_" + std::to_string(i);
+            }
+        }
+    }
 }
 
 template <typename samp_type> inline float get_abs_val(samp_type t)
@@ -218,6 +249,9 @@ int main(int argc, char* argv[])
 
     std::string mdfilename;
     std::ofstream mdfile;
+
+    file += generate_nonexisting_base_filename_suffix(file, (not vrt) and (channel_nums.size() > 1));
+
     mdfilename = file + ".sigmf-meta";
     if (vrt)
         file = file + ".sigmf-vrt";
