@@ -59,15 +59,12 @@ std::string generate_out_filename(
     return base_fn_fp.string();
 }
 
-// Return whether a .sigmf-data of .sigmf-vrt exists and is larger than zero bytes
+// Return whether a .sigmf-data of .sigmf-vrt exists
 bool vrt_data_file_exists(std::string base_filename) {
     std::vector<std::string> extensions = {".sigmf-data", ".sigmf-vrt"};
     for (auto extension : extensions) {
-        bool exists = boost::filesystem::exists(boost::filesystem::path(base_filename + extension));
-        exists = exists and boost::filesystem::file_size(boost::filesystem::path(base_filename + extension)) > 0;
-        if (exists) {
+        if (boost::filesystem::exists(boost::filesystem::path(base_filename + extension)))
             return true;
-        }
     }
     return false;
 }
@@ -201,7 +198,7 @@ int main(int argc, char* argv[])
             if (z_pos != std::string::npos) {
                 start_reception.erase(z_pos, 1);
             }
-            
+
             // Parse the string into a ptime object
             utc_time = boost::posix_time::time_from_string(start_reception);
         }
@@ -244,7 +241,9 @@ int main(int argc, char* argv[])
         vrt_packet.channel_filt = 1;
     }
 
-    std::vector<std::shared_ptr<std::ofstream>> outfiles;
+    std::vector<std::string> data_filenames;
+    std::vector<std::shared_ptr<std::ofstream>> datafiles;
+    std::vector<std::string> meta_filenames;
     std::vector<std::shared_ptr<std::ofstream>> metafiles;
 
     std::string mdfilename;
@@ -262,13 +261,15 @@ int main(int argc, char* argv[])
         for (size_t i = 0; i < channel_nums.size(); i++) {
             if (vrt and i > 0) break; // Only one data and metadata file for VRT
             const std::string meta_filename = generate_out_filename(mdfilename, channel_nums.size(), channel_nums[i], vrt);
+            meta_filenames.push_back(meta_filename);
             metafiles.push_back(std::shared_ptr<std::ofstream>(
                 new std::ofstream(meta_filename.c_str())));
 
             if (not meta_only) {
-                const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i], vrt);
-                outfiles.push_back(std::shared_ptr<std::ofstream>(
-                    new std::ofstream(this_filename.c_str(), std::ofstream::binary)));
+                const std::string data_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i], vrt);
+                data_filenames.push_back(data_filename);
+                datafiles.push_back(std::shared_ptr<std::ofstream>(
+                    new std::ofstream(data_filename.c_str(), std::ofstream::binary)));
             }
     }
 
@@ -335,7 +336,7 @@ int main(int argc, char* argv[])
         }
 
         if (vrt and not null and not meta_only)
-            outfiles[0]->write((const char*)&buffer, len);
+            datafiles[0]->write((const char*)&buffer, len);
 
         if ( not (context_recv & vrt_packet.stream_id) and vrt_packet.context
              and not first_frame and not (dt_trace and not dt_ext_context.dt_ext_context_received)
@@ -566,7 +567,7 @@ int main(int argc, char* argv[])
 
             // Write to file
             if (not vrt and not null and not meta_only) {
-                outfiles[ch]->write(
+                datafiles[ch]->write(
                     (const char*)&buffer[vrt_packet.offset], sizeof(uint32_t)*vrt_packet.num_rx_samps);
             }
 
@@ -612,17 +613,17 @@ int main(int argc, char* argv[])
 
     }
 
-    for (size_t i = 0; i < outfiles.size(); i++)
-        outfiles[i]->close();
+    for (size_t i = 0; i < datafiles.size(); i++)
+        datafiles[i]->close();
 
     // Auto file
-    if (do_auto_file) {
+    if (context_recv and do_auto_file) {
         boost::format auto_format;
         boost::posix_time::ptime starttime = boost::posix_time::from_time_t(vrt_context.starttime_integer);
         std::string timestring = boost::posix_time::to_iso_extended_string(starttime);
         std::replace( timestring.begin(), timestring.end(), ':', '_');
         std::replace( timestring.begin(), timestring.end(), '-', '_');
-        std::replace( timestring.begin(), timestring.end(), 'T', '_');
+        std::replace(timestring.begin(), timestring.end(), 'T', '_');
         auto_format = boost::format("%s_%s_%.3fMHz_%.2fMsps_ci16_le")
                     % (auto_file)
                     % (timestring)
@@ -645,12 +646,20 @@ int main(int argc, char* argv[])
 
                 if (not meta_only) {
                     if (vrt and i > 0) break; // Only one data file for VRT
-                    const std::string this_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i], vrt);
-                    const std::string this_auto_filename = generate_out_filename(auto_bin_file, channel_nums.size(), channel_nums[i], vrt);
-                    boost::filesystem::rename( this_filename, this_auto_filename );
+                    const std::string data_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i], vrt);
+                    const std::string data_auto_filename = generate_out_filename(auto_bin_file, channel_nums.size(), channel_nums[i], vrt);
+                    boost::filesystem::rename(data_filename, data_auto_filename );
                 }
 
         }
+    }
+
+    // Clean up empty files
+    if (not context_recv) {
+        for (std::string& meta_filename : meta_filenames)
+            boost::filesystem::remove(meta_filename);
+        for (std::string& data_filename : data_filenames)
+            boost::filesystem::remove(data_filename);
     }
 
     zmq_close(subscriber);
