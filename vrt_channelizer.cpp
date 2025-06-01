@@ -261,16 +261,16 @@ int main(int argc, char* argv[])
                 freq_offset = frequency-(double)vrt_context.rf_freq;
             }
 
-            // check for valid bandwidth
-            if ( fmod((float)vrt_context.sample_rate,bandwidth) != 0) {
-                printf("bandwidth needs to be a divisor of the sample rate (%u).\n", vrt_context.sample_rate);
-                exit(1);
-            }
-
             if (bandwidth > 0) {
                 decimation = vrt_context.sample_rate/bandwidth;
             } else {
                 bandwidth = vrt_context.sample_rate/decimation;
+            }
+
+            // check for valid bandwidth
+            if ( fmod((float)vrt_context.sample_rate,bandwidth) != 0) {
+                printf("bandwidth needs to be a divisor of the sample rate (%u).\n", vrt_context.sample_rate);
+                exit(1);
             }
 
             // check for valid frequency offset
