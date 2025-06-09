@@ -932,6 +932,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool overflow_message = true;
     bool first_frame = true;
 
+    bool ref_locked = true;
+    bool ref_locked_state = true;
+
     // time keeping
     auto start_time = std::chrono::steady_clock::now();
     // auto stop_time =
@@ -1041,6 +1044,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             for (size_t ch = 0; ch < channel_nums.size(); ch++) {
                 size_t channel = channel_nums[ch];
 
+                if (ref == "external") {
+                    ref_locked = usrp->get_mboard_sensor("ref_locked").to_bool();
+                    if (ref_locked_state != ref_locked) {
+                        context_changed = true;
+                        ref_locked_state = ref_locked;
+                        printf("External reference lock state changed: %s\n", (ref_locked ? "locked" : "unlocked"));
+                    }
+                }
+
                 if (enable_temp) {
                     uhd::sensor_value_t temp = usrp->get_rx_sensor("temp", channel);
                     pc.if_context.has.temperature = true;
@@ -1071,7 +1083,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 pc.if_context.gain.stage2                       = 0;
 
                 pc.if_context.state_and_event_indicators.has.reference_lock = true;
-                pc.if_context.state_and_event_indicators.reference_lock = ((ref == "external") or (ref=="gpsdo"));
+                pc.if_context.state_and_event_indicators.reference_lock = (((ref == "external") or (ref=="gpsdo")) and ref_locked);
 
                 pc.if_context.state_and_event_indicators.has.calibrated_time = true;
                 pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (ref=="gpsdo"));
