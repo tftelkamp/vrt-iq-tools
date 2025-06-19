@@ -582,13 +582,6 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
               << std::endl;
     uhd::usrp::multi_usrp::sptr usrp = uhd::usrp::multi_usrp::make(args);
 
-     // create a receive streamer
-    const std::string& cpu_format = "sc16";
-    const std::string& wire_format = "sc16";
-    uhd::stream_args_t stream_args(cpu_format, wire_format);
-    stream_args.channels             = channel_nums;
-    uhd::rx_streamer::sptr rx_stream = usrp->get_rx_stream(stream_args);
-
     // Lock mboard clocks
     if (vm.count("ref")) {
         usrp->set_clock_source(ref);
@@ -619,6 +612,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         } else
             channel_nums.push_back(std::stoi(channel_strings[ch]));
     }
+
+    // create a receive streamer
+    const std::string& cpu_format = "sc16";
+    const std::string& wire_format = "sc16";
+    uhd::stream_args_t stream_args(cpu_format, wire_format);
+    stream_args.channels             = channel_nums;
+    uhd::rx_streamer::sptr rx_stream = usrp->get_rx_stream(stream_args);
 
     // set the sample rate
     if (rate <= 0.0) {
