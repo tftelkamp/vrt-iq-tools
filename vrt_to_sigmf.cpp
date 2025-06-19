@@ -482,7 +482,7 @@ int main(int argc, char* argv[])
                     "    \"captures\": [\n"
                     "        {\n"
                     "            \"core:sample_start\": 0,\n"
-                    "            \"core:frequency\": %u,\n"
+                    "            \"core:frequency\": %.0f,\n"
                     "            \"core:datetime\": \"%s.%06.0f\"\n"
                     "        }\n"
                     "    ]\n"
