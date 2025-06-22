@@ -529,7 +529,7 @@ int main(int argc, char* argv[])
                 boost::posix_time::ptime vrt_timestamp = boost::posix_time::from_time_t(vrt_packet.integer_seconds_timestamp);
                 vrt_timestamp += boost::posix_time::microseconds((int64_t)vrt_packet.fractional_seconds_timestamp/1000000);
                 // std::cout << "vrt time: " << vrt_timestamp << std::endl;
-                if (vrt_timestamp <= utc_time) {
+                if (vrt_timestamp < utc_time) {
                     continue;
                 } else {
                     start_at_timestamp = false;
