@@ -304,4 +304,44 @@ void vrt_init_context_packet(struct vrt_packet* pc) {
 
 }
 
+void show_progress_stats(
+    std::chrono::time_point<std::chrono::steady_clock> now,
+    std::chrono::time_point<std::chrono::steady_clock> *last_update,
+    uint64_t *last_update_samps,
+    uint32_t *buffer,
+    size_t num_rx_samps,
+    uint32_t channel) {
+
+    *last_update_samps += num_rx_samps;
+
+    const auto time_since_last_update = now - *last_update;
+    if (time_since_last_update > std::chrono::seconds(1)) {
+        const double time_since_last_update_s =
+            std::chrono::duration<double>(time_since_last_update).count();
+        const double rate = double(*last_update_samps) / time_since_last_update_s;
+        *last_update_samps = 0;
+        *last_update       = now;
+
+        double max_iq = 0;
+        uint32_t clip_iq = 0;
+
+        double datatype_max = 32767.;
+
+        for (int i=0; i < num_rx_samps; i++ ) {
+            std::complex<int16_t> sample = (std::complex<int16_t>)buffer[i];
+            max_iq = fmax(max_iq, fmax(fabs(sample.real()), fabs(sample.imag())));
+            if (fabs(sample.real()) > datatype_max*0.99 || fabs(sample.imag()) > datatype_max*0.99)
+                clip_iq++;
+        }
+        std::cout << "\t" << (rate / 1e6) << " Msps, ";
+        std::cout << "CH" << boost::format("%u") % channel << ": ";
+        std::cout << boost::format("%.0f") % (20*log10(max_iq/datatype_max)) << " dBFS (";
+        std::cout << boost::format("%.0f") % ceil(log2(max_iq)+1) << "/";
+        std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
+        std::cout << "" << boost::format("%.0f") % (100.0*clip_iq/num_rx_samps) << "% clip. ";
+        std::cout << std::endl;
+    }
+
+}
+
 #endif

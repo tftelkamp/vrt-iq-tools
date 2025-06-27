@@ -42,21 +42,6 @@ void sig_int_handler(int)
     stop_signal_called = true;
 }
 
-template <typename samp_type> inline float get_abs_val(samp_type t)
-{
-    return std::fabs(t);
-}
-
-inline float get_abs_val(std::complex<int16_t> t)
-{
-    return std::fabs(t.real());
-}
-
-inline float get_abs_val(std::complex<int8_t> t)
-{
-    return std::fabs(t.real());
-}
-
 int main(int argc, char* argv[])
 {
 
@@ -74,8 +59,6 @@ int main(int argc, char* argv[])
 
     desc.add_options()
         ("help", "help message")
-        // ("file", po::value<std::string>(&file)->default_value("usrp_samples.dat"), "name of the file to write binary samples to")
-        // ("type", po::value<std::string>(&type)->default_value("short"), "sample type: double, float, or short")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("channel", po::value<uint32_t>(&channel)->default_value(0), "VRT channel")
@@ -148,7 +131,7 @@ int main(int argc, char* argv[])
 
     // Track time and samps between updating the BW summary
     auto last_update                     = start_time;
-    unsigned long long last_update_samps = 0;
+    uint64_t last_update_samps = 0;
 
     bool first_frame = true;
     uint64_t last_fractional_seconds_timestamp = 0;
@@ -224,39 +207,15 @@ int main(int argc, char* argv[])
             }
         }
 
-        if (progress) {
-            if (vrt_packet.data)
-                last_update_samps += vrt_packet.num_rx_samps;
-            const auto time_since_last_update = now - last_update;
-            if (time_since_last_update > std::chrono::seconds(1)) {
-                const double time_since_last_update_s =
-                    std::chrono::duration<double>(time_since_last_update).count();
-                const double rate = double(last_update_samps) / time_since_last_update_s;
-                std::cout << "\t" << (rate / 1e6) << " Msps, ";
+        if (progress && vrt_packet.data)
+            show_progress_stats(
+                now,
+                &last_update,
+                &last_update_samps,
+                &buffer[vrt_packet.offset],
+                vrt_packet.num_rx_samps, channel
+            );           
 
-                last_update_samps = 0;
-                last_update       = now;
-
-                float sum_i = 0;
-                uint32_t clip_i = 0;
-
-                double datatype_max = 32768.;
-
-                for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
-                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
-                    sum_i += sample_i;
-                    if (sample_i > datatype_max*0.99)
-                        clip_i++;
-                }
-                sum_i = sum_i/vrt_packet.num_rx_samps;
-                std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
-                std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
-                std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/vrt_packet.num_rx_samps) << "% I clip, ";
-                std::cout << std::endl;
-
-            }
-        }
     }
 
     zmq_close(subscriber);
