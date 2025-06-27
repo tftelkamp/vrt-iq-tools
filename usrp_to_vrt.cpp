@@ -2,7 +2,7 @@
 // Copyright 2010-2011,2014 Ettus Research LLC
 // Copyright 2018 Ettus Research, a National Instruments Company
 //
-// Copyright 2021/2022 by Thomas Telkamp
+// Copyright 2021/2025 by Thomas Telkamp
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
@@ -103,22 +103,6 @@ bool check_locked_sensor(std::vector<std::string> sensor_names,
     std::cout << std::endl;
     return true;
 }
-
-template <typename samp_type> inline float get_abs_val(samp_type t)
-{
-    return std::fabs(t);
-}
-
-inline float get_abs_val(std::complex<int16_t> t)
-{
-    return std::fabs(t.real());
-}
-
-inline float get_abs_val(std::complex<int8_t> t)
-{
-    return std::fabs(t.real());
-}
-
 
 void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                      uhd::tx_streamer::sptr tx_streamer,
@@ -1260,29 +1244,31 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 const double time_since_last_update_s =
                     std::chrono::duration<double>(time_since_last_update).count();
                 const double rate = double(last_update_samps) / time_since_last_update_s;
-                std::cout << "\t" << (rate / 1e6) << " Msps, ";
+                std::cout << "\t" << boost::format("%.6f") % (rate / 1e6) << " Msps, ";
 
                 last_update_samps = 0;
                 last_update       = now;
 
-                float sum_i = 0;
-                uint32_t clip_i = 0;
+                for (size_t j = 0; j < buffs.size(); j++) {
+                    size_t channel = channel_nums[j];
 
-                double datatype_max = 32768.;
-                if (cpu_format == "sc8" || cpu_format == "s8")
-                    datatype_max = 128.;
+                    double max_iq = 0;
+                    uint32_t clip_iq = 0;
 
-                for (int i=0; i<num_rx_samps; i++ ) {
-                    auto sample_i = get_abs_val(buff_ptrs[0][i]);
-                    sum_i += sample_i;
-                    if (sample_i > datatype_max*0.99)
-                        clip_i++;
+                    double datatype_max = 32767.;
+
+                    for (int i=0; i < num_rx_samps; i++ ) {
+                        std::complex<int16_t> sample = buff_ptrs[j][i];
+                        max_iq = fmax(max_iq, fmax(fabs(sample.real()), fabs(sample.imag())));
+                        if (fabs(sample.real()) > datatype_max*0.99 || fabs(sample.imag()) > datatype_max*0.99)
+                            clip_iq++;
+                    }
+                    std::cout << "CH" << boost::format("%u") % channel << ": ";
+                    std::cout << boost::format("%.0f") % (20*log10(max_iq/datatype_max)) << " dBFS (";
+                    std::cout << boost::format("%.0f") % ceil(log2(max_iq)+1) << "/";
+                    std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
+                    std::cout << "" << boost::format("%.0f") % (100.0*clip_iq/num_rx_samps) << "% clip. ";
                 }
-                sum_i = sum_i/num_rx_samps;
-                std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
-                std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
-                std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/num_rx_samps) << "% I clip.";
                 std::cout << std::endl;
 
             }
