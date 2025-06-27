@@ -335,8 +335,8 @@ void show_progress_stats(
         }
         std::cout << "\t" << boost::format("%.6f") % (rate / 1e6) << " Msps, ";
         std::cout << "CH" << boost::format("%u") % channel << ": ";
-        std::cout << boost::format("%.0f") % (20*log10(max_iq/datatype_max)) << " dBFS (";
-        std::cout << boost::format("%.0f") % ceil(log2(max_iq)+1) << "/";
+        std::cout << boost::format("%03.0f") % (20*log10(max_iq/datatype_max)) << " dBFS (";
+        std::cout << boost::format("%02.0f") % ceil(log2(max_iq)+1) << "/";
         std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
         std::cout << "" << boost::format("%.0f") % (100.0*clip_iq/num_rx_samps) << "% clip. ";
         std::cout << std::endl;
