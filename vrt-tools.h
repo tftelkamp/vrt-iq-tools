@@ -333,7 +333,7 @@ void show_progress_stats(
             if (fabs(sample.real()) > datatype_max*0.99 || fabs(sample.imag()) > datatype_max*0.99)
                 clip_iq++;
         }
-        std::cout << "\t" << (rate / 1e6) << " Msps, ";
+        std::cout << "\t" << boost::format("%.6f") % (rate / 1e6) << " Msps, ";
         std::cout << "CH" << boost::format("%u") % channel << ": ";
         std::cout << boost::format("%.0f") % (20*log10(max_iq/datatype_max)) << " dBFS (";
         std::cout << boost::format("%.0f") % ceil(log2(max_iq)+1) << "/";
