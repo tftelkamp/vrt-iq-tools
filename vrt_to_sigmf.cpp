@@ -87,21 +87,6 @@ std::string generate_nonexisting_base_filename_suffix(std::string base_filename,
     }
 }
 
-template <typename samp_type> inline float get_abs_val(samp_type t)
-{
-    return std::fabs(t);
-}
-
-inline float get_abs_val(std::complex<int16_t> t)
-{
-    return std::fabs(t.real());
-}
-
-inline float get_abs_val(std::complex<int8_t> t)
-{
-    return std::fabs(t.real());
-}
-
 int main(int argc, char* argv[])
 {
 
@@ -291,9 +276,14 @@ int main(int argc, char* argv[])
     unsigned long long num_total_samps = 0;
 
     // Track time and samps between updating the BW summary
-    auto last_update                     = start_time;
-    unsigned long long last_update_samps = 0;
+    std::vector<std::chrono::time_point<std::chrono::steady_clock>> last_update;
+    std::vector<uint64_t> last_update_samps;
 
+    for (size_t ch = 0; ch < channel_nums.size(); ch++) {
+        last_update.push_back(start_time);
+        last_update_samps.push_back(0);
+    }
+    
     uint64_t last_fractional_seconds_timestamp = 0;
 
     bool first_frame = true;
@@ -533,7 +523,7 @@ int main(int argc, char* argv[])
                     continue;
                 } else {
                     start_at_timestamp = false;
-                    last_update = now;
+                    // last_update = now;
                     start_time = now;
                 }
             }
@@ -545,7 +535,7 @@ int main(int argc, char* argv[])
                         continue;
                 } else {
                     int_second = false;
-                    last_update = now;
+                    // last_update = now;
                     start_time = now;
                 }
             }
@@ -559,7 +549,7 @@ int main(int argc, char* argv[])
                                  % (int32_t)vrt_context.last_data_counter
                           << std::endl;
                 first_frame = false;
-                last_update = now;
+                // last_update = now;
                 // update context starttime in case of int_second
                 vrt_context.starttime_integer = vrt_packet.integer_seconds_timestamp;
                 vrt_context.starttime_fractional = vrt_packet.fractional_seconds_timestamp;
@@ -577,8 +567,8 @@ int main(int argc, char* argv[])
         if (progress && vrt_packet.data && !int_second)
             show_progress_stats(
                 now,
-                &last_update,
-                &last_update_samps,
+                &last_update[ch],
+                &last_update_samps[ch],
                 &buffer[vrt_packet.offset],
                 vrt_packet.num_rx_samps,
                 channel_nums[ch]
