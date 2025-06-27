@@ -574,43 +574,16 @@ int main(int argc, char* argv[])
             num_total_samps += vrt_packet.num_rx_samps;
         }
 
-        if (progress and not int_second) {
-            if (vrt_packet.data)
-                last_update_samps += vrt_packet.num_rx_samps;
-            const auto time_since_last_update = now - last_update;
-            if (time_since_last_update > std::chrono::seconds(1)) {
-                const double time_since_last_update_s =
-                    std::chrono::duration<double>(time_since_last_update).count();
-                const double rate = (double(last_update_samps) / time_since_last_update_s) / (double)channel_nums.size();
-                std::cout << "\t" << (rate / 1e6) << " Msps, ";
-
-                last_update_samps = 0;
-                last_update       = now;
-
-                float sum_i = 0;
-                uint32_t clip_i = 0;
-
-                double datatype_max = 32768.;
-                // if (cpu_format == "sc8" || cpu_format == "s8")
-                //     datatype_max = 128.;
-
-                for (int i=0; i<vrt_packet.num_rx_samps; i++ ) {
-                    auto sample_i = get_abs_val((std::complex<int16_t>)buffer[vrt_packet.offset+i]);
-                    sum_i += sample_i;
-                    if (sample_i > datatype_max*0.99)
-                        clip_i++;
-                }
-                sum_i = sum_i/vrt_packet.num_rx_samps;
-                std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
-                std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
-                std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/vrt_packet.num_rx_samps) << "% I clip, ";
-                std::cout << std::endl;
-
-            }
-
-        }
-
+        if (progress && vrt_packet.data && !int_second)
+            show_progress_stats(
+                now,
+                &last_update,
+                &last_update_samps,
+                &buffer[vrt_packet.offset],
+                vrt_packet.num_rx_samps,
+                channel_nums[ch]
+        );           
+        
     }
 
     for (size_t i = 0; i < datafiles.size(); i++)
