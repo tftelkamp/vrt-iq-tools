@@ -341,7 +341,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     uint16_t tx_gain;
     int hwm, io_threads;
     uint32_t stream_id;
-    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, if_freq, pps_offset, gpio_delay;
+    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, if_freq, pps_offset, gpio_delay, master_clock_rate;
     uint32_t timestamp_calibration_time = 0;
 
     bool context_changed = true;
@@ -362,6 +362,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         // ("spb", po::value<size_t>(&spb)->default_value(10000), "samples per buffer")
         ("rate", po::value<double>(&rate)->default_value(1e6), "rate of incoming samples")
+        ("master-clock-rate", po::value<double>(&master_clock_rate), "master clock rate")
         ("freq", po::value<std::string>(&freq_list)->required(), "RF center frequency (list) in Hz")
         ("if-freq", po::value<double>(&if_freq)->default_value(0.0), "IF center frequency in Hz")
         ("lo-offset", po::value<double>(&lo_offset)->default_value(0.0),
@@ -423,6 +424,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool enable_tx              = vm.count("tx") > 0;
     bool enable_gpio            = vm.count("gpio") > 0;
     bool split                  = vm.count("zmq-split") > 0;
+    bool set_master_clock       = vm.count("master-clock-rate") > 0;
 
     struct vrt_packet p;
     vrt_init_packet(&p);
@@ -560,6 +562,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         args = stdargs + "," + args;
     } else
         args = stdargs;
+
+    if (set_master_clock) {
+        args = args + ",master_clock_rate=" + std::to_string((uint32_t)master_clock_rate);
+    }
 
     std::cout << std::endl;
     std::cout << boost::format("Creating the usrp device with: %s...") % args
