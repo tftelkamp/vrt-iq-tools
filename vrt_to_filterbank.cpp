@@ -8,6 +8,7 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/timer/progress_display.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/thread/thread.hpp>
 
@@ -249,6 +250,8 @@ int main(int argc, char* argv[])
     uint32_t integration_counter = 0;
 
     int exit_code = EXIT_SUCCESS;
+    std::shared_ptr<boost::timer::progress_display> pd(nullptr);
+
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)) {
 
@@ -566,6 +569,9 @@ int main(int argc, char* argv[])
 
             num_total_samps += vrt_packet.num_rx_samps;
 
+            if (!pd)
+                pd.reset(new boost::timer::progress_display(num_requested_samples));
+            *pd += vrt_packet.num_rx_samps;
         }
 
         if (vrt_packet.extended_context) {
