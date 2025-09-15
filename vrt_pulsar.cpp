@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
     uint32_t bins;
     int gain;
     double total_time;
-    uint16_t instance, main_port, port;
+    uint16_t instance, main_port, port, pub_port;
     uint32_t channel;
     int hwm;
     float dm, period, agg_time;
@@ -158,6 +158,9 @@ int main(int argc, char* argv[])
         ("agg-time", po::value<float>(&agg_time)->default_value(1), "Aggregation time in milliseconds")
         ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
         ("term", po::value<std::string>(&gnuplot_terminal)->default_value(DEFAULT_GNUPLOT_TERMINAL), "Gnuplot terminal (x11 or qt)")
+        ("zmq-pub", "enable zmq pub")
+        ("no-stdout", "disable stdout")
+        ("pub-port", po::value<uint16_t>(&pub_port)->default_value(60001), "ZMQ publisher port")
         ("quiet", "no data output")
         ("sum", "sum polarizations")
         ("audio", "enable audio")
@@ -199,6 +202,8 @@ int main(int argc, char* argv[])
     bool squelch                = vm.count("squelch") > 0;
     bool int_second             = (bool)vm.count("int-second");
     bool zmq_split              = vm.count("zmq-split") > 0;
+    bool no_stdout              = vm.count("no-stdout") > 0;
+    bool zmq_pub                = vm.count("zmq-pub") > 0;
 
     context_type vrt_context;
     init_context(&vrt_context);
@@ -244,12 +249,22 @@ int main(int argc, char* argv[])
     // ZMQ
 
     void *context = zmq_ctx_new();
+    void *zmq_server;
     void *subscriber = zmq_socket(context, ZMQ_SUB);
     int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
     std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(main_port);
     rc = zmq_connect(subscriber, connect_string.c_str());
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
+
+    if (zmq_pub) {
+        zmq_server = zmq_socket(context, ZMQ_PUB);
+        rc = zmq_setsockopt(zmq_server, ZMQ_SNDHWM, &hwm, sizeof hwm);
+        assert(rc == 0);
+        connect_string = "tcp://*:" + std::to_string(pub_port);
+        rc = zmq_bind(zmq_server, connect_string.c_str()) ;
+        assert(rc == 0);
+    }
 
     bool first_frame = true;
 
@@ -533,16 +548,28 @@ int main(int argc, char* argv[])
                             for (size_t index = 0; index < block_size/time_integrations; index++) {
                                 plotbuffer[ch][seqno[ch] % buffer_size] = dedisp[ch][index];
                                 if (!gnuplot and !quiet) {
+                                    char message[512];
+                                    zmq_msg_t msg;
                                     if (channel_nums.size()==2) {
                                         if (ch==1) {
                                             if (sum) {
-                                                printf("%i %i %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[0][index] + dedisp[1][index]);
+                                                snprintf(message, 512, "%i %i %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[0][index] + dedisp[1][index]); 
                                             } else {
-                                                printf("%i %i %f %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[0][index], dedisp[1][index]);
+                                                snprintf(message, 512, "%i %i %f %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[0][index], dedisp[1][index]);
                                             }
                                         }
                                     } else {
-                                        printf("%i %i %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[ch][index]);
+                                        snprintf(message, 512, "%i %i %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[ch][index]);
+                                    }
+                                    // stdout
+                                    if (!no_stdout)
+                                        printf("%s",message);
+                                    // ZMQ
+                                    if (zmq_pub) {
+                                        zmq_msg_init_size(&msg, strlen(message));
+                                        memcpy(zmq_msg_data(&msg), message, strlen(message));
+                                        zmq_msg_send(&msg, zmq_server, 0);
+                                        zmq_msg_close(&msg);
                                     }
                                 }
                                 if (audio){
