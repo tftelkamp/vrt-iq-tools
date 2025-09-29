@@ -667,7 +667,7 @@ int main(int argc, char* argv[])
                             // uint32_t dc = num_points/2;
 
                             for (uint32_t i = 0; i < num_bins; ++i) {
-                                magnitudes[i] /= (double)integrations;
+                                magnitudes[i] /= (double)integrations*num_bins;
 
                                 if (iir) {
                                     double current_alpha = (1.0/(float)output_counter > alpha) ? 1.0/(float)output_counter : alpha;
@@ -758,7 +758,7 @@ int main(int argc, char* argv[])
                             output_counter++;
 
                             for (uint32_t i = 0; i < num_bins; ++i) {
-                                magnitudes[i] /= (double)integrations;
+                                magnitudes[i] /= (double)integrations*num_bins;
 
                                 if (iir) {
                                     double current_alpha = (1.0/(float)output_counter > alpha) ? 1.0/(float)output_counter : alpha;
