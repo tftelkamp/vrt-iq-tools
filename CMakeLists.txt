@@ -12,8 +12,8 @@ if(POLICY CMP0167)
   cmake_policy(SET CMP0167 NEW)
 endif()
 
-find_package(Boost 1.50 REQUIRED COMPONENTS system program_options chrono
-                                            filesystem thread date_time)
+find_package(Boost 1.50 REQUIRED COMPONENTS program_options chrono filesystem
+                                            thread date_time)
 find_library(FFTW3_LIBRARY fftw3 REQUIRED)
 find_library(FFTW3F_LIBRARY fftw3f REQUIRED)
 find_library(FFTW3_THREADS_LIBRARY fftw3_threads REQUIRED)
