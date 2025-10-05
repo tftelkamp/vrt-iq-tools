@@ -33,6 +33,7 @@
 #include <vrt/vrt_util.h>
 
 #include <complex.h>
+#include <tgmath.h>
 #include <fftw3.h>
 
 #include "vrt-tools.h"
@@ -97,7 +98,7 @@ int main(int argc, char* argv[])
     // FFTW
     fftw_complex *signal, *result;
     fftw_plan plan;
-    double *magnitudes, *filter_out;
+    double *magnitudes, *phases_r, *phases_i, *filter_out;
 
     std::complex<float> *wola_buffer;
     float *wola_taps;
@@ -159,6 +160,7 @@ int main(int argc, char* argv[])
         ("source", po::value<std::string>(&source), "Source description (ECSV and gnuplot)")
         ("gnuplot", "Gnuplot mode")
         ("fftmax", "fftmax mode")
+        ("phase", "output phase in fftmax mode")
         ("two", "square signal before processing (to detect BPSK signals)")
         ("four", "square-square signal before processing (to detect QPSK signals")
         ("wola", "apply Weighted OverLap Add method")
@@ -211,6 +213,7 @@ int main(int argc, char* argv[])
     bool log_temp               = vm.count("temperature") > 0;
     bool gnuplot                = vm.count("gnuplot") > 0;
     bool fftmax                 = vm.count("fftmax") > 0;
+    bool fftmax_phase           = vm.count("phase") > 0;
     bool poly_calib             = vm.count("poly") > 0;
     bool iir                    = vm.count("tau") > 0;
     bool minmax                 = vm.count("minmax") > 0;
@@ -352,6 +355,12 @@ int main(int argc, char* argv[])
             plan = fftw_plan_dft_1d(num_bins, signal, result, FFTW_FORWARD, FFTW_ESTIMATE);
             magnitudes = (double*)malloc(num_bins * sizeof(double));
             memset(magnitudes, 0, num_bins*sizeof(double));
+            if (fftmax_phase) {
+                phases_r = (double*)malloc(num_bins * sizeof(double));
+                phases_i = (double*)malloc(num_bins * sizeof(double));
+                memset(phases_r, 0, num_bins*sizeof(double));
+                memset(phases_i, 0, num_bins*sizeof(double));
+            }
             filter_out = (double*)malloc(num_bins * sizeof(double));
             memset(filter_out, 0, num_bins*sizeof(double));
 
@@ -453,6 +462,8 @@ int main(int argc, char* argv[])
                 if (fftmax) {
                     printf("# - {name: max_frequency, unit: Hz, datatype: float64}\n");
                     printf("# - {name: max_power, datatype: float64}\n");
+                    if (fftmax_phase)
+                        printf("# - {name: phase, unit: deg, datatype: float64}\n");
                 } else {
                     for (uint32_t i = 0; i < num_bins; ++i) {
                             printf("# - {name: \'%.0f\', datatype: float64}\n", (double)((double)vrt_context.rf_freq + (i*binsize - vrt_context.sample_rate/2)/freq_div));
@@ -472,6 +483,8 @@ int main(int argc, char* argv[])
                     printf(", current_az_deg, current_el_deg, current_az_error_deg, current_el_error_deg, current_az_speed_deg, current_el_speed_deg, current_az_offset_deg, current_el_offset_deg, current_ra_h, current_dec_deg, setpoint_ra_h, setpoint_dec_deg, radec_error_angle_deg, radec_error_bearing_deg, focusbox_mm");
                 if (fftmax) {
                     printf(", max_frequency, max_power");
+                    if (fftmax_phase)
+                        printf(", phase");
                 } else {
                     for (uint32_t i = 0; i < num_bins; ++i) {
                             printf(", %.0f", (double)((double)vrt_context.rf_freq + (i*binsize - vrt_context.sample_rate/2)/freq_div));
@@ -580,6 +593,10 @@ int main(int argc, char* argv[])
                         for (uint32_t i = 0; i < num_bins; ++i) {
                             magnitudes[i] += (result[i][REAL] * result[i][REAL] +
                                       result[i][IMAG] * result[i][IMAG]);
+                            if (fftmax_phase) {
+                                phases_r[i] += result[i][REAL];
+                                phases_i[i] += result[i][IMAG];
+                            }
                         }
                     } else {
                         magnitudes[0] += (signal[0][REAL] * signal[0][REAL] +
@@ -720,6 +737,10 @@ int main(int argc, char* argv[])
                             if (fftmax) {
                                 printf(", %.2f", (double)vrt_context.rf_freq + (max_i*binsize - vrt_context.sample_rate/2)/freq_div);
                                 printf(", %.3f", max_power);
+                                if (fftmax_phase) {
+                                    double phase = atan2(phases_i[max_i],phases_r[max_i]);
+                                    printf(", %.3f", 180*phase/M_PI);
+                                }
                             }
                             if (not binary)
                                 printf("\n");
@@ -803,6 +824,10 @@ int main(int argc, char* argv[])
 
                         integration_counter = 0;
                         memset(magnitudes, 0, num_bins*sizeof(double));
+                        if (fftmax_phase) {
+                            memset(phases_r, 0, num_bins*sizeof(double));
+                            memset(phases_i, 0, num_bins*sizeof(double));
+                        }
                         if (binary)
                             fflush(outfile);
                         else
