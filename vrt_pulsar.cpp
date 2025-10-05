@@ -548,7 +548,7 @@ int main(int argc, char* argv[])
                             for (size_t index = 0; index < block_size/time_integrations; index++) {
                                 plotbuffer[ch][seqno[ch] % buffer_size] = dedisp[ch][index];
                                 if (!gnuplot and !quiet) {
-                                    char message[512];
+                                    char message[512] = "";
                                     zmq_msg_t msg;
                                     if (channel_nums.size()==2) {
                                         if (ch==1) {
@@ -561,15 +561,17 @@ int main(int argc, char* argv[])
                                     } else {
                                         snprintf(message, 512, "%i %i %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[ch][index]);
                                     }
-                                    // stdout
-                                    if (!no_stdout)
-                                        printf("%s",message);
-                                    // ZMQ
-                                    if (zmq_pub) {
-                                        zmq_msg_init_size(&msg, strlen(message));
-                                        memcpy(zmq_msg_data(&msg), message, strlen(message));
-                                        zmq_msg_send(&msg, zmq_server, 0);
-                                        zmq_msg_close(&msg);
+                                    if (strlen(message)>0) {
+                                        // stdout
+                                        if (!no_stdout)
+                                            printf("%s",message);
+                                        // ZMQ
+                                        if (zmq_pub) {
+                                            zmq_msg_init_size(&msg, strlen(message));
+                                            memcpy(zmq_msg_data(&msg), message, strlen(message));
+                                            zmq_msg_send(&msg, zmq_server, 0);
+                                            zmq_msg_close(&msg);
+                                        }
                                     }
                                 }
                                 if (audio){
