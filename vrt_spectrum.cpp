@@ -708,14 +708,14 @@ int main(int argc, char* argv[])
                                         correction = 10*log10(correction);
                                         value = 10*log10(filter_out[i])-correction;
                                         if (not binary) {
-                                            printf(", %.3f", value);
+                                            printf(", %.7e", value);
                                         } else {
                                             fwrite(&value,sizeof(double),1,outfile);
                                         }
                                     } else {
                                         value = filter_out[i]/correction;
                                         if (not binary) {
-                                            printf(", %.3f", value);
+                                            printf(", %.7e", value);
                                         } else {
                                             fwrite(&value,sizeof(double),1,outfile);
                                         }
