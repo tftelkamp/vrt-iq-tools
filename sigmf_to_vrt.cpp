@@ -82,8 +82,8 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string udp_forward, ref, file, time_cal, type, start_time_str;
-    uint16_t port;
+    std::string udp_forward, ref, file, file2, time_cal, type, start_time_str;
+    uint16_t port, instance;
     uint32_t stream_id;
     int hwm;
     int16_t gain;
@@ -99,6 +99,7 @@ int main(int argc, char* argv[])
     desc.add_options()
         ("help", "help message")
         ("file", po::value<std::string>(&file)->default_value("samples.sigmf-meta"), "name of the SigMF meta file")
+        ("data-file2", po::value<std::string>(&file2), "name of the second SigMF data file (used for dual-chan)")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
         ("datarate", po::value<double>(&datarate)->default_value(0), "rate of outgoing samples")
         ("dual-chan", "use two SigMF files for dual channel stream (chan0+chan1)")
@@ -108,6 +109,7 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("vrt", "read VRT stream from file")
         ("repeat", "repeat the input file")
+        ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
@@ -134,7 +136,7 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
-    bool dual_chan              = vm.count("dual-chan") > 0;
+    bool dual_chan              = (vm.count("dual-chan")) || (vm.count("data-file2")) > 0;
     bool repeat                 = vm.count("repeat") > 0;
     bool vrt                    = vm.count("vrt") > 0;
 
@@ -205,11 +207,24 @@ int main(int argc, char* argv[])
     if (data_filename.c_str())
         read_ptr = fopen(data_filename.c_str(),"rb");  // r for read, b for binary
 
+    if (read_ptr == NULL) {
+            printf("Not found.\n");
+            exit(1);
+    }
+
     if (dual_chan) {
         std::string data_filename_2(data_filename);
-        boost::replace_all(data_filename_2,"chan0","chan1");
+        if (vm.count("data-file2")) {
+            data_filename_2 = file2;
+        } else {
+            boost::replace_all(data_filename_2,"chan0","chan1");
+        }
         printf("Second SigMF Data Filename: %s\n", data_filename_2.c_str());
         read_ptr_2 = fopen(data_filename_2.c_str(),"rb");  // r for read, b for binary
+        if (read_ptr_2 == NULL) {
+            printf("Not found.\n");
+            exit(1);
+        }
     }
 
     size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
@@ -234,6 +249,10 @@ int main(int argc, char* argv[])
     // p.fields.stream_id = stream_id;
 
     // ZMQ
+    if ((vm.count("instance") > 0)) {
+        port = DEFAULT_MAIN_PORT + MAX_CHANNELS*instance;
+    }
+
     void *zmq_server;
 
     void *context = zmq_ctx_new();
@@ -264,11 +283,11 @@ int main(int argc, char* argv[])
     // the requested number of samples were collected (if such a number was
     // given), or until Ctrl-C was pressed.
 
-    uint32_t frame_count = 0;
+    uint64_t frame_count = 0;
     uint32_t num_words_read=0;
 
     uint32_t first_word;
-    std::complex<short> samples[samps_per_buff];
+    std::complex<short> samples[VRT_SAMPLES_PER_PACKET];
 
     timeval time_first_sample;
 
@@ -286,7 +305,7 @@ int main(int argc, char* argv[])
     // trigger context update
     last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
 
-    int update_interval = 1e6*samps_per_buff/datarate;
+    uint64_t update_interval = 1e6*samps_per_buff/datarate;
 
     printf("Update interval: %i\n", update_interval);
 
