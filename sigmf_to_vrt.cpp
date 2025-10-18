@@ -99,7 +99,7 @@ int main(int argc, char* argv[])
     desc.add_options()
         ("help", "help message")
         ("file", po::value<std::string>(&file)->default_value("samples.sigmf-meta"), "name of the SigMF meta file")
-        ("data-file2", po::value<std::string>(&file2), "name of the second SigMF data file (used for dual-chan)")
+        ("file2", po::value<std::string>(&file2), "name of the second SigMF data file (used for dual-chan)")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
         ("datarate", po::value<double>(&datarate)->default_value(0), "rate of outgoing samples")
         ("dual-chan", "use two SigMF files for dual channel stream (chan0+chan1)")
@@ -136,7 +136,7 @@ int main(int argc, char* argv[])
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
-    bool dual_chan              = (vm.count("dual-chan")) || (vm.count("data-file2")) > 0;
+    bool dual_chan              = (vm.count("dual-chan")) || (vm.count("file2")) > 0;
     bool repeat                 = vm.count("repeat") > 0;
     bool vrt                    = vm.count("vrt") > 0;
 
@@ -214,8 +214,10 @@ int main(int argc, char* argv[])
 
     if (dual_chan) {
         std::string data_filename_2(data_filename);
-        if (vm.count("data-file2")) {
-            data_filename_2 = file2;
+        if (vm.count("file2")) {
+            boost::filesystem::path base_fn_fp(file2);
+            base_fn_fp.replace_extension(".sigmf-data");
+            data_filename_2 = base_fn_fp.string();
         } else {
             boost::replace_all(data_filename_2,"chan0","chan1");
         }
