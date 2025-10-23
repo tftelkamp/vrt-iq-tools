@@ -374,6 +374,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("zmq-split", "create a ZeroMQ stream per VRT channel, increasing port number for additional streams")
         ("bw", po::value<double>(&bw), "analog frontend filter bandwidth in Hz")
         ("ref", po::value<std::string>(&ref)->default_value("internal"), "reference source (internal, external, mimo, gpsdo)")
+        ("ata", "ATA mode")
         ("tx", "enable tx")
         ("tx-freq", po::value<double>(&tx_freq)->default_value(0.0), "TX RF center frequency in Hz")
         ("tx-gain", po::value<uint16_t>(&tx_gain)->default_value(0), "gain for the TX RF chain")
@@ -425,6 +426,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool enable_gpio            = vm.count("gpio") > 0;
     bool split                  = vm.count("zmq-split") > 0;
     bool set_master_clock       = vm.count("master-clock-rate") > 0;
+    bool ata                    = vm.count("ata") > 0;
+    bool pps                    = vm.count("pps") > 0;
 
     struct vrt_packet p;
     vrt_init_packet(&p);
@@ -567,22 +570,53 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         args = args + ",master_clock_rate=" + std::to_string((uint32_t)master_clock_rate);
     }
 
+    if (ata) {
+        args = args + ",addr0=10.11.1.20, addr1=10.11.1.22, clock_source=external, time_source=external, ref_clk_freq=10e6";
+    }
+
     std::cout << std::endl;
     std::cout << boost::format("Creating the usrp device with: %s...") % args
               << std::endl;
     uhd::usrp::multi_usrp::sptr usrp = uhd::usrp::multi_usrp::make(args);
 
-    // Lock mboard clocks
-    if (vm.count("ref")) {
-        usrp->set_clock_source(ref);
-    }
+    // ATA
+    if (ata) {
+        // N321
+        usrp->set_rx_lo_export_enabled(true, "lo1", 0);
 
-    if (ref == "gpsdo") {
-        usrp->set_time_source(ref);
-    }
+        // usrp->get_tree()->access<bool>("mboards/0/dboards/A/rx_frontends/0/los/lo1/lo_distribution/LO_OUT_0/export").set(true);
+        // usrp->get_tree()->access<bool>("mboards/0/dboards/A/rx_frontends/0/los/lo1/lo_distribution/LO_OUT_1/export").set(true);
+        
+        usrp->get_tree()->access<bool>("/blocks/0/Radio#0/dboard/rx_frontends/0/los/lo1/lo_distribution/LO_OUT_0/export").set(true);
+        usrp->get_tree()->access<bool>("/blocks/0/Radio#0/dboard/rx_frontends/0/los/lo1/lo_distribution/LO_OUT_1/export").set(true);
 
-   if (vm.count("pps")) {
+        // N321
+        usrp->set_rx_lo_source("external", "lo1", 0);
+        usrp->set_rx_lo_source("external", "lo1", 1);
+
+        // N320
+        usrp->set_rx_lo_source("external", "lo1", 2);
+        usrp->set_rx_lo_source("external", "lo1", 3);
+
+        usrp->set_clock_source("external");
         usrp->set_time_source("external");
+        ref = "external";
+        pps = true;
+
+    } else {
+
+        // Lock mboard clocks
+        if (vm.count("ref")) {
+            usrp->set_clock_source(ref);
+        }
+
+        if (ref == "gpsdo") {
+            usrp->set_time_source(ref);
+        }
+
+        if (vm.count("pps")) {
+            usrp->set_time_source("external");
+        }
     }
 
     std::cout << "Clock source is " << usrp->get_clock_source(0) << std::endl;
@@ -667,6 +701,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         // set the center frequency
         if (vm.count("freq")) {
             freq = (frequencies.size() > ch) ? frequencies[ch] : frequencies[0];
+            if (ata) {
+                if_freq = freq - 512e6;
+            }
             freq = freq - if_freq;
             if (freq < 5e6) {
                 throw std::runtime_error("Frequency should be given in Hz.\n" +
@@ -808,7 +845,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     usrp->set_time_now(uhd::time_spec_t(time_now.tv_sec, (double)time_now.tv_usec / 1e6));
 
     // PPS
-    if (vm.count("pps")) {
+    if (pps) {
         uint32_t usrp_seconds;
         do {
             gettimeofday(&time_now, nullptr);
@@ -1017,6 +1054,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         const auto time_since_last_context = now - last_context;
         if (time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL)) {
 
+
             last_context = now;
 
             // VITA 49
@@ -1076,7 +1114,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 pc.if_context.state_and_event_indicators.reference_lock = (((ref == "external") or (ref=="gpsdo")) and ref_locked);
 
                 pc.if_context.state_and_event_indicators.has.calibrated_time = true;
-                pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (ref=="gpsdo"));
+                pc.if_context.state_and_event_indicators.calibrated_time = (pps or (ref=="gpsdo"));
 
                 int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
                 if (rv < 0) {
