@@ -109,7 +109,7 @@ int main(int argc, char* argv[])
         ("continue", "don't abort on a bad packet")
         ("vrt", "read VRT stream from file")
         ("repeat", "repeat the input file")
-        ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
+        ("instance", po::value<uint16_t>(&instance), "VRT ZMQ instance")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
