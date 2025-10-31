@@ -133,8 +133,8 @@ int main(int argc, char* argv[])
         ("channel", po::value<std::string>(&channel_list)->default_value("0,1"), "which VRT channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         ("int-second", "align start of reception to integer second")
         ("num-bins", po::value<uint32_t>(&num_bins)->default_value(1000), "number of bins")
-       	("integration-time", po::value<float>(&integration_time)->default_value(1.0), "integration time (seconds)")
-       	("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
+        ("integration-time", po::value<float>(&integration_time)->default_value(1.0), "integration time (seconds)")
+        ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
         ("delta-range", po::value<double>(&delta_range)->default_value(0), "delta range (m)")
         ("delta-range-dot", po::value<double>(&delta_range_dot)->default_value(0), "delate range dot (m/s)")
         ("cable-delay", po::value<double>(&cable_delay)->default_value(0), "delay offset (s)")
@@ -225,7 +225,7 @@ int main(int argc, char* argv[])
 
     uint32_t buffer[ZMQ_BUFFER_SIZE];
     char fringe_stop_buffer[2000];
-    
+
     unsigned long long num_total_samps = 0;
 
     // Track time and samps between updating the BW summary
@@ -278,7 +278,7 @@ int main(int argc, char* argv[])
             fractional_delay = current_delay_samples - (double)current_sample_delay;
         }
 
-    	int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
+        int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
 
         const auto now = std::chrono::steady_clock::now();
 
@@ -297,34 +297,34 @@ int main(int argc, char* argv[])
 
         uint32_t channel = channel_nums[ch];
 
-		if (vrt_packet.extended_context) {
+        if (vrt_packet.extended_context) {
             dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
         }
 
         if (not start_rx and vrt_packet.context) {
 
-	        if (!ecsv)
-	                vrt_print_context(&vrt_context);
-	        start_rx = true;
+            if (!ecsv)
+                vrt_print_context(&vrt_context);
+                start_rx = true;
 
-	        integrations = (uint32_t)round((double)integration_time/((double)num_bins/(double)vrt_context.sample_rate));
+                integrations = (uint32_t)round((double)integration_time/((double)num_bins/(double)vrt_context.sample_rate));
 
-	        if (total_time > 0)  
-	            num_requested_samples = 2 * total_time * vrt_context.sample_rate; // 2 channels
+                if (total_time > 0)
+                    num_requested_samples = 2 * total_time * vrt_context.sample_rate; // 2 channels
 
             iq_samples = (std::complex<int16_t> **) malloc(sizeof(std::complex<int16_t>*)*channel_nums.size());
-	        signal = (std::complex<double> **) malloc(sizeof(std::complex<double>*)*channel_nums.size());
+            signal = (std::complex<double> **) malloc(sizeof(std::complex<double>*)*channel_nums.size());
             fft_result = (std::complex<double> **) malloc(sizeof(std::complex<double>*)*channel_nums.size());
 
-	        for (size_t ch=0; ch < channel_nums.size(); ch++)
-	            signal[ch] = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
+            for (size_t ch=0; ch < channel_nums.size(); ch++)
+                signal[ch] = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
 
             for (size_t ch=0; ch < channel_nums.size(); ch++)
                 iq_samples[ch] = (std::complex<int16_t>*) calloc(VRT_SAMPLES_PER_PACKET*(buffer_depth+1), sizeof(std::complex<int16_t>));
 
             for (size_t ch=0; ch < channel_nums.size(); ch++)
                 fft_result[ch] = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
-	        
+
             xcorr_time = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
 
             xcorr = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
@@ -332,12 +332,12 @@ int main(int argc, char* argv[])
             signal_mag = (double*)calloc(num_bins, sizeof(double));
 
             for (uint32_t i = 0; i < num_bins; i++) {
-                xcorr_integrated[i] = 0; 
+                xcorr_integrated[i] = 0;
                 signal_mag[i] = 0;
             }
 
-	        for (size_t ch=0; ch < channel_nums.size(); ch++)
-	            fft_plan[ch] = fftw_plan_dft_1d(
+            for (size_t ch=0; ch < channel_nums.size(); ch++)
+                fft_plan[ch] = fftw_plan_dft_1d(
                     num_bins,
                     reinterpret_cast<fftw_complex*>(signal[ch]),
                     reinterpret_cast<fftw_complex*>(fft_result[ch]),
@@ -345,25 +345,25 @@ int main(int argc, char* argv[])
                     FFTW_ESTIMATE
                 );
 
-	        ifft_plan = fftw_plan_dft_1d(
-                num_bins, 
+            ifft_plan = fftw_plan_dft_1d(
+                num_bins,
                 reinterpret_cast<fftw_complex*>(xcorr_integrated),
                 reinterpret_cast<fftw_complex*>(xcorr_time),
                 FFTW_BACKWARD,
                 FFTW_ESTIMATE
             );
 
-	        if (!ecsv) {
-	            printf("# Correlation parameters:\n");
+            if (!ecsv) {
+                printf("# Correlation parameters:\n");
                 printf("#    Mode: %s\n", lags ? "lags" : "visibility");
-	            printf("#    Bins: %u\n", num_bins);
-	            printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
-	            printf("#    Integrations: %u\n", integrations);
-	            printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
-	        } else {
-	            uint32_t first_col = 4;
-	            printf("# %%ECSV 1.0\n");
-	            printf("# ---\n");
+                printf("#    Bins: %u\n", num_bins);
+                printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
+                printf("#    Integrations: %u\n", integrations);
+                printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
+            } else {
+                uint32_t first_col = 4;
+                printf("# %%ECSV 1.0\n");
+                printf("# ---\n");
 
                 uint32_t ch=0;
                 while(not (vrt_context.stream_id & (1 << ch) ) )
@@ -387,28 +387,28 @@ int main(int argc, char* argv[])
                 printf("#   - {bin_size: %.2f}\n", ((double)vrt_context.sample_rate)/((double)num_bins));
                 printf("#   - {integrations: %u}\n", integrations);
                 printf("#   - {integration_time: %.2f}\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
-        
-	            printf("# datatype:\n");
-	            printf("# - {name: timestamp, datatype: float64}\n");
+
+                printf("# datatype:\n");
+                printf("# - {name: timestamp, datatype: float64}\n");
                 printf("# - {name: u, unit: m, datatype: float64}\n");
                 printf("# - {name: v, unit: m, datatype: float64}\n");
                 printf("# - {name: w, unit: m, datatype: float64}\n");
 
-	            bin_size = (double)vrt_context.sample_rate/(double)num_bins;
+                bin_size = (double)vrt_context.sample_rate/(double)num_bins;
 
                 if (lags) {
-    	            for (int32_t i = 0; i < num_bins; ++i) {
-    	                    printf("# - {name: \'%.4e\', datatype: complex128}\n", (double)(i - (double)num_bins / 2)/(double)vrt_context.sample_rate);
-    	            }
+                    for (int32_t i = 0; i < num_bins; ++i) {
+                        printf("# - {name: \'%.4e\', datatype: complex128}\n", (double)(i - (double)num_bins / 2)/(double)vrt_context.sample_rate);
+                    }
                 } else {
                     for (int32_t i = 0; i < num_bins; ++i) {
                         printf("# - {name: \'%.0f\', datatype: complex128}\n", (double)((double)vrt_context.rf_freq + (i*bin_size - vrt_context.sample_rate/2)));
                     }
                 }
-	            printf("# schema: astropy-2.0\n");
-	        }
-	        // Header
-	        printf("timestamp"); 
+                printf("# schema: astropy-2.0\n");
+            }
+            // Header
+            printf("timestamp");
             printf(",u ,v, w");
 
             if (lags) {
@@ -429,7 +429,7 @@ int main(int argc, char* argv[])
             // printf("# DBG: start sample delay: %i\n", current_sample_delay);
             // printf("# DBG: start frac delay: %f\n", fractional_delay);
 
-	    }
+        }
 
         const auto time_since_last_req = now - last_req;
 
@@ -453,7 +453,7 @@ int main(int argc, char* argv[])
             t_ephem = t0;
         }
 
-       	if (start_rx and vrt_packet.data) {
+        if (start_rx and vrt_packet.data) {
 
             if (vrt_packet.lost_frame)
                if (not continue_on_bad_packet)
@@ -466,7 +466,7 @@ int main(int argc, char* argv[])
                         continue;
                 } else {
                     int_second = false;
-                    last_update = now; 
+                    last_update = now;
                     start_time = now;
                 }
             }
@@ -489,7 +489,7 @@ int main(int argc, char* argv[])
                 memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
 
                 iq_samples[ch][i+VRT_SAMPLES_PER_PACKET*buffer_depth] = std::complex<int16_t>(re,img);
-               
+
             }
 
             if (ch==1) {
@@ -520,7 +520,7 @@ int main(int argc, char* argv[])
 
                     signal_pointer++;
 
-                    if (signal_pointer == num_bins) { 
+                    if (signal_pointer == num_bins) {
 
                         int64_t seconds = vrt_packet.integer_seconds_timestamp;
                         int64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
@@ -547,21 +547,21 @@ int main(int argc, char* argv[])
 
                         std::complex<double> phase_correction = std::exp(complexi*-2.0*pi*(double)vrt_context.rf_freq*current_delay);
 
-                        double df = clock_offset * vrt_context.rf_freq; 
+                        double df = clock_offset * vrt_context.rf_freq;
 
                         clock_phase =  std::exp(-2.0 * complexi * pi * df * (t-t0));
 
-                    	// correlate and integrate
-                    	for (int32_t i = 0; i < num_bins; i++) {
-                            std::complex<double> frac_corr = std::exp(-1.0 * complexi * pi * fractional_delay * 
+                        // correlate and integrate
+                        for (int32_t i = 0; i < num_bins; i++) {
+                            std::complex<double> frac_corr = std::exp(-1.0 * complexi * pi * fractional_delay *
                                 (double)(2.0 * (((int)i + (int)num_bins / 2) % (int)num_bins) / (double)num_bins - 1.0)
                             );
-							xcorr[i] = fft_result[0][i] * conj(fft_result[1][i]);
-							xcorr_integrated[i] +=  phase_correction * clock_phase * frac_corr * xcorr[i];
+                            xcorr[i] = fft_result[0][i] * conj(fft_result[1][i]);
+                            xcorr_integrated[i] +=  phase_correction * clock_phase * frac_corr * xcorr[i];
                             signal_mag[i] += std::abs(fft_result[0][i]) * std::abs(fft_result[1][i]);
-						}
+                        }
 
-						if (integration_counter == integrations) {
+                        if (integration_counter == integrations) {
 
                             for (int32_t i = 0; i < num_bins; i++) {
                                 if (signal_mag[i]>0)
@@ -573,10 +573,10 @@ int main(int argc, char* argv[])
                             printf(", %.12e, %.12e, %.12e", range_u, range_v, delta_range);
 
                             if (lags) {
-    							// inverse FFT
-    							fftw_execute(ifft_plan);
+                                // inverse FFT
+                                fftw_execute(ifft_plan);
 
-    							for (uint32_t i = 0; i < num_bins; i++) {
+                                for (uint32_t i = 0; i < num_bins; i++) {
                                     printf(", (%.6e%s%.6ej)", xcorr_time[i].real(), (xcorr_time[i].imag() > 0) ? "+" : "-", abs(xcorr_time[i].imag()) );
                                 }
                             } else {
@@ -591,23 +591,21 @@ int main(int argc, char* argv[])
                             integration_counter = 0;
 
                             for (uint32_t i = 0; i < num_bins; i++) {
-                                xcorr_integrated[i] = 0; 
+                                xcorr_integrated[i] = 0;
                                 signal_mag[i] = 0;
                             }
-						}
+                        }
 
                         // set for next FFT
                         current_delay_samples = (double)vrt_context.sample_rate*(current_delta_range/c+cable_delay);
                         current_sample_delay = (int32_t)floor(current_delay_samples+0.5);
                         fractional_delay = current_delay_samples - (double)current_sample_delay;
-            
-    				}
+                    }
                 }
             }
 
             // end
-        	num_total_samps += vrt_packet.num_rx_samps;
-
+            num_total_samps += vrt_packet.num_rx_samps;
         }
     }
 
@@ -615,5 +613,4 @@ int main(int argc, char* argv[])
     zmq_ctx_destroy(context);
 
     return 0;
-
 }

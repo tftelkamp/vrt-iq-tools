@@ -66,7 +66,7 @@ int main(int argc, char* argv[])
     uint16_t pub_instance, instance1, main_port1, port1, instance2, main_port2, port2, pub_port;
     uint32_t channel;
     int hwm;
-   
+
     size_t num_requested_samples;
     double total_time;
 
@@ -237,7 +237,7 @@ int main(int argc, char* argv[])
         if (t1 >= t2 or t2 == 0) {
             len2 = zmq_recv(subscriber2, rx_buffer[1], ZMQ_BUFFER_SIZE, ZMQ_NOBLOCK);
             // printf("wait 2\n");
-        } 
+        }
 
         if (len1 > 0) {
             if (not vrt_process(rx_buffer[0], sizeof(rx_buffer[0]), &vrt_context1, &vrt_packet1)) {
@@ -272,7 +272,7 @@ int main(int argc, char* argv[])
                     &last_update_samps1,
                     &rx_buffer[0][vrt_packet1.offset],
                     vrt_packet1.num_rx_samps, 0
-                );           
+                );
 
         }
 
@@ -309,11 +309,11 @@ int main(int argc, char* argv[])
                     &last_update_samps2,
                     &rx_buffer[1][vrt_packet2.offset],
                     vrt_packet2.num_rx_samps, 1
-                );      
+                );
         }
 
         if ((len1 >0 or len2>0) and !forwarded and t1 == t2 and t1 >0 and t2 >0){
-            
+
             forwarded = true;
             if (first_frame) {
                 printf("# Start forwarding at %llu full secs, %.09f frac secs\n", t1_integer_seconds_timestamp, (double)t1_fractional_seconds_timestamp/1e12);
@@ -334,7 +334,7 @@ int main(int argc, char* argv[])
             memcpy (zmq_msg_data(&msg), rx_stored[0], rx_stored_len[0]);
             zmq_msg_send(&msg, responder, 0);
             zmq_msg_close(&msg);
-            
+
             // channel 1
             header = uint32_t ntohl(rx_stored[1][0]);
             header = header & 0xFFF0FFFF;
@@ -342,7 +342,7 @@ int main(int argc, char* argv[])
             rx_stored[1][0] = htonl(header);
             rx_stored[1][1] = htonl(2u);
             frame_count++;
-          
+
             zmq_msg_init_size (&msg, rx_stored_len[1]);
             memcpy (zmq_msg_data(&msg), rx_stored[1], rx_stored_len[1]);
             zmq_msg_send(&msg, responder, 0);
@@ -351,7 +351,7 @@ int main(int argc, char* argv[])
 
         // if (not vrt_packet.context and not vrt_packet.data)
         //     continue;
-        
+
     }
 
     zmq_close(subscriber1);
