@@ -183,14 +183,14 @@ int main(int argc, char* argv[])
 
     uint32_t rx_stored_len[2] = {0};
 
-    unsigned long long num_total_samps = 0;
+    uint64_t num_total_samps = 0;
 
     // Track time and samps between updating the BW summary
     auto last_update1                     = start_time;
-    unsigned long long last_update_samps1 = 0;
+    uint64_t last_update_samps1 = 0;
 
     auto last_update2                     = start_time;
-    unsigned long long last_update_samps2 = 0;
+    uint64_t last_update_samps2 = 0;
 
     bool first_frame = true;
     uint64_t last_fractional_seconds_timestamp = 0;
