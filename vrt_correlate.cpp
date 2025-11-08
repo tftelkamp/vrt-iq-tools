@@ -140,7 +140,7 @@ int main(int argc, char* argv[])
         ("cable-delay", po::value<double>(&cable_delay)->default_value(0), "delay offset (s)")
         ("clock-offset", po::value<double>(&clock_offset)->default_value(0), "clock offset")
         ("buffer-depth", po::value<uint16_t>(&buffer_depth)->default_value(10), "Correlation buffer depth in VRT frames")
-        ("lags", "output lags instead of visibility")
+        ("lags", "output lags instead of cross-spectrum")
         ("null", "run without writing to file")
         ("ecsv", "output in ECSV format (Astropy)")
         ("continue", "don't abort on a bad packet")
@@ -353,9 +353,11 @@ int main(int argc, char* argv[])
                 FFTW_ESTIMATE
             );
 
+            bin_size = (double)vrt_context.sample_rate/(double)num_bins;
+
             if (!ecsv) {
                 printf("# Correlation parameters:\n");
-                printf("#    Mode: %s\n", lags ? "lags" : "visibility");
+                printf("#    Mode: %s\n", lags ? "lags" : "cross-spectrum");
                 printf("#    Bins: %u\n", num_bins);
                 printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
                 printf("#    Integrations: %u\n", integrations);
@@ -381,7 +383,7 @@ int main(int argc, char* argv[])
                 printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
                 printf("#   - {time_source: %s}\n", vrt_context.time_cal == 1? "pps" : "internal");
                 printf("# - correlation: !!omap\n");
-                printf("#   - {mode: %s}\n", lags ? "lags" : "visibility");
+                printf("#   - {mode: %s}\n", lags ? "lags" : "cross-spectrum");
                 printf("#   - {bins: %u}\n", num_bins);
                 printf("#   - {col_first_bin: %u}\n", first_col);
                 printf("#   - {bin_size: %.2f}\n", ((double)vrt_context.sample_rate)/((double)num_bins));
@@ -393,8 +395,6 @@ int main(int argc, char* argv[])
                 printf("# - {name: u, unit: m, datatype: float64}\n");
                 printf("# - {name: v, unit: m, datatype: float64}\n");
                 printf("# - {name: w, unit: m, datatype: float64}\n");
-
-                bin_size = (double)vrt_context.sample_rate/(double)num_bins;
 
                 if (lags) {
                     for (int32_t i = 0; i < num_bins; ++i) {
@@ -408,8 +408,7 @@ int main(int argc, char* argv[])
                 printf("# schema: astropy-2.0\n");
             }
             // Header
-            printf("timestamp");
-            printf(",u ,v, w");
+            printf("timestamp, u ,v, w");
 
             if (lags) {
                 for (int32_t i = 0; i < num_bins; i++) {
@@ -425,9 +424,6 @@ int main(int argc, char* argv[])
             current_delay = (double)vrt_context.sample_rate*(delta_range/c+cable_delay);
             current_sample_delay = (int32_t)floor(current_delay+0.5);
             fractional_delay = current_delay - (double)current_sample_delay;
-
-            // printf("# DBG: start sample delay: %i\n", current_sample_delay);
-            // printf("# DBG: start frac delay: %f\n", fractional_delay);
 
         }
 
