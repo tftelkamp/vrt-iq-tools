@@ -322,7 +322,7 @@ int main(int argc, char* argv[])
             }
 
             // channel 0
-            uint32_t header = uint32_t ntohl(rx_stored[0][0]);
+            uint32_t header = ntohl(rx_stored[0][0]);
             header = header & 0xFFF0FFFF;
             header = header | ((uint32_t)frame_count%16) << 16;
             rx_stored[0][0] = htonl(header);
@@ -337,7 +337,7 @@ int main(int argc, char* argv[])
             zmq_msg_close(&msg);
 
             // channel 1
-            header = uint32_t ntohl(rx_stored[1][0]);
+            header = ntohl(rx_stored[1][0]);
             header = header & 0xFFF0FFFF;
             header = header | ((uint32_t)frame_count%16) << 16;
             rx_stored[1][0] = htonl(header);
