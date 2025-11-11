@@ -350,8 +350,7 @@ int main(int argc, char* argv[])
             zmq_msg_close(&msg);
         }
 
-        // if (not vrt_packet.context and not vrt_packet.data)
-        //     continue;
+        usleep(5);
 
     }
 
