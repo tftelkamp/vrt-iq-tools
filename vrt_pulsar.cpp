@@ -750,6 +750,8 @@ int main(int argc, char* argv[])
     }
 
     zmq_close(subscriber);
+    if (zmq_pub)
+        zmq_close(zmq_server);
     zmq_ctx_destroy(context);
 
     return 0;
