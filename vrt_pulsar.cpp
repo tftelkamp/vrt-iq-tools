@@ -11,6 +11,9 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/thread/thread.hpp>
 
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/date_time/posix_time/posix_time_io.hpp>
+
 #include <chrono>
 // #include <complex>
 #include <csignal>
@@ -121,7 +124,7 @@ int main(int argc, char* argv[])
     float t_threshold;
 
     // variables to be set by po
-    std::string file, type, zmq_address, channel_list, gnuplot_terminal;
+    std::string file, type, zmq_address, channel_list, gnuplot_terminal, start_reception;
     size_t num_requested_samples;
     uint32_t bins;
     int gain;
@@ -146,7 +149,7 @@ int main(int argc, char* argv[])
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("progress", "periodically display short-term bandwidth")
-        // ("channel", po::value<uint32_t>(&channel)->default_value(0), "VRT channel")
+        ("start-time", po::value<std::string>(&start_reception), "start reception at given timestamp")
         ("channel", po::value<std::string>(&channel_list)->default_value("0"), "which VRT channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         ("int-second", "align start of reception to integer second")
         ("num-bins", po::value<uint32_t>(&num_bins)->default_value(2000), "number of bins")
@@ -202,8 +205,40 @@ int main(int argc, char* argv[])
     bool squelch                = vm.count("squelch") > 0;
     bool int_second             = (bool)vm.count("int-second");
     bool zmq_split              = vm.count("zmq-split") > 0;
+    bool start_at_timestamp     = vm.count("start-time") > 0;
     bool no_stdout              = vm.count("no-stdout") > 0;
     bool zmq_pub                = vm.count("zmq-pub") > 0;
+
+    bool has_waited_for_start_time = false;
+
+    boost::posix_time::ptime utc_time;
+    if (start_at_timestamp) {
+        try {
+            // Check for unix time
+            boost::lexical_cast<double>(start_reception);
+            double unix_start = boost::lexical_cast<double>(start_reception);
+            utc_time = boost::posix_time::from_time_t(unix_start);
+            double fraction = unix_start - ((int64_t)unix_start);
+            utc_time += boost::posix_time::microseconds((int64_t)(fraction*1000000));
+        } catch (boost::bad_lexical_cast&) {
+            // not unix time
+
+            // Replace 'T' with space
+            size_t t_pos = start_reception.find('T');
+            if (t_pos != std::string::npos) {
+                start_reception[t_pos] = ' ';
+            }
+
+            // Remove 'Z' if present
+            size_t z_pos = start_reception.find('Z');
+            if (z_pos != std::string::npos) {
+                start_reception.erase(z_pos, 1);
+            }
+
+            // Parse the string into a ptime object
+            utc_time = boost::posix_time::time_from_string(start_reception);
+        }
+    }
 
     context_type vrt_context;
     init_context(&vrt_context);
@@ -230,13 +265,13 @@ int main(int argc, char* argv[])
 
     if (channel_nums.size() > 2) {
         printf("More than 2 channels not supported.\n");
-        exit(1);
+        return EXIT_FAILURE;
     }
 
     if (zmq_split) {
         if (channel_nums.size()>1) {
             printf("Multiple channels with --zmq-split is not supported.\n");
-            exit(EXIT_FAILURE);
+            return EXIT_FAILURE;
         }
         main_port += channel_nums[0];
         channel_nums[0] = 0;
@@ -422,6 +457,24 @@ int main(int argc, char* argv[])
                if (not continue_on_bad_packet)
                     break;
 
+            if (start_at_timestamp) {
+                boost::posix_time::ptime vrt_timestamp = boost::posix_time::from_time_t(vrt_packet.integer_seconds_timestamp);
+                vrt_timestamp += boost::posix_time::microseconds((int64_t)vrt_packet.fractional_seconds_timestamp/1000000);
+                // std::cout << "vrt time: " << vrt_timestamp << std::endl;
+                if (vrt_timestamp <= utc_time) {
+                    has_waited_for_start_time = true;
+                    continue;
+                } else {
+                    start_at_timestamp = false;
+                    if (not has_waited_for_start_time) {
+                        std::cerr << "Requested start time " << boost::posix_time::to_iso_extended_string(utc_time) << " lies before first received data" << std::endl;
+                        return EXIT_FAILURE;
+                    }
+                    last_update = now;
+                    start_time = now;
+                }
+            }
+
             if (int_second) {
                 // check if fractional second has wrapped
                 if (vrt_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
@@ -553,7 +606,7 @@ int main(int argc, char* argv[])
                                     if (channel_nums.size()==2) {
                                         if (ch==1) {
                                             if (sum) {
-                                                snprintf(message, 512, "%i %i %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[0][index] + dedisp[1][index]); 
+                                                snprintf(message, 512, "%i %i %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[0][index] + dedisp[1][index]);
                                             } else {
                                                 snprintf(message, 512, "%i %i %f %f\n",period_samples_int,(int)floor(fmod(seqno[ch],period_samples_float)), dedisp[0][index], dedisp[1][index]);
                                             }
@@ -697,6 +750,8 @@ int main(int argc, char* argv[])
     }
 
     zmq_close(subscriber);
+    if (zmq_pub)
+        zmq_close(zmq_server);
     zmq_ctx_destroy(context);
 
     return 0;
