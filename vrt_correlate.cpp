@@ -270,7 +270,7 @@ int main(int argc, char* argv[])
             range_u = values[6];
             range_v = values[7];
 
-            // printf("# DBG: fringe stop, %f %f %f %f %e %e %f %f\n", values[0], values[1], delta_range, delta_range_dot, cable_delay, clock_offset, range_u, range_v);
+            // printf("# DBG: fringe stop, %f %f %e %e %e %e %f %f\n", values[0], values[1], delta_range, delta_range_dot, cable_delay, clock_offset, range_u, range_v);
 
             // for next FFT
             current_delay_samples = (double)vrt_context.sample_rate*(current_delta_range/c+cable_delay);
@@ -421,7 +421,7 @@ int main(int argc, char* argv[])
             }
             printf("\n");
 
-            current_delay = (double)vrt_context.sample_rate*(delta_range/c+cable_delay);
+            current_delay = (double)vrt_context.sample_rate*(current_delta_range/c+cable_delay);
             current_sample_delay = (int32_t)floor(current_delay+0.5);
             fractional_delay = current_delay - (double)current_sample_delay;
 
