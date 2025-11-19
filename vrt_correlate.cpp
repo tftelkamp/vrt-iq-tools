@@ -82,7 +82,7 @@ int main(int argc, char* argv[])
     uint32_t bins;
     int gain;
     double total_time;
-    uint16_t port;
+    uint16_t port, instance;
     uint16_t buffer_depth;
     uint32_t channel;
     uint32_t integrations;
@@ -144,6 +144,7 @@ int main(int argc, char* argv[])
         ("null", "run without writing to file")
         ("ecsv", "output in ECSV format (Astropy)")
         ("continue", "don't abort on a bad packet")
+        ("instance", po::value<uint16_t>(&instance), "VRT ZMQ instance")
         ("address", po::value<std::string>(&zmq_address)->default_value("127.0.0.1"), "VRT ZMQ address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
@@ -197,6 +198,9 @@ int main(int argc, char* argv[])
     }
 
     // ZMQ
+    if ((vm.count("instance") > 0)) {
+        port = DEFAULT_MAIN_PORT + MAX_CHANNELS*instance;
+    }
 
     void *context = zmq_ctx_new();
 
