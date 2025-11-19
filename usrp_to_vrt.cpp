@@ -12,6 +12,7 @@
 #include <uhd/types/tune_request.hpp>
 #include <uhd/usrp/multi_usrp.hpp>
 #include <uhd/utils/safe_main.hpp>
+#include <uhd/utils/thread.hpp>
 #include <uhd/types/sensors.hpp>
 #include <boost/thread.hpp>
 #include <boost/format.hpp>
@@ -388,6 +389,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("temp", "read temperature sensor")
         ("int-second", "align start of reception to integer second")
         ("null", "run without streaming")
+        ("priority", "enable realtime scheduling")
         ("continue", "don't abort on a bad packet")
         ("skip-lo", "skip checking LO lock status")
         ("int-n", "tune USRP with integer-N tuning")
@@ -425,6 +427,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool enable_gpio            = vm.count("gpio") > 0;
     bool split                  = vm.count("zmq-split") > 0;
     bool set_master_clock       = vm.count("master-clock-rate") > 0;
+    bool priority               = vm.count("priority") > 0;
 
     struct vrt_packet p;
     vrt_init_packet(&p);
@@ -893,6 +896,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             transmit_worker(usrp, tx_stream, zmq_transmit, tx_freq, lo_offset, tx_gain, rate, enable_gpio, gpio_delay);
         });
     }
+
+    if (priority)
+        uhd::set_thread_priority_safe();
 
     // RX
 
