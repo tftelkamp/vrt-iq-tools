@@ -140,7 +140,7 @@ int main(int argc, char* argv[])
         ("cable-delay", po::value<double>(&cable_delay)->default_value(0), "delay offset (s)")
         ("clock-offset", po::value<double>(&clock_offset)->default_value(0), "clock offset")
         ("buffer-depth", po::value<uint16_t>(&buffer_depth)->default_value(10), "Correlation buffer depth in VRT frames")
-        ("lags", "output lags instead of cross-spectrum")
+        ("correlation", "output cross-correlation instead of cross-spectrum")
         ("null", "run without writing to file")
         ("ecsv", "output in ECSV format (Astropy)")
         ("continue", "don't abort on a bad packet")
@@ -172,7 +172,7 @@ int main(int argc, char* argv[])
     bool int_second             = (bool)vm.count("int-second");
     bool ecsv                   = vm.count("ecsv") > 0;
     // bool dt_trace               = vm.count("dt-trace") > 0;
-    bool lags                   = vm.count("lags") > 0;
+    bool correlation                   = vm.count("correlation") > 0;
 
     context_type vrt_context;
     init_context(&vrt_context);
@@ -361,7 +361,7 @@ int main(int argc, char* argv[])
 
             if (!ecsv) {
                 printf("# Correlation parameters:\n");
-                printf("#    Mode: %s\n", lags ? "lags" : "cross-spectrum");
+                printf("#    Mode: %s\n", correlation ? "cross-correlation" : "cross-spectrum");
                 printf("#    Bins: %u\n", num_bins);
                 printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
                 printf("#    Integrations: %u\n", integrations);
@@ -387,7 +387,7 @@ int main(int argc, char* argv[])
                 printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
                 printf("#   - {time_source: %s}\n", vrt_context.time_cal == 1? "pps" : "internal");
                 printf("# - correlation: !!omap\n");
-                printf("#   - {mode: %s}\n", lags ? "lags" : "cross-spectrum");
+                printf("#   - {mode: %s}\n", correlation ? "cross-correlation" : "cross-spectrum");
                 printf("#   - {bins: %u}\n", num_bins);
                 printf("#   - {col_first_bin: %u}\n", first_col);
                 printf("#   - {bin_size: %.2f}\n", ((double)vrt_context.sample_rate)/((double)num_bins));
@@ -400,7 +400,7 @@ int main(int argc, char* argv[])
                 printf("# - {name: v, unit: m, datatype: float64}\n");
                 printf("# - {name: w, unit: m, datatype: float64}\n");
 
-                if (lags) {
+                if (correlation) {
                     for (int32_t i = 0; i < num_bins; ++i) {
                         printf("# - {name: \'%.4e\', datatype: complex128}\n", (double)(i - (double)num_bins / 2)/(double)vrt_context.sample_rate);
                     }
@@ -414,7 +414,7 @@ int main(int argc, char* argv[])
             // Header
             printf("timestamp, u ,v, w");
 
-            if (lags) {
+            if (correlation) {
                 for (int32_t i = 0; i < num_bins; i++) {
                         printf(", %.4e", (double)(i - (double)num_bins / 2)/(double)vrt_context.sample_rate);
                 }
@@ -572,7 +572,7 @@ int main(int argc, char* argv[])
 
                             printf(", %.12e, %.12e, %.12e", range_u, range_v, delta_range);
 
-                            if (lags) {
+                            if (correlation) {
                                 // inverse FFT
                                 fftw_execute(ifft_plan);
 
