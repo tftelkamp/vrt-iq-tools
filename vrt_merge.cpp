@@ -303,7 +303,7 @@ int main(int argc, char* argv[])
                 vrt_print_context(&vrt_context2);
                 start_rx2 = true;
             }
-            if (progress && vrt_packet1.data)
+            if (progress && vrt_packet2.data)
                 show_progress_stats(
                     now,
                     &last_update2,
