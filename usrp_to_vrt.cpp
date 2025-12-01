@@ -1,10 +1,7 @@
 //
-// Copyright 2010-2011,2014 Ettus Research LLC
-// Copyright 2018 Ettus Research, a National Instruments Company
+// Copyright 2025 by Thomas Telkamp
 //
-// Copyright 2021/2025 by Thomas Telkamp
-//
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 //
 
 #include <unistd.h>

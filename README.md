@@ -68,4 +68,4 @@ make install -j
 
 ## License
 
-[GPLv3](https://choosealicense.com/licenses/gpl-3.0/)
+[MIT](https://choosealicense.com/licenses/mit/)

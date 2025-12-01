@@ -1,7 +1,7 @@
 //
-// Copyright 2021/2022 by Thomas Telkamp 
+// Copyright 2025 by Thomas Telkamp 
 //
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 //
 
 #include <boost/format.hpp>
