@@ -412,7 +412,7 @@ int main(int argc, char* argv[])
                 printf("# schema: astropy-2.0\n");
             }
             // Header
-            printf("timestamp, u ,v, w");
+            printf("timestamp, u, v, w");
 
             if (correlation) {
                 for (int32_t i = 0; i < num_bins; i++) {
