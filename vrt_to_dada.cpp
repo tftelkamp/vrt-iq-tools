@@ -11,6 +11,9 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/thread/thread.hpp>
 
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/date_time/posix_time/posix_time_io.hpp>
+
 #include <chrono>
 #include <csignal>
 #include <fstream>
@@ -70,7 +73,7 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string zmq_address, channel_list, sourcename, dadakey_str;
+    std::string zmq_address, channel_list, sourcename, dadakey_str, start_reception;
     uint16_t instance, main_port, port;
     uint32_t channel;
     int hwm;
@@ -90,6 +93,7 @@ int main(int argc, char* argv[])
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
         ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
         ("phase", po::value<float>(&phase)->default_value(0), "phase shift on second channel [0-1]")
+        ("start-time", po::value<std::string>(&start_reception), "start reception at given timestamp")
         ("sourcename", po::value<std::string>(&sourcename)->default_value("undefined"), "name of tracked celestial source")
         ("key", po::value<std::string>(&dadakey_str)->default_value("c2c2"), "dada key")
         ("progress", "periodically display short-term bandwidth")
@@ -122,6 +126,36 @@ int main(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool dt_trace               = vm.count("dt-trace") > 0;
     bool zmq_split              = vm.count("zmq-split") > 0;
+    bool start_at_timestamp     = vm.count("start-time") > 0;
+
+    boost::posix_time::ptime utc_time;
+    if (start_at_timestamp) {
+        try {
+            // Check for unix time
+            boost::lexical_cast<double>(start_reception);
+            double unix_start = boost::lexical_cast<double>(start_reception);
+            utc_time = boost::posix_time::from_time_t(unix_start);
+            double fraction = unix_start - ((int64_t)unix_start);
+            utc_time += boost::posix_time::microseconds((int64_t)(fraction*1000000));
+       } catch (boost::bad_lexical_cast&) {
+            // not unix time
+
+            // Replace 'T' with space
+            size_t t_pos = start_reception.find('T');
+            if (t_pos != std::string::npos) {
+                start_reception[t_pos] = ' ';
+            }
+
+            // Remove 'Z' if present
+            size_t z_pos = start_reception.find('Z');
+            if (z_pos != std::string::npos) {
+                start_reception.erase(z_pos, 1);
+            }
+
+            // Parse the string into a ptime object
+            utc_time = boost::posix_time::time_from_string(start_reception);
+        }
+    }
 
     std::complex<float> z(0,-2*(float)M_PI*phase);
     std::complex<float> a(amplitude,0);
@@ -298,6 +332,19 @@ int main(int argc, char* argv[])
                if (not continue_on_bad_packet)
                     break;
 
+            if (start_at_timestamp) {
+                boost::posix_time::ptime vrt_timestamp = boost::posix_time::from_time_t(vrt_packet.integer_seconds_timestamp);
+                vrt_timestamp += boost::posix_time::microseconds((int64_t)vrt_packet.fractional_seconds_timestamp/1000000);
+                // std::cout << "vrt time: " << vrt_timestamp << std::endl;
+                if (vrt_timestamp <= utc_time) {
+                    continue;
+                } else {
+                    start_at_timestamp = false;
+                    last_update = now;
+                    start_time = now;
+                }
+            }
+
             // check if fractional second has wrapped
             if (vrt_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
                     last_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
@@ -361,7 +408,7 @@ int main(int argc, char* argv[])
                 dada_header.append("PICOSECONDS " + std::to_string(vrt_packet.fractional_seconds_timestamp) + "\n");
                 dada_header.resize(4096, ' ');
                 // Write dada header to dada_header.txt for debugging
-                std::ofstream dada_header_txt("dada_header.txt");
+                std::ofstream dada_header_txt("dada_header_" + dadakey_str + ".txt");
                 dada_header_txt << dada_header;
                 dada_header_txt.close();
                 {
