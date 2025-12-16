@@ -128,6 +128,8 @@ int main(int argc, char* argv[])
     bool zmq_split              = vm.count("zmq-split") > 0;
     bool start_at_timestamp     = vm.count("start-time") > 0;
 
+    bool has_waited_for_start_time = false;
+
     boost::posix_time::ptime utc_time;
     if (start_at_timestamp) {
         try {
@@ -337,9 +339,14 @@ int main(int argc, char* argv[])
                 vrt_timestamp += boost::posix_time::microseconds((int64_t)vrt_packet.fractional_seconds_timestamp/1000000);
                 // std::cout << "vrt time: " << vrt_timestamp << std::endl;
                 if (vrt_timestamp <= utc_time) {
+                    has_waited_for_start_time = true;
                     continue;
                 } else {
                     start_at_timestamp = false;
+                    if (not has_waited_for_start_time) {
+                        std::cerr << "Requested start time " << boost::posix_time::to_iso_extended_string(utc_time) << " lies before first received data" << std::endl;
+                        return EXIT_FAILURE;
+                    }
                     last_update = now;
                     start_time = now;
                 }
