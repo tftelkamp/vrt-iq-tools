@@ -473,7 +473,7 @@ int main(int argc, char* argv[])
                     "        {\n"
                     "            \"core:sample_start\": 0,\n"
                     "            \"core:frequency\": %.0f,\n"
-                    "            \"core:frac_frequency\": %.6e,\n"
+                    "            \"vrt:frac_frequency\": %.6e,\n"
                     "            \"core:datetime\": \"%s.%06.0f\"\n"
                     "        }\n"
                     "    ]\n"
