@@ -32,6 +32,7 @@ struct context_type {
     bool context_received;
     bool context_changed;
     int64_t rf_freq;
+    double rf_frac_freq;
     uint32_t sample_rate;
     int32_t gain;
     float temperature;
@@ -103,6 +104,7 @@ void vrt_print_context(context_type* vrt_context) {
     printf("#    Stream ID (channel): %u (%u)\n", vrt_context->stream_id, ch);
     printf("#    Sample Rate [samples per second]: %i\n", vrt_context->sample_rate);
     printf("#    RF Freq [Hz]: %lli\n", vrt_context->rf_freq);
+    printf("#    RF frac. Freq [Hz]: %e\n", vrt_context->rf_frac_freq);
     printf("#    Bandwidth [Hz]: %i\n", vrt_context->bandwidth);
     printf("#    Gain [dB]: %i\n", vrt_context->gain);
     printf("#    Ref lock: %s\n", vrt_context->reflock == 1 ? "external" : "internal");
@@ -157,8 +159,10 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
             if (c.has.sample_rate)
                 vrt_context->sample_rate = (uint32_t)round(c.sample_rate);
 
-            if (c.has.rf_reference_frequency)
+            if (c.has.rf_reference_frequency) {
                 vrt_context->rf_freq = (int64_t)round(c.rf_reference_frequency);
+                vrt_context->rf_frac_freq = c.rf_reference_frequency - (double)vrt_context->rf_freq;
+            }
 
             if (c.has.bandwidth)
                 vrt_context->bandwidth = c.bandwidth;

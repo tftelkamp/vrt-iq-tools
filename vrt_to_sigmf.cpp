@@ -473,6 +473,7 @@ int main(int argc, char* argv[])
                     "        {\n"
                     "            \"core:sample_start\": 0,\n"
                     "            \"core:frequency\": %.0f,\n"
+                    "            \"core:frac_frequency\": %.6e,\n"
                     "            \"core:datetime\": \"%s.%06.0f\"\n"
                     "        }\n"
                     "    ]\n"
@@ -484,6 +485,7 @@ int main(int argc, char* argv[])
                     % vrt_context.stream_id
                     % channel
                     % vrt_context.rf_freq
+                    % vrt_context.rf_frac_freq
                     % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(vrt_context.starttime_integer)))
                     % (double)(vrt_context.starttime_fractional/1e6) );
                     *metafiles[ch] << json;
