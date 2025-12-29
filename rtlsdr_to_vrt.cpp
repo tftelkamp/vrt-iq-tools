@@ -1,5 +1,5 @@
 //
-// Copyright 2025 by Thomas Telkamp 
+// Copyright 2025 by Thomas Telkamp
 //
 // SPDX-License-Identifier: MIT
 //
@@ -89,6 +89,7 @@ int main(int argc, char* argv[])
     uint32_t stream_id;
     int hwm, gain;
     double rate, freq, total_time, setup_time, if_freq;
+    bool context_changed;
     bool merge;
 
     // setup the program options
@@ -141,7 +142,7 @@ int main(int argc, char* argv[])
     struct vrt_packet p;
     vrt_init_packet(&p);
     vrt_init_data_packet(&p);
-    
+
     p.fields.stream_id = 1;
 
     uint16_t main_port;
@@ -151,9 +152,10 @@ int main(int argc, char* argv[])
     } else {
         main_port = DEFAULT_MAIN_PORT + MAX_CHANNELS*instance;
     }
-    
+
     // ZMQ
     void *zmq_server;
+    void *zmq_control;
 
     void *context = zmq_ctx_new();
     void *responder = zmq_socket(context, ZMQ_PUB);
@@ -174,6 +176,12 @@ int main(int argc, char* argv[])
         zmq_setsockopt(merge_zmq, ZMQ_SUBSCRIBE, "", 0);
     }
 
+    responder = zmq_socket(context, ZMQ_SUB);
+    std::string control_string = "tcp://*:" + std::to_string(main_port+200);
+    rc = zmq_bind(responder, control_string.c_str());
+    assert (rc == 0);
+    zmq_control = responder;
+    zmq_setsockopt(zmq_control, ZMQ_SUBSCRIBE, "", 0);
 
     // create an rtlsdr device
 
@@ -182,8 +190,8 @@ int main(int argc, char* argv[])
     int sync_mode = 0;
     int dev_index = 0;
 
-    if(out_block_size < MINIMAL_BUF_LENGTH ||
-       out_block_size > MAXIMAL_BUF_LENGTH ){
+    if (out_block_size < MINIMAL_BUF_LENGTH ||
+        out_block_size > MAXIMAL_BUF_LENGTH ) {
         fprintf(stderr,
             "Output block size wrong value, falling back to default\n");
         fprintf(stderr,
@@ -246,21 +254,21 @@ int main(int argc, char* argv[])
     // seed random generator with seconds and microseconds
     srand(time_now.tv_usec + time_now.tv_sec);
 
- 	// Receive
+    // Receive
 
     if (total_num_samps == 0) {
         std::signal(SIGINT, &sig_int_handler);
         std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
     }
 
-	size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
+    size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
 
-	unsigned long long num_requested_samples = total_num_samps;
+    unsigned long long num_requested_samples = total_num_samps;
     double time_requested = total_time;
-    bool int_second             = (bool)vm.count("int-second");
+    bool int_second = (bool)vm.count("int-second");
 
     uint32_t buffer[SIZE];
-   
+
     bool first_frame = true;
 
     /* Warn if not standards compliant */
@@ -272,7 +280,7 @@ int main(int argc, char* argv[])
     auto start_time = std::chrono::steady_clock::now();
     auto stop_time =
         start_time + std::chrono::milliseconds(int64_t(1000 * time_requested));
-    
+
     // Track time and samps between updating the BW summary
     auto last_update                     = start_time;
     auto last_context                    = start_time;
@@ -280,11 +288,11 @@ int main(int argc, char* argv[])
 
 
     if (int_second) {
-    	gettimeofday(&time_now, nullptr);
-    	struct timeval new_time{};
-    	gettimeofday(&new_time, nullptr);
+        gettimeofday(&time_now, nullptr);
+        struct timeval new_time{};
+        gettimeofday(&new_time, nullptr);
         while (time_now.tv_sec==new_time.tv_sec)
-        	gettimeofday(&new_time, nullptr);
+            gettimeofday(&new_time, nullptr);
     }
 
     // Run this loop until either time expired (if a duration was given), until
@@ -300,143 +308,204 @@ int main(int argc, char* argv[])
     int16_t bodydata[samps_per_buff*2];
 
     // Create a circular buffer with a capacity for xxx.
-	boost::circular_buffer<int8_t> cb(samps_per_buff*3*2);
+    boost::circular_buffer<int8_t> cb(samps_per_buff*3*2);
 
     // flush merge queue
     if (merge)
         while ( zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
 
     while (not stop_signal_called) {
- 
+
         const auto now = std::chrono::steady_clock::now();
 
         r = rtlsdr_read_sync(dev, rtl_buffer, out_block_size, &n_read);
         if (r < 0) {
             fprintf(stderr, "WARNING: sync read failed.\n");
             break;
-        } else {
-        	// stuff
-        	num_words_read = n_read/2; 
-        	// printf("buffer bytes read: %u\n", n_read);
-        	for (uint32_t i = 0; i < n_read; i++) {
-        		cb.push_back( (int16_t)rtl_buffer[i]-127);
-        	}
+        }
+        // stuff
+        num_words_read = n_read/2;
+        // printf("buffer bytes read: %u\n", n_read);
+        for (uint32_t i = 0; i < n_read; i++) {
+            cb.push_back( (int16_t)rtl_buffer[i]-127);
+        }
 
-        	while (cb.size() > 2*samps_per_buff ) {
-	        	// printf("circular: %li\n", cb.size());	
+        while (cb.size() > 2*samps_per_buff ) {
+            // printf("circular: %li\n", cb.size());
 
-	        	gettimeofday(&time_now, nullptr);
+            gettimeofday(&time_now, nullptr);
 
-		        if (first_frame) {
-		            std::cout << boost::format(
-		                             "First frame: %u samples, %u full secs, %.09f frac secs")
-		                             % n_read % time_now.tv_sec
-		                             % (time_now.tv_usec/1e6)
-		                      << std::endl;
-		            first_frame = false;
-		        }
+            if (first_frame) {
+                std::cout << boost::format(
+                                 "First frame: %u samples, %u full secs, %.09f frac secs")
+                                 % n_read % time_now.tv_sec
+                                 % (time_now.tv_usec/1e6)
+                          << std::endl;
+                first_frame = false;
+            }
 
-	        	int8_t this_sample;
-		        for (uint32_t i = 0; i < 2*samps_per_buff; i++) {
-		        	this_sample = cb.front();
-        			cb.pop_front();
-        			bodydata[i] = this_sample;
-        		}	
-	   
-		        num_total_samps += num_words_read;
+            int8_t this_sample;
+            for (uint32_t i = 0; i < 2*samps_per_buff; i++) {
+                this_sample = cb.front();
+                cb.pop_front();
+                bodydata[i] = this_sample;
+            }
 
-		        p.body = bodydata;
-		        p.header.packet_count = (uint8_t)frame_count%16;
-		        p.fields.integer_seconds_timestamp = time_now.tv_sec;
-		        p.fields.fractional_seconds_timestamp = 1e6*time_now.tv_usec;
-		
-		        zmq_msg_t msg;
-		        int rc = zmq_msg_init_size (&msg, SIZE*4);
+            num_total_samps += num_words_read;
 
-		        int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), SIZE, true);
+            p.body = bodydata;
+            p.header.packet_count = (uint8_t)frame_count%16;
+            p.fields.integer_seconds_timestamp = time_now.tv_sec;
+            p.fields.fractional_seconds_timestamp = 1e6*time_now.tv_usec;
 
-		        frame_count++;
+            zmq_msg_t msg;
+            int rc = zmq_msg_init_size (&msg, SIZE*4);
 
-		        // VRT
-		        zmq_msg_send(&msg, zmq_server, 0);
-		        zmq_msg_close(&msg);
+            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), SIZE, true);
 
-		        const auto time_since_last_context = now - last_context;
-		        if (time_since_last_context > std::chrono::milliseconds(200)) {
+            frame_count++;
 
-		            last_context = now;
+            // VRT
+            zmq_msg_send(&msg, zmq_server, 0);
+            zmq_msg_close(&msg);
 
-		            // VITA 49.2
-		            /* Initialize to reasonable values */
-		            struct vrt_packet pc;
-		            vrt_init_packet(&pc);
+            const auto time_since_last_context = now - last_context;
+            if (time_since_last_context > std::chrono::milliseconds(200)) {
 
-		            /* VRT Configure. Note that context packets cannot have a trailer word. */
-		            vrt_init_context_packet(&pc);
+                last_context = now;
 
-		            gettimeofday(&time_now, nullptr);
-		            pc.fields.integer_seconds_timestamp = time_now.tv_sec;
-		            pc.fields.fractional_seconds_timestamp = 1e3*time_now.tv_usec;
+                // VITA 49.2
+                /* Initialize to reasonable values */
+                struct vrt_packet pc;
+                vrt_init_packet(&pc);
 
-		            pc.fields.stream_id = p.fields.stream_id;
+                /* VRT Configure. Note that context packets cannot have a trailer word. */
+                vrt_init_context_packet(&pc);
 
-		            pc.if_context.bandwidth                         = rate;
-		            pc.if_context.sample_rate                       = rate;
-		            pc.if_context.rf_reference_frequency            = freq+if_freq;
-		            pc.if_context.rf_reference_frequency_offset     = 0;
-		            pc.if_context.if_reference_frequency            = if_freq; // 0 for Zero-IF
-		            pc.if_context.gain.stage1                       = gain;
-		            pc.if_context.gain.stage2                       = 0;
+                gettimeofday(&time_now, nullptr);
+                pc.fields.integer_seconds_timestamp = time_now.tv_sec;
+                pc.fields.fractional_seconds_timestamp = 1e3*time_now.tv_usec;
 
-		            pc.if_context.state_and_event_indicators.reference_lock = false;
+                pc.fields.stream_id = p.fields.stream_id;
 
-		            pc.if_context.state_and_event_indicators.calibrated_time = false;
+                pc.if_context.bandwidth                         = rate;
+                pc.if_context.sample_rate                       = rate;
+                pc.if_context.rf_reference_frequency            = freq+if_freq;
+                pc.if_context.rf_reference_frequency_offset     = 0;
+                pc.if_context.if_reference_frequency            = if_freq; // 0 for Zero-IF
+                pc.if_context.gain.stage1                       = gain;
+                pc.if_context.gain.stage2                       = 0;
 
-		            int32_t rv = vrt_write_packet(&pc, buffer, SIZE, true);
-		            if (rv < 0) {
-		                fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
-		            }
+                pc.if_context.state_and_event_indicators.reference_lock = false;
 
-		            // ZMQ
-                    zmq_send (zmq_server, buffer, rv*4, 0);
+                pc.if_context.state_and_event_indicators.calibrated_time = false;
 
-		        }
-	        
-		        if (bw_summary) {
-		            last_update_samps += num_words_read;
-		            const auto time_since_last_update = now - last_update;
-		            if (time_since_last_update > std::chrono::seconds(1)) {
+                int32_t rv = vrt_write_packet(&pc, buffer, SIZE, true);
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
+                }
 
-		                const double time_since_last_update_s =
-		                    std::chrono::duration<double>(time_since_last_update).count();
-		                const double rate = double(last_update_samps) / time_since_last_update_s;
-		                std::cout << "\t" << (rate / 1e6) << " Msps, ";
-		                
-		                last_update_samps = 0;
-		                last_update       = now;
+                // ZMQ
+                zmq_send (zmq_server, buffer, rv*4, 0);
 
-		                float sum_i = 0;
-		                uint32_t clip_i = 0;
+            }
 
-		                double datatype_max = 128.;
+            // Control
+            int len = zmq_recv(zmq_control, buffer, 100000, ZMQ_NOBLOCK);
+            if (len > 0) {
+                printf("-> Control context received\n");
 
-		                for (int i=0; i<10000; i++ ) {
-		                    auto sample_i = get_abs_val(bodydata[2*i]);
-		                    sum_i += sample_i;
-		                    if (sample_i > datatype_max*0.99)
-		                        clip_i++;
-		                }
-		                sum_i = sum_i/10000;
-		                std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
-		                std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
-		                std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-		                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/10000) << "% I clip.";
-		                std::cout << std::endl;
+                struct vrt_header h;
+                struct vrt_fields f;
 
-		            }
-		        }
-		    }
-		}
+                int32_t offset = 0;
+                int32_t size = ZMQ_BUFFER_SIZE;
+                int32_t rv = vrt_read_header(buffer + offset, size - offset, &h, true);
+
+                /* Parse header */
+                if (rv < 0) {
+                    fprintf(stderr, "Failed to parse header: %s\n", vrt_string_error(rv));
+                    break;
+                }
+                offset += rv;
+
+                if (h.packet_type == VRT_PT_IF_CONTEXT) {
+                    // Context
+
+                    /* Parse fields */
+                    rv = vrt_read_fields(&h, buffer + offset, size - offset, &f, true);
+                    if (rv < 0) {
+                        fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
+                        break;
+                    }
+                    offset += rv;
+
+                    struct vrt_if_context c;
+                    rv = vrt_read_if_context(buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
+                    if (rv < 0) {
+                        fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
+                        break;
+                    }
+
+                    if (c.has.rf_reference_frequency || c.has.if_band_offset) {
+                        if (c.has.rf_reference_frequency)
+                            freq = (double)round(c.rf_reference_frequency);
+
+                        std::cout << boost::format("    Setting RX Freq: %f MHz...") % (freq / 1e6)
+                                  << std::endl;
+                        // FIXME uhd::tune_request_t tune_request(freq, lo_offset);
+                        // FIXME usrp->set_rx_freq(tune_request, control_channel);
+                        // FIXME std::cout << boost::format("    Actual RX Freq: %f MHz...")
+                        // FIXME                 % (usrp->get_rx_freq(control_channel) / 1e6)
+                        // FIXME          << std::endl;
+                    }
+                    if (c.has.gain) {
+                        double gain = c.gain.stage1;
+                        std::cout << boost::format("    Setting RX Gain: %f dB...") % gain << std::endl;
+                        // FIXME usrp->set_rx_gain(gain, control_channel);
+                        // FIXME std::cout << boost::format("    Actual RX Gain: %f dB...")
+                        // FIXME                  % usrp->get_rx_gain(control_channel)
+                        // FIXME          << std::endl;
+                    }
+
+                    last_context = start_time - std::chrono::milliseconds(2*VRT_CONTEXT_INTERVAL); // Trigger context update (next)
+
+                    context_changed = true;
+                }
+            }
+
+            if (bw_summary) {
+                last_update_samps += num_words_read;
+                const auto time_since_last_update = now - last_update;
+                if (time_since_last_update > std::chrono::seconds(1)) {
+                    const double time_since_last_update_s =
+                        std::chrono::duration<double>(time_since_last_update).count();
+                    const double rate = double(last_update_samps) / time_since_last_update_s;
+                    std::cout << "\t" << (rate / 1e6) << " Msps, ";
+
+                    last_update_samps = 0;
+                    last_update       = now;
+
+                    float sum_i = 0;
+                    uint32_t clip_i = 0;
+
+                    double datatype_max = 128.;
+
+                    for (int i=0; i<10000; i++ ) {
+                        auto sample_i = get_abs_val(bodydata[2*i]);
+                        sum_i += sample_i;
+                        if (sample_i > datatype_max*0.99)
+                            clip_i++;
+                    }
+                    sum_i = sum_i/10000;
+                    std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
+                    std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
+                    std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
+                    std::cout << "" << boost::format("%.0f") % (100.0*clip_i/10000) << "% I clip.";
+                    std::cout << std::endl;
+                }
+            }
+        }
 
         // Merge
         if (merge) {
@@ -450,7 +519,6 @@ int main(int argc, char* argv[])
                 zmq_msg_close(&msg);
             }
         }
-
     }
 
     const auto actual_stop_time = std::chrono::steady_clock::now();
@@ -466,8 +534,8 @@ int main(int argc, char* argv[])
         const double rate = (double)num_total_samps / actual_duration_seconds;
         std::cout << (rate / 1e6) << " Msps." << std::endl;
     }
-  
-     /* clean up */
+
+    /* clean up */
     rtlsdr_set_bias_tee(dev, false);
     rtlsdr_close(dev);
 
