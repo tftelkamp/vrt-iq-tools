@@ -453,19 +453,29 @@ int main(int argc, char* argv[])
 
                         std::cout << boost::format("    Setting RX Freq: %f MHz...") % (freq / 1e6)
                                   << std::endl;
-                        // FIXME uhd::tune_request_t tune_request(freq, lo_offset);
-                        // FIXME usrp->set_rx_freq(tune_request, control_channel);
-                        // FIXME std::cout << boost::format("    Actual RX Freq: %f MHz...")
-                        // FIXME                 % (usrp->get_rx_freq(control_channel) / 1e6)
-                        // FIXME          << std::endl;
+
+                        verbose_set_frequency(dev, (uint32_t)freq);
+
+                        std::cout << boost::format("    Actual RX Freq: %f MHz...")
+                                          % ((double)rtlsdr_get_center_freq(dev) / 1e6)
+                                  << std::endl;
                     }
                     if (c.has.gain) {
                         double gain = c.gain.stage1;
                         std::cout << boost::format("    Setting RX Gain: %f dB...") % gain << std::endl;
-                        // FIXME usrp->set_rx_gain(gain, control_channel);
-                        // FIXME std::cout << boost::format("    Actual RX Gain: %f dB...")
-                        // FIXME                  % usrp->get_rx_gain(control_channel)
-                        // FIXME          << std::endl;
+
+                        if (0 == c.gain.stage1) {
+                            /* Enable automatic gain */
+                            verbose_auto_gain(dev);
+                        } else {
+                            /* Enable manual gain */
+                            gain = nearest_gain(dev, c.gain.stage1*10);
+                            verbose_gain_set(dev, gain);
+                            gain = gain/10;
+                        }
+                        std::cout << boost::format("    Actual RX Gain: %f dB...")
+                                          % gain
+                                  << std::endl;
                     }
 
                     last_context = start_time - std::chrono::milliseconds(2*VRT_CONTEXT_INTERVAL); // Trigger context update (next)
