@@ -390,17 +390,17 @@ int main(int argc, char* argv[])
                     printf("exit\n");
                     break;
                 }
-                if (cmd.cmd == SET_IF_STAGE) {
+                else if (cmd.cmd == SET_IF_STAGE) {
                     int32_t tmp = ntohl(cmd.param);
                     printf("set IF stage %d gain %.1f dB\n", tmp >> 16, ((short)(tmp & 0xffff))/10.0);
                 }
-                if (cmd.cmd == SET_GAIN) {
+                else if (cmd.cmd == SET_GAIN) {
                     int32_t tmp = ntohl(cmd.param);
                     // tmp += 10;
                     printf("set manual scaling gain %.2f dB (%.1f)\n", tmp/10.0, pow(10,tmp/100.0));
                     scale = pow(10,tmp/100.0);
                 }
-                if (cmd.cmd == SET_FREQUENCY) {
+                else if (cmd.cmd == SET_FREQUENCY) {
                     uint32_t tmp = ntohl(cmd.param);
                     uint64_t freq64 = 0;
                     if (!freqhi)
@@ -431,10 +431,12 @@ int main(int argc, char* argv[])
                             zmq_send (control, ctrl_buffer, rv*4, 0);
                     }
                 }
-                if (cmd.cmd == SET_FREQ_HI32) {
+                else if (cmd.cmd == SET_FREQ_HI32) {
                     freqhi = ntohl(cmd.param);
                 }
-
+                else {
+                    fprintf(stderr, "Received unknown command\n");
+                }
             }
 
             if (start_rx and vrt_packet.data) {
