@@ -128,9 +128,9 @@ int main(int argc, char* argv[])
 
     // print the help message
     if (vm.count("help")) {
-        std::cout << boost::format("VRT channelizer. %s") % desc << std::endl;
+        std::cout << boost::format("VRT tuner. %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application channelizer a VRT stream.\n"
+                  << "This application tunes into a VRT stream.\n"
                   << std::endl;
         return ~0;
     }

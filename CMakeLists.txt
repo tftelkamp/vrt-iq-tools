@@ -104,7 +104,7 @@ add_executable(play_vrt play_vrt.cpp)
 add_executable(control_vrt control_vrt.cpp)
 add_executable(vrt_rffft vrt_rffft.cpp)
 add_executable(vrt_metadata vrt_metadata.cpp)
-add_executable(vrt_channelizer vrt_channelizer.cpp)
+add_executable(vrt_tuner vrt_tuner.cpp)
 add_executable(vrt_merge vrt_merge.cpp)
 add_executable(vrt_correlate vrt_correlate.cpp)
 
