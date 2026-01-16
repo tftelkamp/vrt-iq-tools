@@ -103,7 +103,7 @@ void vrt_print_context(context_type* vrt_context) {
     printf("# VRT Context:\n");
     printf("#    Stream ID (channel): %u (%u)\n", vrt_context->stream_id, ch);
     printf("#    Sample Rate [samples per second]: %i\n", vrt_context->sample_rate);
-    printf("#    RF Freq [Hz]: %lli\n", vrt_context->rf_freq);
+    printf("#    RF Freq [Hz]: %lld\n", (long long int)vrt_context->rf_freq);
     printf("#    RF frac. Freq [Hz]: %e\n", vrt_context->rf_frac_freq);
     printf("#    Bandwidth [Hz]: %i\n", vrt_context->bandwidth);
     printf("#    Gain [dB]: %i\n", vrt_context->gain);
