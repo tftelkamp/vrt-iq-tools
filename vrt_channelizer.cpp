@@ -594,7 +594,11 @@ int main(int argc, char* argv[])
     }
 
     zmq_close(subscriber);
-    zmq_close(zmq_server[0]); // TODO close all sessions
+    if (pub_zmq_split)
+        for (size_t ch = 0; ch < decimation; ch++)
+            zmq_close(zmq_server[ch]);
+    else
+        zmq_close(zmq_server[0]);
     zmq_ctx_destroy(context);
 
     return 0;
