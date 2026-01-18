@@ -38,8 +38,10 @@
 #include "vrt-tools.h"
 #include "tracker-extended-context.h"
 
-#define REAL 0
-#define IMAG 1
+struct complex_i16 {
+    int16_t real;
+    int16_t imag;
+};
 
 const double pi = std::acos(-1.0);
 
@@ -89,6 +91,41 @@ void pfb(cuFloatComplex* __restrict__ data, cuFloatComplex* __restrict__ shift_r
     data[ sample * bins + b ] = tmp;
 }
 
+__device__ __forceinline__ int16_t float_to_int16(float x)
+{
+    int v = static_cast<int>(lrintf(x));
+    v = max(-32768, min(32767, v));
+    return static_cast<int16_t>(v);
+}
+
+__global__
+void reorder(int iq_counter, cuFloatComplex* __restrict__ data, complex_i16* __restrict__ cuda_iq_buff, int bins, int samples)
+{
+    int k = blockIdx.x*blockDim.x + threadIdx.x;
+    int loops = blockIdx.y*blockDim.y + threadIdx.y;
+
+    __shared__ cuFloatComplex result[16][16];
+
+    if (k < bins && loops < samples) {
+
+        int offset = k + ((k < bins/2) * 2 - 1) * bins/2;
+
+        result[threadIdx.y][threadIdx.x] = data[loops*bins+offset];
+    }
+
+    __syncthreads();
+
+    if (k < bins && loops < samples) {
+
+        k = blockIdx.x*blockDim.x + threadIdx.y;
+        loops = blockIdx.y*blockDim.y + threadIdx.x;
+
+        cuda_iq_buff[k*samples+loops+iq_counter].real = float_to_int16(result[threadIdx.x][threadIdx.y].x);
+        cuda_iq_buff[k*samples+loops+iq_counter].imag = float_to_int16(result[threadIdx.x][threadIdx.y].y);
+    }
+    
+}
+
 int main(int argc, char* argv[])
 {
 
@@ -110,11 +147,12 @@ int main(int argc, char* argv[])
     float *hh2;
 
     // C
-    std::complex<int16_t> **iq_buff;
+    std::complex<int16_t> *iq_buff;
     std::complex<float> *shift_reg;
     std::complex<float> *ifft_out;
 
     // CUDA
+    std::complex<int16_t> *cuda_iq_buff;
     cuFloatComplex *cuda_shift_reg;
     cuFloatComplex *cuda_poly_filter_out;
 
@@ -387,11 +425,6 @@ int main(int argc, char* argv[])
 
             cudaStreamAttachMemAsync(NULL, hh2, 0, cudaMemAttachGlobal);
 
-            iq_buff = (std::complex<int16_t> **)malloc(sizeof(std::complex<int16_t> *) * decimation);
-
-            for (size_t dec=0; dec < decimation; dec++)
-                iq_buff[dec] = (std::complex<int16_t> *)malloc(sizeof(std::complex<int16_t>) * gpu_frames * VRT_SAMPLES_PER_PACKET);
-
             int rank = 1;
             int n[] = {(int)decimation};
             int howmany = buffer_frames*osr*VRT_SAMPLES_PER_PACKET/decimation;
@@ -404,9 +437,14 @@ int main(int argc, char* argv[])
 
             // CUDA
             cudaMalloc((void**) &cuda_shift_reg, (buffer_frames+1)*VRT_SAMPLES_PER_PACKET * sizeof(cuFloatComplex));
-            cudaMalloc((void**) &cuda_poly_filter_out, sizeof(cufftComplex)*buffer_frames*VRT_SAMPLES_PER_PACKET*osr);
             cudaMallocHost((void **)&shift_reg,  (buffer_frames+1)*VRT_SAMPLES_PER_PACKET * sizeof(std::complex<float>));
+            
+            cudaMalloc((void**) &cuda_poly_filter_out, sizeof(cufftComplex)*buffer_frames*VRT_SAMPLES_PER_PACKET*osr);
             cudaMallocHost((void **)&ifft_out,  buffer_frames*VRT_SAMPLES_PER_PACKET*osr*sizeof(std::complex<float>));
+
+            cudaMalloc((void**) &cuda_iq_buff, sizeof(std::complex<int16_t>) * decimation * gpu_frames * VRT_SAMPLES_PER_PACKET);
+            cudaMallocHost((void **)&iq_buff,  sizeof(std::complex<int16_t>) * decimation * gpu_frames * VRT_SAMPLES_PER_PACKET);
+
             cudaStreamSynchronize(NULL);
 
         }
@@ -453,7 +491,7 @@ int main(int argc, char* argv[])
                 else 
                     pc.fields.stream_id = 1<<dec;
 
-                pc.if_context.rf_reference_frequency = (double)vrt_context.rf_freq + ((double)dec-(double)decimation/2)*(double)vrt_context.sample_rate/(double)decimation;
+                pc.if_context.rf_reference_frequency = (double)vrt_context.rf_freq + ((double)dec-(double)decimation/2.0)*(double)vrt_context.sample_rate/(double)decimation;
 
                 int32_t rv = vrt_write_packet(&pc, tx_buffer, VRT_DATA_PACKET_SIZE, true);
                 if (rv < 0) {
@@ -536,24 +574,20 @@ int main(int argc, char* argv[])
                     exit(1);
                 }
 
+                dim3 dimBlock_reorder((bins+7)/8,(samples_per_channel_out+7)/8,1);
+                dim3 threadBlock(8,8,1);
+
+                // fft_shift
+                reorder<<<dimBlock_reorder,threadBlock>>>(iq_counter, cuda_poly_filter_out, (complex_i16*)cuda_iq_buff, bins, samples_per_channel_out);
+
                 cudaDeviceSynchronize();
 
                 cudaMemcpy(
-                    ifft_out,
-                    cuda_poly_filter_out,
-                    sizeof(cufftComplex)*VRT_SAMPLES_PER_PACKET*osr*buffer_frames,
+                    iq_buff,
+                    cuda_iq_buff,
+                    sizeof(std::complex<int16_t>) * decimation * gpu_frames * VRT_SAMPLES_PER_PACKET,
                     cudaMemcpyDeviceToHost
                 );
-
-                // reorder
-                for (int loops = 0; loops < samples_per_channel_out; loops++) {
-                    for (int k = 0; k < bins; k++) {
-                        int offset = k + ((k < bins/2) * 2 - 1) * bins/2;
-
-                        iq_buff[k][iq_counter+loops] = ifft_out[loops*bins+offset];
-
-                    }
-                }
 
                 int noverlap = bins * pfb_filter_taps / 2;
                 memcpy(&shift_reg[block_samples_in], shift_reg, noverlap * sizeof(std::complex<float>));
@@ -580,7 +614,7 @@ int main(int argc, char* argv[])
                     next_fractional_seconds_timestamp = 0;
 
                     for (int dec = 0; dec < decimation; dec++) {
-                        p.body = (char*)iq_buff[dec];
+                        p.body = (char*)&iq_buff[dec*VRT_SAMPLES_PER_PACKET];
                         if (pub_zmq_split)
                             p.fields.stream_id = 1;
                         else 
