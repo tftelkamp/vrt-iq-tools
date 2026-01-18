@@ -351,17 +351,11 @@ int main(int argc, char* argv[])
                 exit(1);
             }
 
-            // // check for valid decimation
-            // if (VRT_SAMPLES_PER_PACKET % decimation != 0) {
-            //     printf("decimation needs to be a divisor of %u.\n", VRT_SAMPLES_PER_PACKET);
-            //     exit(1);
-            // }
-
-            // // check for valid decimation
-            // if (VRT_SAMPLES_PER_PACKET % (osr*VRT_SAMPLES_PER_PACKET/decimation) != 0) {
-            //     printf("osr*10000/decimation needs to be a divisor of %u.\n", VRT_SAMPLES_PER_PACKET);
-            //     exit(1);
-            // }
+            // check for valid decimation
+            if (decimation % 2 != 0) {
+                printf("decimation needs to be even.\n");
+                exit(1);
+            }
             
             // check for valid decimation
             if ((uint64_t)vrt_context.sample_rate % decimation != 0) {
