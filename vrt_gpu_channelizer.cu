@@ -70,13 +70,13 @@ inline float get_abs_val(std::complex<int8_t> t)
 
 // CUDA
 __global__
-void pfb(cuFloatComplex* __restrict__ data, cuFloatComplex* __restrict__ shift_reg, float* __restrict__ hh2, int bins, int samples, int pfb_filter_taps, int osr)
+void pfb(cuFloatComplex* __restrict__ data, cuFloatComplex* __restrict__ shift_reg, float* __restrict__ hh2, int bins, int samples_per_channel_out, int pfb_filter_taps, int osr)
 {
     int k = blockIdx.x*blockDim.x + threadIdx.x;
     int sample = blockIdx.y;
     int t, b;
 
-    uint32_t index = samples - ( sample + 1) * ( bins / osr );
+    uint32_t index = samples_per_channel_out - ( sample + 1) * ( bins / osr );
     uint32_t shift = ( ( sample + 1 ) * ( bins / osr ) ) % bins;
 
     b = ( bins + k - shift ) % bins;
@@ -99,29 +99,29 @@ __device__ __forceinline__ int16_t float_to_int16(float x)
 }
 
 __global__
-void reorder(int iq_counter, cuFloatComplex* __restrict__ data, complex_i16* __restrict__ cuda_iq_buff, int bins, int samples)
+void reorder(int iq_counter, cuFloatComplex* __restrict__ data, complex_i16* __restrict__ cuda_iq_buff, int bins, int samples_per_channel_out)
 {
     int k = blockIdx.x*blockDim.x + threadIdx.x;
     int loops = blockIdx.y*blockDim.y + threadIdx.y;
 
-    __shared__ cuFloatComplex result[16][16];
+    __shared__ cuFloatComplex tmp[16][16];
 
-    if (k < bins && loops < samples) {
+    if (k < bins && loops < samples_per_channel_out) {
 
         int offset = k + ((k < bins/2) * 2 - 1) * bins/2;
 
-        result[threadIdx.y][threadIdx.x] = data[loops*bins+offset];
+        tmp[threadIdx.y][threadIdx.x] = data[loops*bins+offset];
     }
 
     __syncthreads();
 
-    if (k < bins && loops < samples) {
+    if (k < bins && loops < samples_per_channel_out) {
 
         k = blockIdx.x*blockDim.x + threadIdx.y;
         loops = blockIdx.y*blockDim.y + threadIdx.x;
 
-        cuda_iq_buff[k*samples+loops+iq_counter].real = float_to_int16(result[threadIdx.x][threadIdx.y].x);
-        cuda_iq_buff[k*samples+loops+iq_counter].imag = float_to_int16(result[threadIdx.x][threadIdx.y].y);
+        cuda_iq_buff[k*samples_per_channel_out+loops+iq_counter].real = float_to_int16(tmp[threadIdx.x][threadIdx.y].x);
+        cuda_iq_buff[k*samples_per_channel_out+loops+iq_counter].imag = float_to_int16(tmp[threadIdx.x][threadIdx.y].y);
     }
     
 }
@@ -564,7 +564,7 @@ int main(int argc, char* argv[])
 
                 // iFFT
                 if (cufftExecC2C(cuda_plan, cuda_poly_filter_out, cuda_poly_filter_out, CUFFT_INVERSE) != CUFFT_SUCCESS){
-                    printf("CUFFT error: ExecC2C Forward failed\n");
+                    printf("CUFFT error: ExecC2C Inverse failed\n");
                     exit(1);
                 }
 
