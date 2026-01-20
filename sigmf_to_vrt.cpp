@@ -172,7 +172,7 @@ int main(int argc, char* argv[])
     printf("SigMF meta data:\n");
     printf("    Start time: %s\n", start_time_str.c_str());
     printf("    Sample rate: %i\n", (int)rate);
-    printf("    Frequency: %i\n", (int64_t)freq);
+    printf("    Frequency: %lli\n", (long long int)freq);
     printf("    Reference: %s\n", ref.c_str());
     printf("    Time calibration: %s\n", time_cal.c_str());
     printf("    Data type: %s\n", type.c_str());
@@ -309,7 +309,7 @@ int main(int argc, char* argv[])
 
     uint64_t update_interval = 1e6*samps_per_buff/datarate;
 
-    printf("Update interval: %i\n", update_interval);
+    printf("Update interval: %llu\n", (long long unsigned int)update_interval);
 
     while (not stop_signal_called) {
 

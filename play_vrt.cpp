@@ -179,7 +179,7 @@ int main(int argc, char* argv[])
         printf("      Start time: %s\n", start_time_str.c_str());
         printf("     Sample rate: %i\n", (int)rate);
         printf("            Gain: %i\n", (int)gain);
-        printf("       Frequency: %i\n", (int64_t)freq);
+        printf("       Frequency: %lli\n", (long long int)freq);
         printf("       Data type: %s\n", type.c_str());
         printf("       Stream ID: %u\n", stream_id);
 
@@ -284,7 +284,7 @@ int main(int argc, char* argv[])
     uint32_t frame_count = 0;
     uint32_t num_words_read = 0;
 
-    std::complex<short> samples[samps_per_buff];
+    std::complex<short> samples[VRT_SAMPLES_PER_PACKET];
 
     timeval time_first_sample;
 
