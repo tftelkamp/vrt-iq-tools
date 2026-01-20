@@ -65,7 +65,7 @@ int main(int argc, char* argv[])
     // variables to be set by po
     std::string file, type, zmq_address1, zmq_address2;
     uint16_t pub_instance, instance1, main_port1, port1, instance2, main_port2, port2, pub_port;
-    uint32_t channel;
+    uint32_t channel1, channel2;
     int hwm;
 
     size_t num_requested_samples;
@@ -79,7 +79,8 @@ int main(int argc, char* argv[])
         ("help", "help message")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
-        ("channel", po::value<uint32_t>(&channel)->default_value(0), "VRT channel")
+        ("channel1", po::value<uint32_t>(&channel1)->default_value(0), "VRT channel 1")
+        ("channel2", po::value<uint32_t>(&channel2)->default_value(0), "VRT channel 2")
         ("progress", "periodically display short-term bandwidth")
         // ("int-second", "align start of reception to integer second")
         ("null", "run without writing to file")
@@ -148,8 +149,8 @@ int main(int argc, char* argv[])
     //     vrt_packet.channel_filt = 1<<channel;
     // }
 
-    vrt_packet1.channel_filt = 1<<channel;
-    vrt_packet2.channel_filt = 1<<channel;
+    vrt_packet1.channel_filt = 1<<channel1;
+    vrt_packet2.channel_filt = 1<<channel2;
 
     // ZMQ
     void *context = zmq_ctx_new();
@@ -254,7 +255,7 @@ int main(int argc, char* argv[])
                 forwarded = false;
                 memcpy((char*)rx_stored[0], (char*)rx_buffer[0], len1);
                 rx_stored_len[0] = len1;
-            } else {
+            } else if (vrt_packet2.context) {
                 zmq_msg_t msg;
                 rx_buffer[0][1] = htonl(1u);
                 zmq_msg_init_size (&msg, len1);
@@ -291,7 +292,7 @@ int main(int argc, char* argv[])
                 forwarded = false;
                 memcpy((char*)rx_stored[1], (char*)rx_buffer[1], len2);
                 rx_stored_len[1] = len2;
-            } else {
+            } else if (vrt_packet2.context) {
                 zmq_msg_t msg;
                 rx_buffer[1][1] = htonl(2u);
                 zmq_msg_init_size (&msg, len2);
