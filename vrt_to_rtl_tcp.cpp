@@ -397,8 +397,31 @@ int main(int argc, char* argv[])
                 else if (cmd.cmd == SET_GAIN) {
                     int32_t tmp = ntohl(cmd.param);
                     // tmp += 10;
-                    printf("set manual scaling gain %.2f dB (%.1f)\n", tmp/10.0, pow(10,tmp/100.0));
-                    scale = pow(10,tmp/100.0);
+                    double gain = tmp / 10.0;
+
+                    if (ctrl) {
+                        struct timeval time_now{};
+                        gettimeofday(&time_now, nullptr);
+
+                        pc.fields.integer_seconds_timestamp = time_now.tv_sec;
+                        pc.fields.fractional_seconds_timestamp = 1e3*time_now.tv_usec;
+
+                        pc.if_context.has.gain = true;
+                        pc.if_context.gain.stage1 = gain;
+                        pc.if_context.gain.stage2 = 0;
+
+                        uint32_t ctrl_buffer[VRT_DATA_PACKET_SIZE];
+                        int32_t rv = vrt_write_packet(&pc, ctrl_buffer, VRT_DATA_PACKET_SIZE, true);
+                        if (rv < 0) {
+                            fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
+                        } else {
+                            zmq_send (control, ctrl_buffer, rv*4, 0);
+                        }
+                    } else {
+                        // Use gain to control the 16 to 8 bit scaling
+                        printf("set manual scaling gain %.2f dB (%.1f)\n", gain, pow(10, gain/10.0));
+                        scale = pow(10, gain/10.0);
+                    }
                 }
                 else if (cmd.cmd == SET_FREQUENCY) {
                     uint32_t tmp = ntohl(cmd.param);
