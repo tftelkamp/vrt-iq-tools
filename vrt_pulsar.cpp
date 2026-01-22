@@ -468,7 +468,7 @@ int main(int argc, char* argv[])
                     start_at_timestamp = false;
                     if (not has_waited_for_start_time) {
                         std::cerr << "Requested start time " << boost::posix_time::to_iso_extended_string(utc_time) << " lies before first received data" << std::endl;
-                        return EXIT_FAILURE;
+                        //return EXIT_FAILURE;
                     }
                     last_update = now;
                     start_time = now;
