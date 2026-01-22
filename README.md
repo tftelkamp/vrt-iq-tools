@@ -36,21 +36,30 @@ make install -j
 
 ### Creating a VRT stream from an SDR or file:
 
-* `usrp_to_vrt`: Create VRT stream from an [Ettus USRP](https://www.ettus.com/products/) SDR device (e.g. B210).
+* `usrp_to_vrt`: Create VRT stream from an [Ettus USRP](https://www.ettus.com/products/) SDR device (e.g. B210). Also supports transmit.
 * `rfspace_to_vrt`: Create VRT stream from [RFSpace](https://http://www.rfspace.com) SDR device.
 * `rtlsdr_to_vrt`: Create VRT stream from [RTL-SDR](https://www.rtl-sdr.com/) device.
+* `airspy_to_vrt`: Create VRT stream from [Airspy R2 and mini](https://airspy.com/airspy-r2/) device.
 * `sigmf_to_vrt`: Create VRT stream from [SigMF](https://sigmf.org) recording, or with `--vrt` from a VRT recording.
 * `play_vrt`: Create VRT stream from [SigMF](https://sigmf.org) recording, intended for transmitting.
 
 ### Clients:
 
 * `vrt_to_sigmf`: Store IQ and metadata as [SigMF](https://sigmf.org) recording, or with `--vrt` as raw VRT.
-* `vrt_spectrum`: Create spectra, store in CSV or ECSV format (compatible with [Astropy](https://astropy.org)). With `--gnuplot`, output can be piped to Gnuplot.
+* `vrt_spectrum`: Create spectra, store in CSV or ECSV format (compatible with [Astropy](https://astropy.org)). With `--gnuplot`, output can be piped to Gnuplot. With `--fftmax` you can show only the frequency of the bin with the maximum. Used for Doppler tracking. Options `--two` and `--four` to square and double square the signal before making a spectrum.
 * `vrt_to_filterbank`: Create spectra, store in [sigproc](https://sigproc.sourceforge.net/) filterbank format.
 * `vrt_rffft`: Create spectra and store in [STRF](https://github.com/cbassa/strf) format.
-* `vrt_fftmax`: Create spectra, store only the frequency of the bin with the maximum. Used for Doppler tracking.
-* `vrt_fftmax_quad`: Same as `vrt_fftmax` but used for modulated signals.
 * `vrt_pulsar`: Channelize, dedisperse and fold pulsar data.
+* `vrt_tuner`: Extract a sub-band from a VRT stream.
+* `vrt_channelizer`: Polyphase Channelizer, extracts all sub-bands from a VRT stream.
+* `vrt_merge`: Merges two VRT streams into a single synchronized stream with two channels. Requires equal timestamps in the streams.
+* `vrt_quantize`: 1-bit quantization of a VRT stream.
+* `vrt_correlate`: Create cross-spectrum of two channels.
+
+### GPU Clients:
+
+* `vrt_gpu_fftmax`: Create spectra, store only the frequency of the bin with the maximum. Used for Doppler tracking.
+* `vrt_gpu_channelizer`: Polyphase GPU Channelizer, extracts all sub-bands from a VRT stream.
 
 ### Converting to other stream types:
 * `vrt_to_stdout`: Stream IQ to standard output. Useful for streaming to [PhantomSDR](https://github.com/PhantomSDR/PhantomSDR).
@@ -63,7 +72,7 @@ make install -j
 ### Miscellaneous:
 * `vrt_metadata`: Print metadata of a VRT stream.
 * `vrt_forwarder`: Forward ZMQ stream.
-* `vrt_to_void`: Template for new clients.
+* `vrt_to_void`: Template for new clients and connection testing.
 * `control_vrt`: Control devices, e.g. to set gain or frequency.
 
 ## License
