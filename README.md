@@ -37,7 +37,7 @@ make install -j
 ### Creating a VRT stream from an SDR or file:
 
 * `usrp_to_vrt`: Create VRT stream from an [Ettus USRP](https://www.ettus.com/products/) SDR device (e.g. B210). Also supports transmit.
-* `rfspace_to_vrt`: Create VRT stream from [RFSpace](https://http://www.rfspace.com) SDR device.
+* `rfspace_to_vrt`: Create VRT stream from [RFSpace](http://www.rfspace.com) SDR device.
 * `rtlsdr_to_vrt`: Create VRT stream from [RTL-SDR](https://www.rtl-sdr.com/) device.
 * `airspy_to_vrt`: Create VRT stream from [Airspy R2 and mini](https://airspy.com/airspy-r2/) device.
 * `sigmf_to_vrt`: Create VRT stream from [SigMF](https://sigmf.org) recording, or with `--vrt` from a VRT recording.
