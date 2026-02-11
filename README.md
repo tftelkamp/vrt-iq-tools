@@ -40,6 +40,7 @@ make install -j
 * `rfspace_to_vrt`: Create VRT stream from [RFSpace](http://www.rfspace.com) SDR device.
 * `rtlsdr_to_vrt`: Create VRT stream from [RTL-SDR](https://www.rtl-sdr.com/) device.
 * `airspy_to_vrt`: Create VRT stream from [Airspy R2 and mini](https://airspy.com/airspy-r2/) device.
+* `iio_to_vrt`: Create VRT stream from an IIO device, such as the [ADALM-PLUTO](https://www.analog.com/en/resources/evaluation-hardware-and-software/evaluation-boards-kits/adalm-pluto.html).
 * `sigmf_to_vrt`: Create VRT stream from [SigMF](https://sigmf.org) recording, or with `--vrt` from a VRT recording.
 * `play_vrt`: Create VRT stream from [SigMF](https://sigmf.org) recording, intended for transmitting.
 
