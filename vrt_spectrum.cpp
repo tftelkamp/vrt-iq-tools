@@ -32,6 +32,7 @@
 #include <vrt/vrt_types.h>
 #include <vrt/vrt_util.h>
 
+#include <cfloat>
 #include <complex.h>
 #include <tgmath.h>
 #include <fftw3.h>
@@ -677,7 +678,7 @@ int main(int argc, char* argv[])
                             int N = poly.size();
                             output_counter++;
 
-                            double max_power = 0; // change this to minimal double
+                            double max_power = -DBL_MAX; // change this to minimal double
                             int32_t max_i = -1;
 
                             double value;
