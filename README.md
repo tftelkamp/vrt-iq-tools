@@ -17,6 +17,7 @@ Optional dependencies:
 
 * `librtlsdr-dev` for RTL-SDR support
 * `libuhd-dev` for UHD (USRP) support
+* `libiio-dev` and `libad9361-dev` for IIO (PLUTO) support
 * `libgnuradio-pmt3.10.1` for gnuradio support
 * `nvidia-cuda-toolkit-gcc` for GPU acceleration of some tools
 * `libpsrdada` for DADA support, see [installation instructions](https://psrdada.sourceforge.net/download.shtml)
