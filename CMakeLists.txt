@@ -31,6 +31,41 @@ if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
     if(NOT GIT_SUBMOD_RESULT EQUAL "0")
         message(FATAL_ERROR "Failed to fetch libvrt submodule. Git returned error code ${GIT_SUBMOD_RESULT}")
     endif()
+
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_BRANCH
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(NOT GIT_BRANCH)
+      set(GIT_BRANCH "unknown")
+    endif()
+
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_COMMIT
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(NOT GIT_COMMIT)
+      set(GIT_COMMIT "unknown")
+    endif()
+
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} log -1 --format=%ci
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_DATE
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(NOT GIT_DATE)
+      set(GIT_DATE "unknown")
+    endif()
+
+    add_compile_definitions(GIT_BRANCH="${GIT_BRANCH}" GIT_COMMIT="${GIT_COMMIT}" GIT_DATE="${GIT_DATE}")
 else()
     message(FATAL_ERROR "Git is required to fetch libvrt submodule. Please make sure Git is installed.")
 endif()
@@ -102,6 +137,7 @@ else()
 endif()
 
 add_executable(vrt_to_sigmf vrt_to_sigmf.cpp)
+add_executable(vrt_version vrt_version.cpp)
 add_executable(sigmf_to_vrt sigmf_to_vrt.cpp)
 add_executable(vrt_to_void vrt_to_void.cpp)
 add_executable(vrt_to_stdout vrt_to_stdout.cpp)
