@@ -248,6 +248,8 @@ int main(int argc, char* argv[])
     bool first_block = true;
     uint32_t integration_counter = 0;
 
+    // flush the fringe stopper
+    while ( zmq_recv(zmq_client, buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
 
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0) ) {
