@@ -33,6 +33,8 @@ cmake ..
 make install -j
 ```
 
+Alternatively, the project can be built with the Makefile. To do that, edit the Makefile to your liking before compiling (`make -j && make install`). Some features (like SoapySDR support) are not available when built with the Makefile.
+
 ## Usage
 
 ### Creating a VRT stream from an SDR or file:
@@ -70,6 +72,7 @@ make install -j
 * `vrt_to_fifo`: Write IQ to a fifo buffer.
 * `vrt_to_udp`: Stream IQ as fc32 UDP packets.
 * `vrt_to_dada`: Stream to a [psrdada](https://psrdada.sourceforge.net/) ring buffer, to be used with pulsar software such as [dspsr](https://dspsr.sourceforge.net/).
+* `vrt_soapy`: Make existing VRT instances (on localhost, on standard ports) available as [Soapy](https://github.com/pothosware/SoapySDR) devices.
 
 ### Miscellaneous:
 * `vrt_metadata`: Print metadata of a VRT stream.
