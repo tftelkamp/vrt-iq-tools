@@ -8,6 +8,13 @@ project(
 
 set(CMAKE_CXX_STANDARD 11)
 
+#select the release build type by default to get optimization flags (from Soapy)
+if(NOT CMAKE_BUILD_TYPE)
+   set(CMAKE_BUILD_TYPE "Release")
+   message(STATUS "Build type not specified: defaulting to release.")
+endif(NOT CMAKE_BUILD_TYPE)
+set(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE} CACHE STRING "")
+
 if(POLICY CMP0167)
   cmake_policy(SET CMP0167 NEW)
 endif()
@@ -201,5 +208,18 @@ foreach(target ${all_targets})
   target_include_directories(${target} PRIVATE ${Boost_INCLUDE_DIRS})
   target_link_libraries(${target} PRIVATE ${Boost_LIBRARIES})
 endforeach()
+
+find_package(SoapySDR CONFIG)
+
+if (NOT SoapySDR_FOUND)
+    message(WARNING "SoapySDR development files not found - skipping support")
+else()
+    include_directories(${ZMQ_INCLUDE_DIR})
+    SOAPY_SDR_MODULE_UTIL(
+        TARGET VrtDevice
+        SOURCES vrt_soapy.cpp
+        LIBRARIES ${ZMQ_LIBRARY}
+    )
+endif ()
 
 install(TARGETS ${all_targets})
