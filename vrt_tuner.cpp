@@ -368,7 +368,7 @@ int main(int argc, char* argv[])
             vrt_init_packet(&pc);
             vrt_init_context_packet(&pc);
 
-            pc.fields.stream_id = vrt_context.stream_id;
+            pc.fields.stream_id = 1;
             pc.fields.integer_seconds_timestamp = vrt_context.integer_seconds_timestamp;
             pc.fields.fractional_seconds_timestamp = vrt_context.fractional_seconds_timestamp;
 
