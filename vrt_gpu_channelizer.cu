@@ -399,13 +399,17 @@ int main(int argc, char* argv[])
 
             for (int i=0;i<fir_order;i++) {
                 int j = -(i - fir_order/2);
+
+                double x = pi*(double)j*(double)K/(double)fir_order;
+
                 double blackman_window = a0 - a1*cos(2*pi*(double)i/((double)fir_order-1)) +
                                             a2*cos(4*pi*(double)i/((double)fir_order-1)) +
                                             a3*cos(6*pi*(double)i/((double)fir_order-1));
+
                 if (j==0) {
-                    taps[i] = blackman_window*((double)K/(double)fir_order);
+                    taps[i] = blackman_window*(K/(double)fir_order);
                 } else {
-                    taps[i] = blackman_window*(1.0/(double)fir_order)*sin(pi*(double)j*(double)K/(double)fir_order)/(pi*(double)j/(double)fir_order);
+                    taps[i] = blackman_window*(K/(double)fir_order)*sin(x)/(x);
                 }
 
                 norm_sum += taps[i];
@@ -527,7 +531,7 @@ int main(int argc, char* argv[])
                 int16_t img;
                 memcpy(&img, (char*)&rx_buffer[vrt_packet.offset+i]+2, 2);
 
-                shift_reg[(buffer_frames-frame_counter)*VRT_SAMPLES_PER_PACKET+vrt_packet.num_rx_samps-i-1] = std::complex<float>(re,img);
+                shift_reg[(buffer_frames-frame_counter-1)*VRT_SAMPLES_PER_PACKET+vrt_packet.num_rx_samps-i-1] = std::complex<float>(re,img);
             }
 
             frame_counter += 1;

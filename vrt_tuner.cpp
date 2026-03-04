@@ -310,18 +310,29 @@ int main(int argc, char* argv[])
             double a2 = 0.14128;
             double a3 = 0.01168;
 
+            double norm_sum = 0;
+
             for (int i=0;i<fir_order;i++) {
                 int j = -(i - fir_order/2);
+
+                double x = pi*(double)j*(double)K/(double)fir_order;
+
                 double blackman_window = a0 - a1*cos(2*pi*(double)i/((double)fir_order-1)) +
                                             a2*cos(4*pi*(double)i/((double)fir_order-1)) +
                                             a3*cos(6*pi*(double)i/((double)fir_order-1));
                 if (j==0) {
-                    taps[i] = blackman_window*((double)K/(double)fir_order);
+                    taps[i] = blackman_window*(K/(double)fir_order);
                 } else {
-                    taps[i] = blackman_window*(1.0/(double)fir_order)*sin(pi*(double)j*(double)K/(double)fir_order)/sin(pi*(double)j/(double)fir_order);
+                    taps[i] = blackman_window*(K/(double)fir_order)*sin(x)/(x);
                 }
+                norm_sum += taps[i];
             }
+
             taps[fir_order] = 0;
+
+            for (uint32_t i=0; i<num_taps; i++) {
+                taps[i] = taps[i]/norm_sum;
+            }
 
             // Create polyphase partitions of filter
             // float poly_taps[decimation][taps_per_decimation];
