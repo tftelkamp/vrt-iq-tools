@@ -104,7 +104,7 @@ void reorder(int iq_counter, cuFloatComplex* __restrict__ data, complex_i16* __r
     int k = blockIdx.x*blockDim.x + threadIdx.x;
     int loops = blockIdx.y*blockDim.y + threadIdx.y;
 
-    __shared__ cuFloatComplex tmp[16][16];
+    __shared__ cuFloatComplex tmp[2][2];
 
     if (k < bins && loops < samples_per_channel_out) {
 
@@ -568,8 +568,8 @@ int main(int argc, char* argv[])
                     exit(1);
                 }
 
-                dim3 dimBlock_reorder((bins+7)/8,(samples_per_channel_out+7)/8,1);
-                dim3 threadBlock(8,8,1);
+                dim3 dimBlock_reorder((bins)/2,(samples_per_channel_out)/2,1);
+                dim3 threadBlock(2,2,1);
 
                 // fft_shift
                 reorder<<<dimBlock_reorder,threadBlock>>>(iq_counter, cuda_poly_filter_out, (complex_i16*)cuda_iq_buff, bins, samples_per_channel_out);
