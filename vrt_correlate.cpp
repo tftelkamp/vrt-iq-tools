@@ -441,7 +441,7 @@ int main(int argc, char* argv[])
 
             char message[512] = "";
             zmq_msg_t msg;
-            snprintf(message, 512, "%llu %llu",vrt_packet.integer_seconds_timestamp,vrt_packet.fractional_seconds_timestamp);
+            snprintf(message, 512, "%llu %llu",(long long unsigned int)vrt_packet.integer_seconds_timestamp,(long long unsigned int)vrt_packet.fractional_seconds_timestamp);
             zmq_msg_init_size(&msg, strlen(message));
             memcpy(zmq_msg_data(&msg), message, strlen(message));
             zmq_msg_send(&msg, zmq_client, 0);
@@ -570,7 +570,7 @@ int main(int argc, char* argv[])
                                     xcorr_integrated[i] = xcorr_integrated[i] / signal_mag[i];
                             }
 
-                            printf("%llu.%09lli", seconds, (int64_t)(frac_seconds/1e3));
+                            printf("%llu.%09lli", (long long unsigned int)seconds, (long long int)(frac_seconds/1e3));
 
                             printf(", %.12e, %.12e, %.12e", range_u, range_v, delta_range);
 
@@ -611,8 +611,9 @@ int main(int argc, char* argv[])
         }
     }
 
+    zmq_close(zmq_client);
     zmq_close(subscriber);
-    zmq_ctx_destroy(context);
+    // zmq_ctx_destroy(context);
 
     return 0;
 }
