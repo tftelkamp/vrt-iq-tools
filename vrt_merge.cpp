@@ -255,7 +255,7 @@ int main(int argc, char* argv[])
                 forwarded = false;
                 memcpy((char*)rx_stored[0], (char*)rx_buffer[0], len1);
                 rx_stored_len[0] = len1;
-            } else if (vrt_packet2.context) {
+            } else if (vrt_packet1.context) {
                 zmq_msg_t msg;
                 rx_buffer[0][1] = htonl(1u);
                 zmq_msg_init_size (&msg, len1);
@@ -328,7 +328,6 @@ int main(int argc, char* argv[])
             header = header | ((uint32_t)frame_count%16) << 16;
             rx_stored[0][0] = htonl(header);
             rx_stored[0][1] = htonl(1u);
-            frame_count++;
 
             zmq_msg_t msg;
             rx_stored[0][1] = htonl(1u);
@@ -343,6 +342,7 @@ int main(int argc, char* argv[])
             header = header | ((uint32_t)frame_count%16) << 16;
             rx_stored[1][0] = htonl(header);
             rx_stored[1][1] = htonl(2u);
+            
             frame_count++;
 
             zmq_msg_init_size (&msg, rx_stored_len[1]);
