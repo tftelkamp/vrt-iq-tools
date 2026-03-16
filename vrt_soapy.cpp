@@ -2,8 +2,11 @@
 #include <SoapySDR/Registry.hpp>
 #include <SoapySDR/Formats.hpp>
 #include <iostream>
+
+#include <zmq.h>
 #include "vrt-tools.h"
 #include <memory>
+#include <vector>
 
 struct DummyStream {};
 
@@ -142,20 +145,79 @@ class VrtDevice : public SoapySDR::Device
 
 };
 
+std::vector<int> discover_instances() {
+    std::vector<int> found_instances;
+    std::vector<int> ports;
+    for (size_t instance=0; instance<10; instance++) {
+        ports.push_back(DEFAULT_MAIN_PORT + MAX_CHANNELS * instance);
+    }
+
+    const int TIMEOUT_MS = 200;  // Expect at least 10 packets per second
+
+    void* ctx = zmq_ctx_new();
+
+    std::vector<void*> sockets;
+    for (int port : ports) {
+        void* sock = zmq_socket(ctx, ZMQ_SUB);
+
+        zmq_setsockopt(sock, ZMQ_SUBSCRIBE, "", 0);
+
+        std::string addr = "tcp://localhost:" + std::to_string(port);
+        zmq_connect(sock, addr.c_str());  // Asynchronous
+        sockets.push_back(sock);
+    }
+
+    std::vector<zmq_pollitem_t> items(sockets.size());
+    for (size_t i = 0; i < sockets.size(); i++) {
+        items[i] = {sockets[i], 0, ZMQ_POLLIN, 0};
+    }
+
+    std::vector<bool> found(ports.size(), false);
+    int remaining = ports.size();
+
+    auto deadline = zmq_stopwatch_start();
+    while (remaining > 0) {
+        long elapsed_us = zmq_stopwatch_intermediate(deadline);
+        long remaining_ms = TIMEOUT_MS - (elapsed_us / 1000);
+        if (remaining_ms <= 0) break;
+
+        int rc = zmq_poll(items.data(), items.size(), remaining_ms);
+        if (rc <= 0) break; // timeout or error
+
+        for (size_t i = 0; i < items.size(); i++) {
+            if (!found[i] && (items[i].revents & ZMQ_POLLIN)) {
+                found[i] = true;
+                found_instances.push_back(i);
+                remaining--;
+                items[i].events = 0;
+            }
+        }
+    }
+    zmq_stopwatch_stop(deadline);
+
+    for (void* s : sockets) zmq_close(s);
+    zmq_ctx_destroy(ctx);
+
+    std::sort(found_instances.begin(), found_instances.end());
+    return found_instances;
+}
 
 SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args)
 {
     (void)args;
+    std::cout<<"Tammo says findVrtDevice"<<std::endl;
     std::vector<SoapySDR::Kwargs> instances;
     SoapySDR::Kwargs dev;
-    // FIXME discover running instances
-    std::cout<<"Max_channels"<<MAX_CHANNELS<<std::endl;
+
+    std::vector<int> vrt_instances = discover_instances();
+
     dev["driver"] = "vrt_device";
-    dev["label"]  = "VRT Instance 1";
-    instances.push_back(dev);
-    dev["driver"] = "vrt_device";
-    dev["label"]  = "VRT Instance 2";
-    instances.push_back(dev);
+
+    for (auto vrt_instance : vrt_instances) {
+        dev["label"]  = "VRT Instance " + std::to_string(vrt_instance);
+        dev["vrt_instance"] = vrt_instance;
+        instances.push_back(dev);
+    }
     return instances;
 }
 
