@@ -14,8 +14,9 @@ class VrtDevice : public SoapySDR::Device
 {
     public:
 
-    VrtDevice(int instance): SoapySDR::Device() {
-        int port = DEFAULT_MAIN_PORT + MAX_CHANNELS * instance;
+    VrtDevice(int vrt_instance, float freq, float rate): SoapySDR::Device(),
+        vrt_instance_(vrt_instance), freq_(freq), rate_(rate) {
+        int port = DEFAULT_MAIN_PORT + MAX_CHANNELS * vrt_instance_;
         std::cout<<"Tammo says creating VrtDevice at port " <<port<<std::endl;
     };
 
@@ -44,21 +45,20 @@ class VrtDevice : public SoapySDR::Device
         delete reinterpret_cast<DummyStream *>(stream);
     }
 
-
+/*
     SoapySDR::RangeList getSampleRateRange(int, size_t) const override
     {
         std::cout<<"Tammo says getSampleRateRange"<<std::endl;
-        return { SoapySDR::Range(1e6, 1e6) };
+        return { SoapySDR::Range(de1e6, 1e6) };
     }
+*/
 
     double getSampleRate(int, size_t) const override
     {
-        std::cout<<"Tammo says getSampleRate"<<std::endl;
-        return 1e6;
+        return rate_;
     }
 
     std::string getDriverKey() const override {
-        std::cout<<"Tammo says getDriverKey"<<std::endl;
         return "vrt_device";
     }
 
@@ -68,10 +68,18 @@ class VrtDevice : public SoapySDR::Device
     }
 
 
+    std::vector<std::string> listFrequencies(
+    const int direction,
+    const size_t channel) const override
+    {
+        std::cout<<"Tammo says listFrequencies"<<std::endl;
+        return {"RF"};
+    }
+
     SoapySDR::RangeList getFrequencyRange(int, size_t) const override
     {
         std::cout<<"Tammo says getFrequencyRange"<<std::endl;
-        return { SoapySDR::Range(0, 6e9) };
+        return { SoapySDR::Range(freq_, freq_) };
     }
 
     void setSampleRate(int, size_t, double) override {}
@@ -95,7 +103,7 @@ class VrtDevice : public SoapySDR::Device
         int &flags, long long &timeNs, long timeoutUs
     ) override
     {
-        std::cout << "Tammo says readStream" << std::endl;
+        //std::cout << "Tammo says readStream" << std::endl;
 
         flags = 0;
         timeNs = 0;
@@ -127,7 +135,7 @@ class VrtDevice : public SoapySDR::Device
 
     double getFrequency(int, size_t) const override
     {
-        return 100e6;
+        return freq_;
     }
 
     void setFrequency(
@@ -142,8 +150,12 @@ class VrtDevice : public SoapySDR::Device
     std::vector<double> listSampleRates(int dir, size_t channel) const override
     {
         std::cout << "Tammo says listSampleRates" << std::endl;
-        return {1e6};
+        return {rate_};
     }
+private:
+    float freq_;
+    float rate_;
+    int vrt_instance_;
 };
 
 
@@ -249,8 +261,14 @@ SoapySDR::Device *makeVrtDevice(const SoapySDR::Kwargs &args)
     for (auto &kv : args) {
         std::cerr << "makeVrtDevice arg: " << kv.first << " = " << kv.second << std::endl;
     }
+
+    int instance = std::stoi(args.at("vrt_instance"));
+    float freq = std::strtod(args.at("freq").c_str(), NULL);
+    float rate = std::strtod(args.at("rate").c_str(), NULL);
     std::cout<<"Tammo says makeVrtDevice "<< args.at("label") << std::endl;
-    return new VrtDevice(std::stoi(args.at("vrt_instance")));
+    std::cout<<"MakeVrtDevice freq: "<< freq << std::endl;
+    std::cout<<"MakeVrtDevice rate: "<< rate << std::endl;
+    return new VrtDevice(instance, freq, rate);
 }
 
 
