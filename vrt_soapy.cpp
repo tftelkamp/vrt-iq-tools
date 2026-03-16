@@ -148,8 +148,10 @@ class VrtDevice : public SoapySDR::Device
 
 
 
-std::vector<int> discover_instances() {
-    std::vector<int> found_instances;
+SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args) {
+    std::vector<SoapySDR::Kwargs> instances;
+    SoapySDR::Kwargs dev;
+
     std::vector<int> ports;
     for (size_t instance=0; instance<10; instance++) {
         ports.push_back(DEFAULT_MAIN_PORT + MAX_CHANNELS * instance);
@@ -196,9 +198,13 @@ std::vector<int> discover_instances() {
         if (rc <= 0) break;
         for (size_t i = 0; i < items.size(); i++) {
             if (items[i].events && (items[i].revents & ZMQ_POLLIN)) {
-                found_instances.push_back(i);
                 remaining--;
                 items[i].events = 0;
+
+                if (args.count("vrt_instance") and args.at("vrt_instance") != std::to_string(i)) {
+                    std::cout<<"Not interested in this instance!"<<std::endl;
+                    continue;
+                }
 
                 while (true) {
                     int len = zmq_recv(subscribers[i], buffer, ZMQ_BUFFER_SIZE, 0);
@@ -208,7 +214,21 @@ std::vector<int> discover_instances() {
                         break;
                     }
                     if (vrt_packet.context) {
-                        std::cout<<"Tammo says sample rate: "<<(float)vrt_context.sample_rate<<std::endl;
+                        float rate = vrt_context.sample_rate;
+                        float freq = vrt_context.rf_freq;
+                        dev["freq"] = std::to_string(freq);
+                        dev["driver"] = "vrt_device";
+
+                        std::string rate_str = (boost::format("%.1f Msps") % (rate / 1e6)).str();
+                        if (rate < 1e6)
+                            std::string rate_str = (boost::format("%.0f ksps") % (rate / 1e3)).str();
+
+                        dev["label"]  = "VRT Instance " + std::to_string(i) + ": " +
+                                        (boost::format("%.1f MHz") % (freq / 1e6)).str() +
+                                        " (" + (boost::format("%.1f Msps") % (rate / 1e6)).str() + ")";
+                        dev["rate"] = std::to_string(rate);
+                        dev["vrt_instance"] = std::to_string(i);
+                        instances.push_back(dev);
                         break;
                     }
                 }
@@ -220,26 +240,6 @@ std::vector<int> discover_instances() {
     for (void* subscriber : subscribers) zmq_close(subscriber);
     zmq_ctx_destroy(ctx);
 
-    std::sort(found_instances.begin(), found_instances.end());
-    return found_instances;
-}
-
-SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args)
-{
-    (void)args;
-    std::vector<SoapySDR::Kwargs> instances;
-
-    std::vector<int> vrt_instances = discover_instances();
-
-    for (auto vrt_instance : vrt_instances) {
-        SoapySDR::Kwargs dev;
-        dev["driver"] = "vrt_device";
-        dev["label"]  = "VRT Instance " + std::to_string(vrt_instance);
-        dev["vrt_instance"] = std::to_string(vrt_instance);
-        if (!args.count("vrt_instance") || args.at("vrt_instance") == std::to_string(vrt_instance)) {
-            instances.push_back(dev);
-        }
-    }
     return instances;
 }
 
