@@ -14,7 +14,9 @@ class VrtDevice : public SoapySDR::Device
 {
     public:
 
-    VrtDevice(): SoapySDR::Device() {
+    VrtDevice(int instance): SoapySDR::Device() {
+        int port = DEFAULT_MAIN_PORT + MAX_CHANNELS * instance;
+        std::cout<<"Tammo says creating VrtDevice at port " <<port<<std::endl;
     };
 
     size_t getNumChannels(const int dir) const override
@@ -224,9 +226,8 @@ SoapySDR::Device *makeVrtDevice(const SoapySDR::Kwargs &args)
     for (auto &kv : args) {
         std::cerr << "makeVrtDevice arg: " << kv.first << " = " << kv.second << std::endl;
     }
-    //(void)args;  // Translate args into constructor arguments here
     std::cout<<"Tammo says makeVrtDevice "<< args.at("label") << std::endl;
-    return new VrtDevice();
+    return new VrtDevice(std::stoi(args.at("vrt_instance")));
 }
 
 
