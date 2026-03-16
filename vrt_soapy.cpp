@@ -2,6 +2,7 @@
 #include <SoapySDR/Registry.hpp>
 #include <SoapySDR/Formats.hpp>
 #include <iostream>
+#include "vrt-tools.h"
 #include <memory>
 
 struct DummyStream {};
@@ -147,8 +148,13 @@ SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args)
     (void)args;
     std::vector<SoapySDR::Kwargs> instances;
     SoapySDR::Kwargs dev;
+    // FIXME discover running instances
+    std::cout<<"Max_channels"<<MAX_CHANNELS<<std::endl;
     dev["driver"] = "vrt_device";
     dev["label"]  = "VRT Instance 1";
+    instances.push_back(dev);
+    dev["driver"] = "vrt_device";
+    dev["label"]  = "VRT Instance 2";
     instances.push_back(dev);
     return instances;
 }
