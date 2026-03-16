@@ -180,13 +180,10 @@ std::vector<int> discover_instances() {
         long elapsed_us = zmq_stopwatch_intermediate(deadline);
         long remaining_ms = TIMEOUT_MS - (elapsed_us / 1000);
         if (remaining_ms <= 0) break;
-
         int rc = zmq_poll(items.data(), items.size(), remaining_ms);
-        if (rc <= 0) break; // timeout or error
-
+        if (rc <= 0) break;
         for (size_t i = 0; i < items.size(); i++) {
-            if (!found[i] && (items[i].revents & ZMQ_POLLIN)) {
-                found[i] = true;
+            if (items[i].events && (items[i].revents & ZMQ_POLLIN)) {
                 found_instances.push_back(i);
                 remaining--;
                 items[i].events = 0;
@@ -205,18 +202,18 @@ std::vector<int> discover_instances() {
 SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args)
 {
     (void)args;
-    std::cout<<"Tammo says findVrtDevice"<<std::endl;
     std::vector<SoapySDR::Kwargs> instances;
-    SoapySDR::Kwargs dev;
 
     std::vector<int> vrt_instances = discover_instances();
 
-    dev["driver"] = "vrt_device";
-
     for (auto vrt_instance : vrt_instances) {
+        SoapySDR::Kwargs dev;
+        dev["driver"] = "vrt_device";
         dev["label"]  = "VRT Instance " + std::to_string(vrt_instance);
-        dev["vrt_instance"] = vrt_instance;
-        instances.push_back(dev);
+        dev["vrt_instance"] = std::to_string(vrt_instance);
+        if (!args.count("vrt_instance") || args.at("vrt_instance") == std::to_string(vrt_instance)) {
+            instances.push_back(dev);
+        }
     }
     return instances;
 }
@@ -224,8 +221,11 @@ SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args)
 
 SoapySDR::Device *makeVrtDevice(const SoapySDR::Kwargs &args)
 {
-    (void)args;  // Translate args into constructor arguments here
-    std::cout<<"Tammo says makeVrtDevice"<<std::endl;
+    for (auto &kv : args) {
+        std::cerr << "makeVrtDevice arg: " << kv.first << " = " << kv.second << std::endl;
+    }
+    //(void)args;  // Translate args into constructor arguments here
+    std::cout<<"Tammo says makeVrtDevice "<< args.at("label") << std::endl;
     return new VrtDevice();
 }
 
