@@ -144,8 +144,9 @@ class VrtDevice : public SoapySDR::Device
         std::cout << "Tammo says listSampleRates" << std::endl;
         return {1e6};
     }
-
 };
+
+
 
 std::vector<int> discover_instances() {
     std::vector<int> found_instances;
@@ -155,29 +156,38 @@ std::vector<int> discover_instances() {
     }
 
     const int TIMEOUT_MS = 200;  // Expect at least 10 packets per second
+    const int hwm = 10000;
 
     void* ctx = zmq_ctx_new();
 
-    std::vector<void*> sockets;
+    std::vector<void*> subscribers;
     for (int port : ports) {
-        void* sock = zmq_socket(ctx, ZMQ_SUB);
-
-        zmq_setsockopt(sock, ZMQ_SUBSCRIBE, "", 0);
+        void* subscriber = zmq_socket(ctx, ZMQ_SUB);
+        int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
+        assert(rc == 0);
+        zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
 
         std::string addr = "tcp://localhost:" + std::to_string(port);
-        zmq_connect(sock, addr.c_str());  // Asynchronous
-        sockets.push_back(sock);
+        zmq_connect(subscriber, addr.c_str());  // Asynchronous
+        subscribers.push_back(subscriber);
     }
 
-    std::vector<zmq_pollitem_t> items(sockets.size());
-    for (size_t i = 0; i < sockets.size(); i++) {
-        items[i] = {sockets[i], 0, ZMQ_POLLIN, 0};
+    std::vector<zmq_pollitem_t> items(subscribers.size());
+    for (size_t i = 0; i < subscribers.size(); i++) {
+        items[i] = {subscribers[i], 0, ZMQ_POLLIN, 0};
     }
 
     std::vector<bool> found(ports.size(), false);
     int remaining = ports.size();
 
     auto deadline = zmq_stopwatch_start();
+
+    uint32_t buffer[ZMQ_BUFFER_SIZE];
+    context_type vrt_context;
+    packet_type vrt_packet;
+    vrt_packet.channel_filt = 1;
+    init_context(&vrt_context);
+
     while (remaining > 0) {
         long elapsed_us = zmq_stopwatch_intermediate(deadline);
         long remaining_ms = TIMEOUT_MS - (elapsed_us / 1000);
@@ -189,12 +199,25 @@ std::vector<int> discover_instances() {
                 found_instances.push_back(i);
                 remaining--;
                 items[i].events = 0;
+
+                while (true) {
+                    int len = zmq_recv(subscribers[i], buffer, ZMQ_BUFFER_SIZE, 0);
+                    if (len <= 0) {std::cerr<<"Small len"<<std::endl; continue;}
+                    if (not vrt_process(buffer, sizeof(buffer), &vrt_context, &vrt_packet)) {
+                        std::cerr<<"Not a Vita49 packet?"<<std::endl;
+                        break;
+                    }
+                    if (vrt_packet.context) {
+                        std::cout<<"Tammo says sample rate: "<<(float)vrt_context.sample_rate<<std::endl;
+                        break;
+                    }
+                }
             }
         }
     }
     zmq_stopwatch_stop(deadline);
 
-    for (void* s : sockets) zmq_close(s);
+    for (void* subscriber : subscribers) zmq_close(subscriber);
     zmq_ctx_destroy(ctx);
 
     std::sort(found_instances.begin(), found_instances.end());
