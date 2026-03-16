@@ -221,6 +221,12 @@ else()
         SOURCES vrt_soapy.cpp
         LIBRARIES ${ZMQ_LIBRARY}
     )
+    target_include_directories(VrtDevice PRIVATE ${ZMQ_INCLUDE_DIR})
+    target_link_libraries(VrtDevice PRIVATE ${ZMQ_LIBRARY})
+    target_include_directories(VrtDevice PRIVATE ${Boost_INCLUDE_DIRS})
+    target_link_libraries(VrtDevice PRIVATE ${Boost_LIBRARIES})
+    target_include_directories(VrtDevice PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libvrt/include)
+    target_link_libraries(VrtDevice PRIVATE vrt)
 endif ()
 
 install(TARGETS ${all_targets})
