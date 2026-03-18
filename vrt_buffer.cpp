@@ -23,7 +23,8 @@ void sig_int_handler(int)
 
 struct TimestampedMessage {
     std::chrono::time_point<std::chrono::steady_clock> timestamp;
-    std::vector<uint32_t> data;
+    uint32_t data[ZMQ_BUFFER_SIZE];
+    int len;  // actual received length in bytes
 };
 
 
@@ -98,17 +99,15 @@ int main(int argc, char* argv[])
 
     const auto delay_duration = std::chrono::milliseconds(int64_t(1000 * delay));
 
-    uint32_t rx_buffer[ZMQ_BUFFER_SIZE];
-
     while (not stop_signal_called) {
         while (true) {
-            int len = zmq_recv(subscriber, rx_buffer, sizeof(rx_buffer), ZMQ_NOBLOCK);
-            if (len < 0) break;
+            delay_buffer.emplace_back();
+            TimestampedMessage& msg = delay_buffer.back();
+            int len = zmq_recv(subscriber, msg.data, sizeof(msg.data), ZMQ_NOBLOCK);
+            if (len < 0) { delay_buffer.pop_back(); break; }
 
-            TimestampedMessage msg;
             msg.timestamp = std::chrono::steady_clock::now();
-            msg.data.assign(rx_buffer, rx_buffer + (len / sizeof(uint32_t)));
-            delay_buffer.push_back(std::move(msg));
+            msg.len = len;
         }
 
         const auto now = std::chrono::steady_clock::now();
@@ -116,7 +115,7 @@ int main(int argc, char* argv[])
             const auto& front = delay_buffer.front();
             if (now - front.timestamp < delay_duration) break;  // rest are newer
 
-            zmq_send(publisher, front.data.data(), front.data.size() * sizeof(uint32_t), 0);
+            zmq_send(publisher, front.data, front.len, 0);
             delay_buffer.pop_front();
         }
 
