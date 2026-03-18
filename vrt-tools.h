@@ -28,6 +28,8 @@
 #include <vrt/vrt_write.h>
 #include <vrt/vrt_read.h>
 
+#include <complex>
+
 struct context_type {
     bool context_received;
     bool context_changed;

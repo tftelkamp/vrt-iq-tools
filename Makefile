@@ -7,7 +7,7 @@ CXX=g++
 
 # VRT IQ tools
 all: clients dt
-clients: vrt_version vrt_fftmax vrt_to_sigmf sigmf_to_vrt play_vrt vrt_forwarder vrt_spectrum vrt_to_void control_vrt vrt_to_rtl_tcp vrt_fftmax_quad vrt_to_filterbank vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_tuner vrt_correlate vrt_merge vrt_channelizer vrt_quantize
+clients: vrt_version vrt_fftmax vrt_to_sigmf sigmf_to_vrt play_vrt vrt_forwarder vrt_spectrum vrt_to_void control_vrt vrt_to_rtl_tcp vrt_fftmax_quad vrt_to_filterbank vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_tuner vrt_correlate vrt_merge vrt_channelizer vrt_quantize vrt_buffer
 sdr: usrp_to_vrt rfspace_to_vrt rtlsdr_to_vrt airspy_to_vrt iio_to_vrt
 gnuradio: vrt_to_gnuradio
 gpu: vrt_gpu_fftmax vrt_gpu_channelizer
@@ -76,6 +76,10 @@ vrt_channelizer: vrt_channelizer.cpp
 vrt_gpu_channelizer: vrt_gpu_channelizer.cu
 		nvcc -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_gpu_channelizer vrt_gpu_channelizer.cu \
 		$(BOOSTLIBS) -lzmq -lvrt -lcufft
+
+vrt_buffer: vrt_buffer.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_buffer vrt_buffer.cpp \
+		-lzmq $(BOOSTLIBS)
 
 vrt_merge: vrt_merge.cpp
 		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_merge vrt_merge.cpp \
