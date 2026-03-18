@@ -79,7 +79,7 @@ vrt_gpu_channelizer: vrt_gpu_channelizer.cu
 
 vrt_buffer: vrt_buffer.cpp
 		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_buffer vrt_buffer.cpp \
-		-lzmq $(BOOSTLIBS)
+		-lzmq -lvrt $(BOOSTLIBS)
 
 vrt_merge: vrt_merge.cpp
 		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_merge vrt_merge.cpp \
