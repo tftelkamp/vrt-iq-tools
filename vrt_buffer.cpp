@@ -23,7 +23,7 @@ void sig_int_handler(int)
 
 struct TimestampedMessage {
     std::chrono::time_point<std::chrono::steady_clock> timestamp;
-    uint32_t data[ZMQ_BUFFER_SIZE];
+    uint32_t data[VRT_DATA_PACKET_SIZE];
     int len;  // actual received length in bytes
 };
 
