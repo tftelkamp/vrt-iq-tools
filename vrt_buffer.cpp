@@ -163,8 +163,11 @@ int main(int argc, char* argv[])
             if (first_frame) {
                 vrt_context.last_data_counter = 0;
                 vrt_process(front.data, front.len, &vrt_context, &vrt_packet);
-                printf("# Start forwarding at %llu full secs, %.09f frac secs\n", vrt_packet.integer_seconds_timestamp, (double)vrt_packet.fractional_seconds_timestamp/1e12);
-                first_frame = false;
+                if (vrt_packet.data) {
+                    printf("# Start forwarding at %llu full secs, %.09f frac secs\n", vrt_packet.integer_seconds_timestamp, (double)vrt_packet.fractional_seconds_timestamp/1e12);
+                    first_frame = false;
+                    vrt_context.last_data_counter = 0;
+                }
             }
 
             zmq_send(publisher, front.data, front.len, 0);
