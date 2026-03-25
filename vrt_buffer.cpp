@@ -45,6 +45,7 @@ int main(int argc, char* argv[])
         ("help", "help message")
         ("delay", po::value<uint16_t>(&delay)->default_value(1), "delay in seconds")
         ("address", po::value<std::string>(&zmq_address)->default_value("localhost"), "VRT ZMQ address")
+        ("progress", "periodically display short-term bandwidth")
         ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
         ("port", po::value<uint16_t>(&port), "VRT ZMQ port")
         ("pub-port", po::value<uint16_t>(&pub_port), "VRT ZMQ PUB port")
@@ -64,6 +65,8 @@ int main(int argc, char* argv[])
                   << std::endl;
         return ~0;
     }
+
+    bool progress = vm.count("progress") > 0;
 
     if (vm.count("port") > 0) {
         main_port = port;
@@ -94,6 +97,19 @@ int main(int argc, char* argv[])
     rc = zmq_bind(publisher, connect_string.c_str());
     assert(rc == 0);
 
+    context_type vrt_context;
+    init_context(&vrt_context);
+    packet_type vrt_packet;
+
+    vrt_packet.channel_filt = 1;
+
+    bool start_rx = false;
+    bool first_frame = true;
+
+    // Track time and samps between updating the BW summary
+    auto last_update = std::chrono::steady_clock::now();
+    uint64_t last_update_samps = 0;
+
     std::signal(SIGINT, &sig_int_handler);
     std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
 
@@ -108,12 +124,48 @@ int main(int argc, char* argv[])
 
             msg.timestamp = std::chrono::steady_clock::now();
             msg.len = len;
+
+            if (not start_rx) {
+                if (not vrt_process(msg.data, len, &vrt_context, &vrt_packet)) {
+                    printf("Not a Vita49 packet?\n");
+                    continue;
+                }
+                if (vrt_packet.context) {
+                    vrt_print_context(&vrt_context);
+                    start_rx = true;
+                    // Possibly do something with context here
+                }
+            }
+
+            if (progress) {
+                if (not vrt_process(msg.data, len, &vrt_context, &vrt_packet)) {
+                    printf("Not a Vita49 packet?\n");
+                    continue;
+                }
+                if (vrt_packet.data) {
+                    show_progress_stats(
+                        msg.timestamp,
+                        &last_update,
+                        &last_update_samps,
+                        &msg.data[vrt_packet.offset],
+                        vrt_packet.num_rx_samps, 0
+                    );
+                }
+            }
+
         }
 
         const auto now = std::chrono::steady_clock::now();
         while (!delay_buffer.empty()) {
-            const auto& front = delay_buffer.front();
+            auto& front = delay_buffer.front();
             if (now - front.timestamp < delay_duration) break;  // rest are newer
+
+            if (first_frame) {
+                vrt_context.last_data_counter = 0;
+                vrt_process(front.data, front.len, &vrt_context, &vrt_packet);
+                printf("# Start forwarding at %llu full secs, %.09f frac secs\n", vrt_packet.integer_seconds_timestamp, (double)vrt_packet.fractional_seconds_timestamp/1e12);
+                first_frame = false;
+            }
 
             zmq_send(publisher, front.data, front.len, 0);
             delay_buffer.pop_front();
