@@ -292,6 +292,7 @@ int main(int argc, char* argv[])
 
     if (num_requested_samples == 0) {
         std::signal(SIGINT, &sig_int_handler);
+        std::signal(SIGHUP, &sig_int_handler);
         std::cout << "Press Ctrl + C to stop receiving..." << std::endl;
     }
 
