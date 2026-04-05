@@ -622,10 +622,15 @@ int main(int argc, char* argv[])
 
     // Clean up empty files
     if (not context_recv) {
-        for (std::string& meta_filename : meta_filenames)
-            boost::filesystem::remove(meta_filename);
+        for (std::string& meta_filename : meta_filenames) {
+            if (boost::filesystem::is_empty(meta_filename)) {
+                boost::filesystem::remove(meta_filename);
+            }
+        }
         for (std::string& data_filename : data_filenames)
-            boost::filesystem::remove(data_filename);
+            if (boost::filesystem::is_empty(data_filename)) {
+                boost::filesystem::remove(data_filename);
+            }
     }
 
     zmq_close(subscriber);
