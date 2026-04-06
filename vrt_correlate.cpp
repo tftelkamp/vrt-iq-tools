@@ -572,7 +572,7 @@ int main(int argc, char* argv[])
 
                             printf("%llu.%09lli", (long long unsigned int)seconds, (long long int)(frac_seconds/1e3));
 
-                            printf(", %.12e, %.12e, %.12e", range_u, range_v, delta_range);
+                            printf(", %.12e, %.12e, %.12e", range_u, range_v, current_delta_range);
 
                             if (correlation) {
                                 // inverse FFT
