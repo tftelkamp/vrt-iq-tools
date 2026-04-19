@@ -82,13 +82,14 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string udp_forward, ref, file, file2, time_cal, type, start_time_str;
+    std::string udp_forward, ref, file, file2, time_cal, type, start_time_str, merge_address_list, merge_port_list;
     uint16_t port, instance;
     uint32_t stream_id;
     int hwm;
     int16_t gain;
     double datarate;
     double rate, freq, bw, total_time, setup_time, lo_offset;
+    bool merge;
 
     FILE *read_ptr;
     FILE *read_ptr_2;
@@ -110,6 +111,9 @@ int main(int argc, char* argv[])
         ("vrt", "read VRT stream from file")
         ("repeat", "repeat the input file")
         ("instance", po::value<uint16_t>(&instance), "VRT ZMQ instance")
+        ("merge", po::value<bool>(&merge)->default_value(true), "Merge another VRT ZMQ stream (SUB connect)")
+        ("merge-port", po::value<std::string>(&merge_port_list)->default_value("50011"), "VRT ZMQ merge port")
+        ("merge-address", po::value<std::string>(&merge_address_list)->default_value("localhost"), "VRT ZMQ merge address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
@@ -311,6 +315,45 @@ int main(int argc, char* argv[])
 
     printf("Update interval: %llu\n", (long long unsigned int)update_interval);
 
+    // Merge
+    std::vector<void*>merge_zmq;
+    if (merge) {
+        std::vector<std::string>merge_address_strings;
+        std::vector<std::string>merge_port_strings;
+
+        std::vector<std::string>merge_addresses;
+        std::vector<uint16_t>merge_ports;
+
+        boost::split(merge_address_strings, merge_address_list, boost::is_any_of("\"',"));
+        boost::split(merge_port_strings, merge_port_list, boost::is_any_of("\"',"));
+        for (size_t i = 0; i < merge_address_strings.size(); i++) {
+            merge_addresses.push_back(merge_address_strings[i]);
+        }
+        for (size_t i = 0; i < merge_port_strings.size(); i++) {
+            merge_ports.push_back(std::stod(merge_port_strings[i]));
+        }
+
+        size_t number_of_mergers = merge_addresses.size() > merge_ports.size() ? merge_addresses.size() : merge_ports.size();
+
+        for (size_t i = 0; i < number_of_mergers; i++) {
+
+            uint16_t merge_port = (merge_ports.size() > i) ? merge_ports[i] : merge_ports[0];
+            std::string merge_address = (merge_addresses.size() > i) ? merge_addresses[i] : merge_addresses[0];
+
+            merge_zmq.push_back(zmq_socket(context, ZMQ_SUB));
+
+            std::string connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
+            rc = zmq_connect(merge_zmq[i], connect_string.c_str());
+            assert(rc == 0);
+            zmq_setsockopt(merge_zmq[i], ZMQ_SUBSCRIBE, "", 0);
+        }
+    }
+
+    // flush merge queue
+    if (merge)
+        for (size_t m = 0; m < merge_zmq.size(); m++)
+            while ( zmq_recv(merge_zmq[m], buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
+
     while (not stop_signal_called) {
 
         const auto now = std::chrono::steady_clock::now();
@@ -366,6 +409,20 @@ int main(int argc, char* argv[])
                 zmq_send (zmq_server, buffer, rv*4, 0);
             }
 
+        }
+
+            // Merge
+        if (merge) {
+            int mergelen;
+            for (size_t m = 0; m < merge_zmq.size(); m++) {
+                while ( (mergelen = zmq_recv(merge_zmq[m], buffer, 100000, ZMQ_NOBLOCK)) > 0  ) {
+                    zmq_msg_t msg;
+                    zmq_msg_init_size (&msg, mergelen);
+                    memcpy (zmq_msg_data(&msg), buffer, mergelen);
+                    zmq_msg_send(&msg, zmq_server, 0);
+                    zmq_msg_close(&msg);
+                }
+            }
         }
 
         // Read
