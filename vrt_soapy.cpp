@@ -8,17 +8,39 @@
 #include <memory>
 #include <vector>
 
-struct DummyStream {};
+struct VrtStream {
+    VrtStream(void *subscriber) : zmq_subscriber(subscriber) {}
+    void *zmq_subscriber;
+    context_type vrt_context;
+    uint32_t buffer[ZMQ_BUFFER_SIZE];
+};
 
-class VrtDevice : public SoapySDR::Device
-{
+void* create_zmq_subscriber(void* zmq_ctx, int port, const int hwm = 10000) {
+    void* subscriber = zmq_socket(zmq_ctx, ZMQ_SUB);
+    int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
+    assert(rc == 0);
+    zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
+    // zmq_setsockopt(subscriber, ZMQ_RCVTIMEO, reinterpret_cast<void*>(1000), sizeof(int));
+
+    std::string addr = "tcp://localhost:" + std::to_string(port);
+    zmq_connect(subscriber, addr.c_str());
+    return subscriber;
+}
+
+class VrtDevice : public SoapySDR::Device {
     public:
 
     VrtDevice(int vrt_instance, float freq, float rate): SoapySDR::Device(),
         vrt_instance_(vrt_instance), freq_(freq), rate_(rate) {
-        int port = DEFAULT_MAIN_PORT + MAX_CHANNELS * vrt_instance_;
-        std::cout<<"Tammo says creating VrtDevice at port " <<port<<std::endl;
+        zmq_ctx_ = zmq_ctx_new();
+        port_ = DEFAULT_MAIN_PORT + MAX_CHANNELS * vrt_instance_;
+        std::cout<<"Tammo says creating VrtDevice at port " <<port_<<std::endl;
     };
+
+    ~VrtDevice()
+    {
+        zmq_ctx_destroy(zmq_ctx_);
+    }
 
     size_t getNumChannels(const int dir) const override
     {
@@ -29,20 +51,6 @@ class VrtDevice : public SoapySDR::Device
     {
         std::cout<<"Tammo says getStreamFormats"<<std::endl;
         return {SOAPY_SDR_CS16, SOAPY_SDR_CF32};
-    }
-
-    SoapySDR::Stream *setupStream(int, const std::string &,
-                                  const std::vector<size_t> &,
-                                  const SoapySDR::Kwargs &
-                                 ) override
-    {
-        std::cout<<"Tammo says setupStream"<<std::endl;
-        return reinterpret_cast<SoapySDR::Stream *>(new DummyStream());
-    }
-
-    void closeStream(SoapySDR::Stream *stream) override {
-        std::cout<<"Tammo says closeStream"<<std::endl;
-        delete reinterpret_cast<DummyStream *>(stream);
     }
 
 /*
@@ -84,6 +92,21 @@ class VrtDevice : public SoapySDR::Device
 
     void setSampleRate(int, size_t, double) override {}
 
+    SoapySDR::Stream *setupStream(int, const std::string &,
+                              const std::vector<size_t> &,
+                              const SoapySDR::Kwargs &args
+                             ) override
+    {
+        std::cout<<"Tammo says setupStream"<<std::endl;
+        void* subscriber = create_zmq_subscriber(zmq_ctx_, port_);
+        return reinterpret_cast<SoapySDR::Stream *>(new VrtStream(subscriber));
+    }
+
+    void closeStream(SoapySDR::Stream *stream) override {
+        std::cout<<"Tammo says closeStream"<<std::endl;
+        delete reinterpret_cast<VrtStream *>(stream);
+    }
+
     int activateStream(
         SoapySDR::Stream *, int, long long, size_t) override
     {
@@ -99,16 +122,51 @@ class VrtDevice : public SoapySDR::Device
     }
 
     int readStream(
-        SoapySDR::Stream *, void * const *buffs, size_t numElems,
+        SoapySDR::Stream *s, void * const *buffs, size_t numElems,
         int &flags, long long &timeNs, long timeoutUs
     ) override
     {
-        //std::cout << "Tammo says readStream" << std::endl;
+        std::cout << "Corne says readStream: " << timeoutUs << std::endl;
+        int i = 0;
+        long timeoutRemaining = timeoutUs;
+        auto deadline = zmq_stopwatch_start();
+        VrtStream *stream = reinterpret_cast<VrtStream*>(s);
+
+        while (timeoutRemaining > 0) {
+            packet_type vrt_packet;
+            vrt_packet.channel_filt = 1;
+            timeoutRemaining -= zmq_stopwatch_intermediate(deadline);
+            if (zmq_recv(stream->zmq_subscriber, stream->buffer, ZMQ_BUFFER_SIZE, ZMQ_NOBLOCK) < 0) {
+                continue;
+            }
+
+            init_context(&stream->vrt_context);
+            if (!vrt_process(stream->buffer, ZMQ_BUFFER_SIZE, &stream->vrt_context, &vrt_packet))
+            {
+                std::cout << "Corne says not a Vita49 packet" << std::endl;
+                continue;
+            }
+
+            if (!vrt_packet.data) {
+                std::cout << "Corne says no packet data" << std::endl;
+                continue;
+            }
+
+            for (; i < vrt_packet.num_rx_samps; i++) {
+                memcpy(buffs[i*2], (char*)&stream->buffer[vrt_packet.offset+i], sizeof(int16_t));
+                memcpy(buffs[i*2+1], (char*)&stream->buffer[vrt_packet.offset+i]+2, sizeof(int16_t));
+                if (i+1 == numElems)
+                {
+                    break;
+                }
+            }
+        }
+        zmq_stopwatch_stop(deadline);
 
         flags = 0;
         timeNs = 0;
-        std::memset(buffs[0], 0, numElems * sizeof(int16_t) * 2);
-        return numElems;
+        std::cout << "Corne says num elemns: " << i << std::endl;
+        return i;
     }
 
     bool hasHardwareTime(const std::string &) const override
@@ -152,10 +210,12 @@ class VrtDevice : public SoapySDR::Device
         std::cout << "Tammo says listSampleRates" << std::endl;
         return {rate_};
     }
-private:
+protected:
+    int vrt_instance_;
     float freq_;
     float rate_;
-    int vrt_instance_;
+    void *zmq_ctx_;
+    int port_;
 };
 
 
@@ -176,14 +236,7 @@ SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args) {
 
     std::vector<void*> subscribers;
     for (int port : ports) {
-        void* subscriber = zmq_socket(ctx, ZMQ_SUB);
-        int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
-        assert(rc == 0);
-        zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
-
-        std::string addr = "tcp://localhost:" + std::to_string(port);
-        zmq_connect(subscriber, addr.c_str());  // Asynchronous
-        subscribers.push_back(subscriber);
+        subscribers.push_back(create_zmq_subscriber(ctx, port, hwm));
     }
 
     std::vector<zmq_pollitem_t> items(subscribers.size());
