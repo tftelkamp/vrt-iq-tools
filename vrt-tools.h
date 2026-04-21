@@ -21,6 +21,7 @@
 #define VRT_CONTEXT_INTERVAL 200
 
 #include <boost/format.hpp>
+#include <chrono>
 
 // VRT
 #include <vrt/vrt_init.h>
