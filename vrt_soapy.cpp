@@ -9,7 +9,10 @@
 #include <vector>
 
 struct VrtStream {
-    VrtStream(void *subscriber) : zmq_subscriber(subscriber) {}
+    VrtStream(void *subscriber) : zmq_subscriber(subscriber)
+    {
+        init_context(&vrt_context);
+    }
     void *zmq_subscriber;
     context_type vrt_context;
     uint32_t buffer[ZMQ_BUFFER_SIZE];
@@ -50,7 +53,18 @@ class VrtDevice : public SoapySDR::Device {
     std::vector<std::string> getStreamFormats(int, size_t) const override
     {
         std::cout<<"Tammo says getStreamFormats"<<std::endl;
-        return {SOAPY_SDR_CS16, SOAPY_SDR_CF32};
+        return {SOAPY_SDR_CS16};
+    }
+
+    std::string getNativeStreamFormat(const int direction, const size_t channel, double &fullScale) const override {
+        std::cout<<"Corne says getNativeStreamFormat"<<std::endl;
+        //check that direction is SOAPY_SDR_RX
+        if (direction != SOAPY_SDR_RX) {
+            throw std::runtime_error("VrtDevice is RX only, use SOAPY_SDR_RX");
+        }
+
+        fullScale = INT16_MAX;
+        return SOAPY_SDR_CS16;
     }
 
 /*
@@ -126,7 +140,8 @@ class VrtDevice : public SoapySDR::Device {
         int &flags, long long &timeNs, long timeoutUs
     ) override
     {
-        std::cout << "Corne says readStream: " << timeoutUs << std::endl;
+        // std::cout << "Corne says readStream: " << timeoutUs << std::endl;
+        bool start_rx;
         int i = 0;
         long timeoutRemaining = timeoutUs;
         auto deadline = zmq_stopwatch_start();
@@ -140,23 +155,32 @@ class VrtDevice : public SoapySDR::Device {
                 continue;
             }
 
-            init_context(&stream->vrt_context);
-            if (!vrt_process(stream->buffer, ZMQ_BUFFER_SIZE, &stream->vrt_context, &vrt_packet))
+            if (!vrt_process(stream->buffer, sizeof(stream->buffer), &stream->vrt_context, &vrt_packet))
             {
                 std::cout << "Corne says not a Vita49 packet" << std::endl;
                 continue;
             }
 
-            if (!vrt_packet.data) {
-                std::cout << "Corne says no packet data" << std::endl;
+            if (vrt_packet.context) {
+                start_rx = true;
+            }
+
+            if (start_rx && vrt_packet.data) {
                 continue;
             }
 
+            auto *buff0 = static_cast<std::complex<int16_t>*>(buffs[0]);
             for (; i < vrt_packet.num_rx_samps; i++) {
-                memcpy(buffs[i*2], (char*)&stream->buffer[vrt_packet.offset+i], sizeof(int16_t));
-                memcpy(buffs[i*2+1], (char*)&stream->buffer[vrt_packet.offset+i]+2, sizeof(int16_t));
-                if (i+1 == numElems)
+                // memcpy(&buff0[i*2], &stream->buffer[vrt_packet.offset+i], sizeof(int16_t));
+                // memcpy(&buff0[i+1], &stream->buffer[vrt_packet.offset+i]+2, sizeof(int16_t));
+                int16_t re;
+                memcpy(&re, (char*)&stream->buffer[vrt_packet.offset+i], 2);
+                int16_t img;
+                memcpy(&img, (char*)&stream->buffer[vrt_packet.offset+i]+2, 2);
+                buff0[i] = std::complex<int32_t>(re, img);
+                if (i == numElems)
                 {
+                    std::cout << "Corne says limit reached discarding packets: " << vrt_packet.num_rx_samps-i << std::endl;
                     break;
                 }
             }
@@ -165,7 +189,7 @@ class VrtDevice : public SoapySDR::Device {
 
         flags = 0;
         timeNs = 0;
-        std::cout << "Corne says num elemns: " << i << std::endl;
+        // std::cout << "Corne says num elemns: " << i << std::endl;
         return i;
     }
 
