@@ -6,16 +6,20 @@
 #include <zmq.h>
 #include "vrt-tools.h"
 #include <memory>
+#include <utility>
 #include <vector>
 
 struct VrtStream {
-    VrtStream(void *subscriber) : zmq_subscriber(subscriber)
+    VrtStream(void *subscriber, std::string format) :
+    zmq_subscriber(subscriber), format(std::move(format)), cur_packet_idx(0)
     {
         init_context(&vrt_context);
     }
     void *zmq_subscriber;
+    std::string format;
     context_type vrt_context;
-    uint32_t buffer[ZMQ_BUFFER_SIZE];
+    uint32_t zmq_buffer[ZMQ_BUFFER_SIZE];
+    size_t cur_packet_idx;
 };
 
 void* create_zmq_subscriber(void* zmq_ctx, int port, const int hwm = 10000) {
@@ -67,14 +71,6 @@ class VrtDevice : public SoapySDR::Device {
         return SOAPY_SDR_CS16;
     }
 
-/*
-    SoapySDR::RangeList getSampleRateRange(int, size_t) const override
-    {
-        std::cout<<"Tammo says getSampleRateRange"<<std::endl;
-        return { SoapySDR::Range(de1e6, 1e6) };
-    }
-*/
-
     double getSampleRate(int, size_t) const override
     {
         return rate_;
@@ -106,14 +102,17 @@ class VrtDevice : public SoapySDR::Device {
 
     void setSampleRate(int, size_t, double) override {}
 
-    SoapySDR::Stream *setupStream(int, const std::string &,
-                              const std::vector<size_t> &,
-                              const SoapySDR::Kwargs &args
-                             ) override
-    {
-        std::cout<<"Tammo says setupStream"<<std::endl;
+    SoapySDR::Stream *setupStream(
+        const int direction,
+        const std::string &format,
+        const std::vector<size_t> &,
+        const SoapySDR::Kwargs &args
+    ) override {
+        std::cout<<"Tammo says setupStream: " << format <<std::endl;
         void* subscriber = create_zmq_subscriber(zmq_ctx_, port_);
-        return reinterpret_cast<SoapySDR::Stream *>(new VrtStream(subscriber));
+        return reinterpret_cast<SoapySDR::Stream *>(
+            new VrtStream(subscriber, format)
+        );
     }
 
     void closeStream(SoapySDR::Stream *stream) override {
@@ -140,57 +139,62 @@ class VrtDevice : public SoapySDR::Device {
         int &flags, long long &timeNs, long timeoutUs
     ) override
     {
-        // std::cout << "Corne says readStream: " << timeoutUs << std::endl;
-        bool start_rx;
-        int i = 0;
+        flags = 0;
+        timeNs = 0;
+        bool start_rx = true;
+        int cur_buff_idx = 0;
         long timeoutRemaining = timeoutUs;
         auto deadline = zmq_stopwatch_start();
         VrtStream *stream = reinterpret_cast<VrtStream*>(s);
 
-        while (timeoutRemaining > 0) {
+        while (start_rx) {
             packet_type vrt_packet;
             vrt_packet.channel_filt = 1;
             timeoutRemaining -= zmq_stopwatch_intermediate(deadline);
-            if (zmq_recv(stream->zmq_subscriber, stream->buffer, ZMQ_BUFFER_SIZE, ZMQ_NOBLOCK) < 0) {
-                continue;
+            if (timeoutRemaining <= 0)
+                break;
+
+            if (stream->cur_packet_idx+1 >= vrt_packet.num_rx_samps) {
+                stream->cur_packet_idx = 0;
             }
 
-            if (!vrt_process(stream->buffer, sizeof(stream->buffer), &stream->vrt_context, &vrt_packet))
+            if (stream->cur_packet_idx == 0) {
+                if (zmq_recv(
+                    stream->zmq_subscriber, stream->zmq_buffer,
+                    ZMQ_BUFFER_SIZE, ZMQ_NOBLOCK
+                ) < 0) {
+                    continue;
+                }
+            }
+
+            if (!vrt_process(stream->zmq_buffer, sizeof(stream->zmq_buffer), &stream->vrt_context, &vrt_packet))
             {
                 std::cout << "Corne says not a Vita49 packet" << std::endl;
                 continue;
             }
 
-            if (vrt_packet.context) {
-                start_rx = true;
-            }
-
-            if (start_rx && vrt_packet.data) {
+            if (not vrt_packet.data) {
                 continue;
             }
 
-            auto *buff0 = static_cast<std::complex<int16_t>*>(buffs[0]);
-            for (; i < vrt_packet.num_rx_samps; i++) {
-                // memcpy(&buff0[i*2], &stream->buffer[vrt_packet.offset+i], sizeof(int16_t));
-                // memcpy(&buff0[i+1], &stream->buffer[vrt_packet.offset+i]+2, sizeof(int16_t));
+            auto *buff0 = static_cast<std::complex<float>*>(buffs[0]);
+            for (; stream->cur_packet_idx < vrt_packet.num_rx_samps; stream->cur_packet_idx++) {
                 int16_t re;
-                memcpy(&re, (char*)&stream->buffer[vrt_packet.offset+i], 2);
+                memcpy(&re, (char*)&stream->zmq_buffer[vrt_packet.offset+stream->cur_packet_idx], 2);
                 int16_t img;
-                memcpy(&img, (char*)&stream->buffer[vrt_packet.offset+i]+2, 2);
-                buff0[i] = std::complex<int32_t>(re, img);
-                if (i == numElems)
-                {
-                    std::cout << "Corne says limit reached discarding packets: " << vrt_packet.num_rx_samps-i << std::endl;
-                    break;
+                memcpy(&img, (char*)&stream->zmq_buffer[vrt_packet.offset+stream->cur_packet_idx]+2, 2);
+                buff0[cur_buff_idx] = std::complex<float>(re, img);
+                cur_buff_idx++;
+
+                // reached max elements to return in this call
+                if (cur_buff_idx >= numElems) {
+                    start_rx = false;
                 }
             }
         }
-        zmq_stopwatch_stop(deadline);
 
-        flags = 0;
-        timeNs = 0;
-        // std::cout << "Corne says num elemns: " << i << std::endl;
-        return i;
+        zmq_stopwatch_stop(deadline);
+        return cur_buff_idx;
     }
 
     bool hasHardwareTime(const std::string &) const override
