@@ -22,12 +22,14 @@ struct VrtStream {
     size_t cur_packet_idx;
 };
 
-void* create_zmq_subscriber(void* zmq_ctx, int port, const int hwm = 10000) {
+void* create_zmq_subscriber(void* zmq_ctx, int port, const int hwm = 10000)
+{
     void* subscriber = zmq_socket(zmq_ctx, ZMQ_SUB);
     int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
-    assert(rc == 0);
+    if (rc != 0) {
+        throw std::runtime_error("VrtDevice failed to set RCVHWM on ZMQ socket");
+    }
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
-    // zmq_setsockopt(subscriber, ZMQ_RCVTIMEO, reinterpret_cast<void*>(1000), sizeof(int));
 
     std::string addr = "tcp://localhost:" + std::to_string(port);
     zmq_connect(subscriber, addr.c_str());
@@ -38,13 +40,13 @@ class VrtDevice : public SoapySDR::Device {
     public:
 
     VrtDevice(int vrt_instance, float freq, float rate): SoapySDR::Device(),
-        vrt_instance_(vrt_instance), freq_(freq), rate_(rate) {
+        vrt_instance_(vrt_instance), freq_(freq), rate_(rate)
+    {
         zmq_ctx_ = zmq_ctx_new();
         port_ = DEFAULT_MAIN_PORT + MAX_CHANNELS * vrt_instance_;
-        std::cout<<"Tammo says creating VrtDevice at port " <<port_<<std::endl;
     };
 
-    ~VrtDevice()
+    ~VrtDevice() override
     {
         zmq_ctx_destroy(zmq_ctx_);
     }
@@ -56,12 +58,11 @@ class VrtDevice : public SoapySDR::Device {
 
     std::vector<std::string> getStreamFormats(int, size_t) const override
     {
-        std::cout<<"Tammo says getStreamFormats"<<std::endl;
-        return {SOAPY_SDR_CS16};
+        return {SOAPY_SDR_CF32, SOAPY_SDR_CS16};
     }
 
-    std::string getNativeStreamFormat(const int direction, const size_t channel, double &fullScale) const override {
-        std::cout<<"Corne says getNativeStreamFormat"<<std::endl;
+    std::string getNativeStreamFormat(const int direction, const size_t channel, double &fullScale) const override
+    {
         //check that direction is SOAPY_SDR_RX
         if (direction != SOAPY_SDR_RX) {
             throw std::runtime_error("VrtDevice is RX only, use SOAPY_SDR_RX");
@@ -81,22 +82,18 @@ class VrtDevice : public SoapySDR::Device {
     }
 
     std::string getHardwareKey() const override {
-        std::cout<<"Tammo says getHardwareKey"<<std::endl;
         return "VRTZMQ";
     }
 
 
     std::vector<std::string> listFrequencies(
-    const int direction,
-    const size_t channel) const override
+        const int direction, const size_t channel) const override
     {
-        std::cout<<"Tammo says listFrequencies"<<std::endl;
         return {"RF"};
     }
 
     SoapySDR::RangeList getFrequencyRange(int, size_t) const override
     {
-        std::cout<<"Tammo says getFrequencyRange"<<std::endl;
         return { SoapySDR::Range(freq_, freq_) };
     }
 
@@ -107,30 +104,32 @@ class VrtDevice : public SoapySDR::Device {
         const std::string &format,
         const std::vector<size_t> &,
         const SoapySDR::Kwargs &args
-    ) override {
-        std::cout<<"Tammo says setupStream: " << format <<std::endl;
+    ) override
+    {
+        auto formats = getStreamFormats(0, 0);
+        if (std::find(formats.begin(), formats.end(), format) == formats.end()) {
+            throw std::runtime_error(std::string("VrtDevice does not support format: ") + format);
+        }
         void* subscriber = create_zmq_subscriber(zmq_ctx_, port_);
         return reinterpret_cast<SoapySDR::Stream *>(
             new VrtStream(subscriber, format)
         );
     }
 
-    void closeStream(SoapySDR::Stream *stream) override {
-        std::cout<<"Tammo says closeStream"<<std::endl;
+    void closeStream(SoapySDR::Stream *stream) override
+    {
         delete reinterpret_cast<VrtStream *>(stream);
     }
 
     int activateStream(
         SoapySDR::Stream *, int, long long, size_t) override
     {
-        std::cout << "Tammo says activateStream" << std::endl;
         return 0;
     }
 
     int deactivateStream(
         SoapySDR::Stream *, int, long long) override
     {
-        std::cout << "Tammo says deactivateStream" << std::endl;
         return 0;
     }
 
@@ -150,14 +149,18 @@ class VrtDevice : public SoapySDR::Device {
         while (start_rx) {
             packet_type vrt_packet;
             vrt_packet.channel_filt = 1;
+
+            // Detect timeout and return with current number of elements
             timeoutRemaining -= zmq_stopwatch_intermediate(deadline);
             if (timeoutRemaining <= 0)
                 break;
 
+            // Detect if end of current packet reached and reset
             if (stream->cur_packet_idx+1 >= vrt_packet.num_rx_samps) {
                 stream->cur_packet_idx = 0;
             }
 
+            // Receive next packet, noblock for timeout
             if (stream->cur_packet_idx == 0) {
                 if (zmq_recv(
                     stream->zmq_subscriber, stream->zmq_buffer,
@@ -167,9 +170,12 @@ class VrtDevice : public SoapySDR::Device {
                 }
             }
 
-            if (!vrt_process(stream->zmq_buffer, sizeof(stream->zmq_buffer), &stream->vrt_context, &vrt_packet))
-            {
-                std::cout << "Corne says not a Vita49 packet" << std::endl;
+            if (!vrt_process(
+                stream->zmq_buffer,
+                sizeof(stream->zmq_buffer),
+                &stream->vrt_context, &vrt_packet)
+            ) {
+                std::cerr << "VrtDevice received and invalid Vita49 packet" << std::endl;
                 continue;
             }
 
@@ -177,6 +183,7 @@ class VrtDevice : public SoapySDR::Device {
                 continue;
             }
 
+            // Go through the packets from the current sample (cur_packet_idx) until numElems reached or end of packet
             auto *buff0 = static_cast<std::complex<float>*>(buffs[0]);
             for (; stream->cur_packet_idx < vrt_packet.num_rx_samps; stream->cur_packet_idx++) {
                 int16_t re;
@@ -235,7 +242,6 @@ class VrtDevice : public SoapySDR::Device {
 
     std::vector<double> listSampleRates(int dir, size_t channel) const override
     {
-        std::cout << "Tammo says listSampleRates" << std::endl;
         return {rate_};
     }
 protected:
@@ -295,15 +301,16 @@ SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args) {
                 items[i].events = 0;
 
                 if (args.count("vrt_instance") and args.at("vrt_instance") != std::to_string(i)) {
-                    std::cout<<"Not interested in this instance!"<<std::endl;
                     continue;
                 }
 
                 while (true) {
                     int len = zmq_recv(subscribers[i], buffer, ZMQ_BUFFER_SIZE, 0);
-                    if (len <= 0) {std::cerr<<"Small len"<<std::endl; continue;}
+                    if (len <= 0) {
+                        continue;
+                    }
                     if (not vrt_process(buffer, sizeof(buffer), &vrt_context, &vrt_packet)) {
-                        std::cerr<<"Not a Vita49 packet?"<<std::endl;
+                        std::cerr << "Not a Vita49 packet?" << std::endl;
                         break;
                     }
                     if (vrt_packet.context) {
@@ -313,9 +320,9 @@ SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args) {
                         dev["driver"] = "vrt_device";
 
                         std::string rate_str = (boost::format("%.1f Msps") % (rate / 1e6)).str();
-                        if (rate < 1e6)
+                        if (rate < 1e6) {
                             std::string rate_str = (boost::format("%.0f ksps") % (rate / 1e3)).str();
-
+                        }
                         dev["label"]  = "VRT Instance " + std::to_string(i) + ": " +
                                         (boost::format("%.1f MHz") % (freq / 1e6)).str() +
                                         " (" + (boost::format("%.1f Msps") % (rate / 1e6)).str() + ")";
@@ -339,18 +346,10 @@ SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args) {
 
 SoapySDR::Device *makeVrtDevice(const SoapySDR::Kwargs &args)
 {
-    for (auto &kv : args) {
-        std::cerr << "makeVrtDevice arg: " << kv.first << " = " << kv.second << std::endl;
-    }
-
     int instance = std::stoi(args.at("vrt_instance"));
     float freq = std::strtod(args.at("freq").c_str(), NULL);
     float rate = std::strtod(args.at("rate").c_str(), NULL);
-    std::cout<<"Tammo says makeVrtDevice "<< args.at("label") << std::endl;
-    std::cout<<"MakeVrtDevice freq: "<< freq << std::endl;
-    std::cout<<"MakeVrtDevice rate: "<< rate << std::endl;
     return new VrtDevice(instance, freq, rate);
 }
-
 
 static SoapySDR::Registry registerVrtDevice("vrt_device", &findVrtDevice, &makeVrtDevice, SOAPY_SDR_ABI_VERSION);
