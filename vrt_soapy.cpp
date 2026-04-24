@@ -34,6 +34,31 @@ void* create_zmq_subscriber(void* zmq_ctx, int port, const int hwm = 10000)
     std::string addr = "tcp://localhost:" + std::to_string(port);
     zmq_connect(subscriber, addr.c_str());
     return subscriber;
+};
+
+template<typename T>
+void iterate_packet_buffer(
+    VrtStream *stream,
+    void * const *buffer,
+    const packet_type &packet,
+    bool &start_rx,
+    int &cur_buff_idx,
+    const size_t numElems)
+{
+    int16_t re;
+    int16_t img;
+    auto *buff0 = static_cast<std::complex<T>*>(buffer[0]);
+    for (; stream->cur_packet_idx < packet.num_rx_samps; stream->cur_packet_idx++) {
+        memcpy(&re, (char*)&stream->zmq_buffer[packet.offset+stream->cur_packet_idx], sizeof(int16_t));
+        memcpy(&img, (char*)&stream->zmq_buffer[packet.offset+stream->cur_packet_idx]+sizeof(int16_t), sizeof(int16_t));
+        buff0[cur_buff_idx] = std::complex<T>(re, img);
+        cur_buff_idx++;
+
+        // reached max elements to return in this call
+        if (cur_buff_idx >= numElems) {
+            start_rx = false;
+        }
+    }
 }
 
 class VrtDevice : public SoapySDR::Device {
@@ -148,6 +173,7 @@ class VrtDevice : public SoapySDR::Device {
 
         while (start_rx) {
             packet_type vrt_packet;
+            // TODO(Corne): Support multiple / selectable channels
             vrt_packet.channel_filt = 1;
 
             // Detect timeout and return with current number of elements
@@ -184,19 +210,11 @@ class VrtDevice : public SoapySDR::Device {
             }
 
             // Go through the packets from the current sample (cur_packet_idx) until numElems reached or end of packet
-            auto *buff0 = static_cast<std::complex<float>*>(buffs[0]);
-            for (; stream->cur_packet_idx < vrt_packet.num_rx_samps; stream->cur_packet_idx++) {
-                int16_t re;
-                memcpy(&re, (char*)&stream->zmq_buffer[vrt_packet.offset+stream->cur_packet_idx], 2);
-                int16_t img;
-                memcpy(&img, (char*)&stream->zmq_buffer[vrt_packet.offset+stream->cur_packet_idx]+2, 2);
-                buff0[cur_buff_idx] = std::complex<float>(re, img);
-                cur_buff_idx++;
-
-                // reached max elements to return in this call
-                if (cur_buff_idx >= numElems) {
-                    start_rx = false;
-                }
+            if (stream->format == SOAPY_SDR_CF32) {
+                iterate_packet_buffer<float>(stream, buffs, vrt_packet, start_rx, cur_buff_idx, numElems);
+            }
+            else if (stream->format == SOAPY_SDR_CS16) {
+                iterate_packet_buffer<int16_t>(stream, buffs, vrt_packet, start_rx, cur_buff_idx, numElems);
             }
         }
 
@@ -286,6 +304,7 @@ SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args) {
     uint32_t buffer[ZMQ_BUFFER_SIZE];
     context_type vrt_context;
     packet_type vrt_packet;
+    // TODO(Corne): Support multiple / selectable channels
     vrt_packet.channel_filt = 1;
     init_context(&vrt_context);
 
