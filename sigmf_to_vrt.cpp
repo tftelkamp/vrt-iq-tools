@@ -82,7 +82,7 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string udp_forward, ref, file, file2, time_cal, type, start_time_str, merge_address_list, merge_port_list;
+    std::string udp_forward, ref, file, file2, time_cal, type, start_time_str, merge_address_list, merge_port_list, start_at_str;
     uint16_t port, instance;
     uint32_t stream_id;
     int hwm;
@@ -102,6 +102,7 @@ int main(int argc, char* argv[])
         ("file", po::value<std::string>(&file)->default_value("samples.sigmf-meta"), "name of the SigMF meta file")
         ("file2", po::value<std::string>(&file2), "name of the second SigMF data file (used for dual-chan)")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
+        ("start-time", po::value<std::string>(&start_at_str), "start streaming at given timestamp")
         ("datarate", po::value<double>(&datarate)->default_value(0), "rate of outgoing samples")
         ("dual-chan", "use two SigMF files for dual channel stream (chan0+chan1)")
         ("progress", "periodically display short-term bandwidth")
@@ -143,9 +144,41 @@ int main(int argc, char* argv[])
     bool dual_chan              = (vm.count("dual-chan")) || (vm.count("file2")) > 0;
     bool repeat                 = vm.count("repeat") > 0;
     bool vrt                    = vm.count("vrt") > 0;
+    bool start_at_timestamp     = vm.count("start-time") > 0;
 
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
+
+    boost::posix_time::ptime utc_time;
+    if (start_at_timestamp) {
+        // Check for unix time
+        try {
+            boost::lexical_cast<double>(start_at_str);
+            double unix_start = boost::lexical_cast<double>(start_at_str);
+            utc_time = boost::posix_time::from_time_t(unix_start);
+            double fraction = unix_start - ((int64_t)unix_start);
+            utc_time += boost::posix_time::microseconds((int64_t)(fraction*1000000));
+        } catch (boost::bad_lexical_cast&) {
+            // not unix time
+
+            // Replace 'T' with space
+            size_t t_pos = start_at_str.find('T');
+            if (t_pos != std::string::npos) {
+                start_at_str[t_pos] = ' ';
+            }
+
+            // Remove 'Z' if present
+            size_t z_pos = start_at_str.find('Z');
+            if (z_pos != std::string::npos) {
+                start_at_str.erase(z_pos, 1);
+            }
+
+            // Parse the string into a ptime object
+            utc_time = boost::posix_time::time_from_string(start_at_str);
+        }
+        // Print parsed time
+        std::cout << "# UTC start time: " << utc_time << std::endl;
+    }
 
     // seed random generator with seconds and microseconds
     srand(time_now.tv_usec + time_now.tv_sec);
@@ -308,6 +341,45 @@ int main(int argc, char* argv[])
 
     auto vrt_time = time_first_sample;
 
+    if (start_at_timestamp) {
+        if (vrt) {
+            printf("--start-time is not supported with --vrt\n");
+            exit(1);
+        }
+        uintmax_t datafilesize = boost::filesystem::file_size(data_filename);
+        double duration_s = (double)(datafilesize / 4) / rate;
+
+        boost::posix_time::time_duration seek_duration = utc_time - t1;
+        double seek_seconds = seek_duration.total_microseconds() / 1e6;
+
+        if (seek_seconds < 0) {
+            printf("--start-time is before the start of the recording\n");
+            exit(1);
+        }
+
+        int64_t seek_samples = (int64_t)(seek_seconds * rate);
+        int64_t seek_bytes = seek_samples * 4;  // 4 bytes per sample (ci16_le)
+
+        if (seek_bytes >= (int64_t)datafilesize) {
+            printf("--start-time is past the end of the recording\n");
+            exit(1);
+        }
+
+        fseek(read_ptr, seek_bytes, SEEK_SET);
+        if (dual_chan) {
+            fseek(read_ptr_2, seek_bytes, SEEK_SET);
+        }
+
+        boost::posix_time::ptime actual_start =
+            t1 + boost::posix_time::microseconds(seek_samples * 1000000LL / (int64_t)rate);
+        time_t integer_actual = boost::posix_time::to_time_t(actual_start);
+        boost::posix_time::ptime actual_integer(boost::posix_time::from_time_t(integer_actual));
+        boost::posix_time::time_duration actual_frac = actual_start - actual_integer;
+        time_first_sample.tv_sec = integer_actual;
+        time_first_sample.tv_usec = actual_frac.total_microseconds();
+        vrt_time = time_first_sample;
+    }
+
     // trigger context update
     last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
 
@@ -411,7 +483,7 @@ int main(int argc, char* argv[])
 
         }
 
-            // Merge
+        // Merge
         if (merge) {
             int mergelen;
             for (size_t m = 0; m < merge_zmq.size(); m++) {
