@@ -28,6 +28,7 @@ struct VrtStream {
     VrtStream(void *subscriber, std::string format) :
     zmq_subscriber(subscriber), format(std::move(format)), cur_packet_idx(0)
     {
+        memset(zmq_buffer, 0, ZMQ_BUFFER_SIZE * sizeof(uint32_t));
         init_context(&vrt_context);
     }
     void *zmq_subscriber;
@@ -107,7 +108,7 @@ class VrtDevice : public SoapySDR::Device {
         return {SOAPY_SDR_CF32, SOAPY_SDR_CS16};
     }
 
-    std::string getNativeStreamFormat(const int direction, const size_t channel, double &fullScale) const override
+    std::string getNativeStreamFormat(const int direction, const size_t, double &) const override
     {
         vrt_soapy_debug(std::string("getNativeStreamFormat"));
         //check that direction is SOAPY_SDR_RX
@@ -137,7 +138,7 @@ class VrtDevice : public SoapySDR::Device {
 
 
     std::vector<std::string> listFrequencies(
-        const int direction, const size_t channel) const override
+        const int, const size_t) const override
     {
         vrt_soapy_debug(std::string("listFrequencies"));
         return {"RF"};
@@ -154,16 +155,16 @@ class VrtDevice : public SoapySDR::Device {
         vrt_soapy_debug(std::string("setSampleRate"));
     }
 
-    size_t getStreamMTU(SoapySDR::Stream *s) const
+    size_t getStreamMTU(SoapySDR::Stream *) const override
     {
         return VRT_SAMPLES_PER_PACKET;
     }
 
     SoapySDR::Stream *setupStream(
-        const int direction,
+        const int,
         const std::string &format,
         const std::vector<size_t> &,
-        const SoapySDR::Kwargs &args
+        const SoapySDR::Kwargs &
     ) override
     {
         vrt_soapy_debug(std::string("setupStream"));
@@ -204,14 +205,14 @@ class VrtDevice : public SoapySDR::Device {
     {
         flags = 0;
         timeNs = 0;
-        packet_type cur_packet;
+        packet_type cur_packet = {};
         cur_packet.data = false;
         cur_packet.channel_filt = 1;
         bool start_rx = true;
         size_t cur_buff_idx = 0;
         long timeoutRemaining = timeoutUs;
         auto deadline = zmq_stopwatch_start();
-        VrtStream *stream = reinterpret_cast<VrtStream*>(s);
+        auto *stream = reinterpret_cast<VrtStream*>(s);
 
         while (start_rx) {
             // TODO(Corne): Support multiple / selectable channels
@@ -222,7 +223,7 @@ class VrtDevice : public SoapySDR::Device {
             }
 
             // Detect timeout and return with current number of elements
-            timeoutRemaining -= zmq_stopwatch_intermediate(deadline);
+            timeoutRemaining -= static_cast<long>(zmq_stopwatch_intermediate(deadline));
             if (timeoutRemaining <= 0) {
                 // vrt_soapy_debug(std::string("readStream: timeout"));
                 break;
@@ -305,16 +306,16 @@ class VrtDevice : public SoapySDR::Device {
     }
 
     void setFrequency(
-        int dir,
-        size_t channel,
-        double frequency,
-        const SoapySDR::Kwargs &args
+        int,
+        size_t,
+        double,
+        const SoapySDR::Kwargs &
     ) override
     {
         vrt_soapy_debug(std::string("setFrequency"));
     }
 
-    std::vector<double> listSampleRates(int dir, size_t channel) const override
+    std::vector<double> listSampleRates(int, size_t) const override
     {
         vrt_soapy_debug(std::string("listSampleRates"));
         return {rate_};
@@ -354,19 +355,19 @@ SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args) {
     }
 
     std::vector<bool> found(ports.size(), false);
-    int remaining = ports.size();
+    int remaining = static_cast<int>(ports.size());
 
     auto deadline = zmq_stopwatch_start();
 
     uint32_t buffer[ZMQ_BUFFER_SIZE];
-    context_type vrt_context;
-    packet_type vrt_packet;
+    context_type vrt_context = {};
+    packet_type vrt_packet = {};
     // TODO(Corne): Support multiple / selectable channels
     vrt_packet.channel_filt = 1;
     init_context(&vrt_context);
 
     while (remaining > 0) {
-        long elapsed_us = zmq_stopwatch_intermediate(deadline);
+        long elapsed_us = static_cast<long>(zmq_stopwatch_intermediate(deadline));
         long remaining_ms = TIMEOUT_MS - (elapsed_us / 1000);
         if (remaining_ms <= 0) break;
         int rc = zmq_poll(items.data(), items.size(), remaining_ms);
@@ -394,11 +395,6 @@ SoapySDR::KwargsList findVrtDevice(const SoapySDR::Kwargs &args) {
                         float freq = vrt_context.rf_freq;
                         dev["freq"] = std::to_string(freq);
                         dev["driver"] = "vrt_device";
-
-                        std::string rate_str = (boost::format("%.1f Msps") % (rate / 1e6)).str();
-                        if (rate < 1e6) {
-                            std::string rate_str = (boost::format("%.0f ksps") % (rate / 1e3)).str();
-                        }
                         dev["label"]  = "VRT Instance " + std::to_string(i) + ": " +
                                         (boost::format("%.1f MHz") % (freq / 1e6)).str() +
                                         " (" + (boost::format("%.1f Msps") % (rate / 1e6)).str() + ")";
