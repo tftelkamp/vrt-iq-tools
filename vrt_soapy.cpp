@@ -262,7 +262,7 @@ class VrtDevice : public SoapySDR::Device {
         zmq_stopwatch_stop(deadline);
         // vrt_soapy_debug(std::string("readStream: ") << ((cur_buff_idx == 0) ? 0 : cur_buff_idx+1));
         // if (stream->cur_packet_idx-1 < cur_packet.num_rx_samps) flags |= SOAPY_SDR_MORE_FRAGMENTS;
-        return static_cast<int>(cur_buff_idx);
+        return static_cast<int>(((cur_buff_idx == 0) ? 0 : cur_buff_idx+1));
     }
 
     bool hasHardwareTime(const std::string &) const override
