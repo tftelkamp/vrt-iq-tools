@@ -39,7 +39,7 @@ struct VrtStream {
 
 void* create_zmq_subscriber(void* zmq_ctx, int port, const int hwm = 10000)
 {
-    vrt_soapy_debug(std::string("Create subscriber"));
+    vrt_soapy_debug(std::string("Create subscriber: ") << port);
     void* subscriber = zmq_socket(zmq_ctx, ZMQ_SUB);
     int rc = zmq_setsockopt (subscriber, ZMQ_RCVHWM, &hwm, sizeof hwm);
     if (rc != 0) {
@@ -71,7 +71,7 @@ void iterate_packet_buffer(
         cur_buff_idx++;
 
         // reached max elements to return in this call
-        if (cur_buff_idx >= numElems-1) {
+        if (cur_buff_idx >= numElems) {
             start_rx = false;
             return;
         }
@@ -204,6 +204,9 @@ class VrtDevice : public SoapySDR::Device {
     {
         flags = 0;
         timeNs = 0;
+        packet_type cur_packet;
+        cur_packet.data = false;
+        cur_packet.channel_filt = 1;
         bool start_rx = true;
         size_t cur_buff_idx = 0;
         long timeoutRemaining = timeoutUs;
@@ -212,8 +215,11 @@ class VrtDevice : public SoapySDR::Device {
 
         while (start_rx) {
             // TODO(Corne): Support multiple / selectable channels
-            packet_type cur_packet;
-            cur_packet.channel_filt = 1;
+
+            // Detect if end of current packet reached (or none data packet) and reset
+            if (stream->cur_packet_idx+1 >= cur_packet.num_rx_samps) {
+                stream->cur_packet_idx = 0;
+            }
 
             // Detect timeout and return with current number of elements
             timeoutRemaining -= zmq_stopwatch_intermediate(deadline);
@@ -222,17 +228,12 @@ class VrtDevice : public SoapySDR::Device {
                 break;
             }
 
-            // Detect if end of current packet reached and reset
-            if (stream->cur_packet_idx+1 >= cur_packet.num_rx_samps) {
-                stream->cur_packet_idx = 0;
-            }
-
             // Receive next packet, noblock for timeout
             if (stream->cur_packet_idx == 0) {
                 if (zmq_recv(
                     stream->zmq_subscriber, stream->zmq_buffer,
                     ZMQ_BUFFER_SIZE, ZMQ_NOBLOCK
-                ) < 0) {
+                ) < 1) {
                     continue;
                 }
             }
@@ -247,6 +248,7 @@ class VrtDevice : public SoapySDR::Device {
             }
 
             if (not cur_packet.data) {
+                // vrt_soapy_debug(std::string("no data"));
                 continue;
             }
 
@@ -260,9 +262,11 @@ class VrtDevice : public SoapySDR::Device {
         }
 
         zmq_stopwatch_stop(deadline);
-        // vrt_soapy_debug(std::string("readStream: ") << ((cur_buff_idx == 0) ? 0 : cur_buff_idx+1));
-        // if (stream->cur_packet_idx-1 < cur_packet.num_rx_samps) flags |= SOAPY_SDR_MORE_FRAGMENTS;
-        return static_cast<int>(((cur_buff_idx == 0) ? 0 : cur_buff_idx+1));
+        // vrt_soapy_debug(std::string("readStream: ") << cur_buff_idx);
+        if (cur_packet.data && stream->cur_packet_idx+1 < cur_packet.num_rx_samps) {
+            flags |= SOAPY_SDR_MORE_FRAGMENTS;
+        }
+        return static_cast<int>(cur_buff_idx);
     }
 
     bool hasHardwareTime(const std::string &) const override
