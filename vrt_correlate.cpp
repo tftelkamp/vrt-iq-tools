@@ -491,7 +491,6 @@ int main(int argc, char* argv[])
                 memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
 
                 iq_samples[ch][i+VRT_SAMPLES_PER_PACKET*buffer_depth] = std::complex<int16_t>(re,img);
-
             }
 
             if (ch==1) {
