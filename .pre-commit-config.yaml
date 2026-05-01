@@ -1,0 +1,42 @@
+default_language_version:
+  python: python3
+repos:
+  # This check runs clang-format against the project (C/C++)
+  # configue using .clang-format files for specific linting preferences
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v22.1.4
+    hooks:
+      - id: clang-format
+  # Run cmake formatting and linting checks
+  # Configure using .cmake-format.yaml file
+  - repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.13
+    hooks:
+      - id: cmake-format
+      - id: cmake-lint
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # Every file should end with a newline
+      - id: end-of-file-fixer
+      # Remove trailing whitespaces
+      - id: trailing-whitespace
+      # Verify yaml for correctness and basic linting
+      - id: check-yaml
+      # Verify tom for correctness and basic linting
+      - id: check-toml
+      # Check if no private keys are accidentally committed
+      - id: detect-private-key
+  # Markdown formatting
+  # Configure by changing args
+  - repo: https://github.com/executablebooks/mdformat
+    rev: 1.0.0
+    hooks:
+      - id: mdformat
+        args: ['--wrap=80']
+  # Yaml formatting
+  # Configure using .yamlfmt file
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.21.0
+    hooks:
+      - id: yamlfmt
