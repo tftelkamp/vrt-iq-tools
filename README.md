@@ -93,7 +93,7 @@ when contributing. Most of these are used in testing.
 
 * `pre-commit`: Tool to organize checks such as linting and unit tests
 * `Catch2`: Unit testing framework
-* `mimicpp`: Mocking framework 
+* `mimicpp`: Mocking framework
 
 ## License
 
