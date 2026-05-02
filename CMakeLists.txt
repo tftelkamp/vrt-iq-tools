@@ -1,12 +1,25 @@
 cmake_minimum_required(VERSION 3.17)
 
+include(FetchContent)
+set(FETCHCONTENT_QUIET FALSE)
+
 project(
   VrtIqTools
   VERSION 1.0
   DESCRIPTION "VRT IQ tools"
   LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 11)
+set(MIMICPP_VERSION v9.3.0)
+set(CATCH2_VERSION v3.8.1)
+
+# 20 or higher is needed for mimicpp
+set(CMAKE_CXX_STANDARD 20)
+
+# To use clangd as LSP (for Neovim / Vim etc)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Compile time options
+OPTION(VRT_IQ_TOOLS_TESTING OFF)
 
 if(POLICY CMP0167)
   cmake_policy(SET CMP0167 NEW)
@@ -212,3 +225,23 @@ foreach(target ${all_targets})
 endforeach()
 
 install(TARGETS ${all_targets})
+
+
+if(VRT_IQ_TOOLS_TESTING)
+    FetchContent_Declare(mimicpp
+        GIT_REPOSITORY https://github.com/DNKpp/mimicpp
+        VERSION ${MIMICPP_VERSION}
+        GIT_TAG ${MIMICPP_VERSION}
+    )
+    FetchContent_MakeAvailable(mimicpp)
+
+    find_package(Catch2 3 QUIET)
+    if (NOT Catch2_FOUND)
+        message("Catch2 not found, downloading version: ${CATCH2_VERSION} ...")
+        FetchContent_Declare(Catch2
+            GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+            GIT_TAG ${CATCH2_VERSION}
+        )
+        FetchContent_MakeAvailable(Catch2)
+    endif ()
+endif()
