@@ -1,6 +1,8 @@
-name: Build
+name: Build & Test
 on:
+  pull_request:
   push:
+    branches: [main]
 jobs:
   build-project:
     name: Build Project
@@ -21,3 +23,7 @@ jobs:
         with:
           options: |
             VRT_IQ_TOOLS_TESTING=ON
+      - name: Test Project
+        uses: threeal/ctest-action@v1.1.0
+        with:
+          test-dir: build/tests

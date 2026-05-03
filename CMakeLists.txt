@@ -246,4 +246,6 @@ if(VRT_IQ_TOOLS_TESTING)
         )
         FetchContent_MakeAvailable(Catch2)
     endif ()
+
+    add_subdirectory(tests)
 endif()
