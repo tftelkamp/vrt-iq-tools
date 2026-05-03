@@ -1,3 +1,7 @@
+# IDE Files
+.idea/*
+
+# Binaries
 vrt_fftmax
 vrt_fftmax_quad
 vrt_forwarder
@@ -12,5 +16,10 @@ vrt_to_void
 query_dt_console
 control_vrt
 sigmf_to_vrt
+
+# Mac
 .DS_Store
+
+# Build files and caches
 build/*
+CMakeFiles/*

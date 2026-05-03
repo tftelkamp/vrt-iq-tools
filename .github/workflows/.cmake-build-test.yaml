@@ -1,0 +1,35 @@
+name: Build & Test
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  build-project:
+    name: Build Project
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Project
+        uses: actions/checkout@v4.2.2
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-chrono-dev \
+            libboost-date-time-dev libboost-filesystem-dev \
+            libboost-program-options-dev libboost-system-dev \
+            libboost-thread-dev libzmq3-dev libfftw3-dev \
+            libfftw3-single3
+      - name: Build Project
+        uses: threeal/cmake-action@v2.1.0
+        with:
+          options: |
+            VRT_IQ_TOOLS_TESTING=ON
+      - name: test test files
+        run: |
+          pwd
+          ls -lah
+          ls -lah build
+          ls -lah build/tests
+      - name: Test Project
+        uses: threeal/ctest-action@v1.1.0
+        with:
+          test-dir: build/tests

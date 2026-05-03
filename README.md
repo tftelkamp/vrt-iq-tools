@@ -77,6 +77,24 @@ make install -j
 * `vrt_to_void`: Template for new clients and connection testing.
 * `control_vrt`: Control devices, e.g. to set gain or frequency.
 
+## Contributing
+
+Contributing patches can be done by opening pull requests.
+You can verify the linting of your patches using `pre-commit`.
+
+To run all checks you run `pre-commit run -a`
+
+For individual checks and their details see .pre-commit-config.yaml
+
+### Dependencies
+
+Among `pre-commit` there are several additional dependencies used
+when contributing. Most of these are used in testing.
+
+* `pre-commit`: Tool to organize checks such as linting and unit tests
+* `Catch2`: Unit testing framework
+* `mimicpp`: Mocking framework
+
 ## License
 
 [MIT](https://choosealicense.com/licenses/mit/)
