@@ -86,6 +86,20 @@ To run all checks you run `pre-commit run -a`
 
 For individual checks and their details see .pre-commit-config.yaml
 
+### Testing
+
+This project also includes unit tests, to compile and run these set
+CMake option `-DVRT_IQ_TOOLS_TESTING=ON`.
+
+Next you can use `ctest` to run these.
+
+```sh
+mkdir build
+cmake -B build -DVRT_IQ_TOOLS_TESTING=ON .
+cmake --build build -- -j $(nproc)
+ctest --test-dir build/tests
+```
+
 ### Dependencies
 
 Among `pre-commit` there are several additional dependencies used
