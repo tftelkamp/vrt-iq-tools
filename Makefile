@@ -18,7 +18,7 @@ strf: vrt_rffft
 #INCLUDES = -I.
 #LIBS = -L.
 
-CFLAGS = -std=c++11
+CFLAGS = -std=c++17
 INCLUDES = -I. -I/opt/local/include -I../libvrt/include -I/opt/homebrew/include/
 LIBS = -L. -L../libvrt/build/ -L/usr/local/lib -L/opt/local/lib -L/opt/homebrew/lib/
 
