@@ -83,12 +83,15 @@ int main(int argc, char* argv[])
 {
     // variables to be set by po
     std::string udp_forward, ref, file, file2, time_cal, type, start_time_str, merge_address_list, merge_port_list;
+    std::string ref2, time_cal2, type2, start_time_str2;
     uint16_t port, instance;
-    uint32_t stream_id;
+    uint32_t stream_id, stream_id2;
     int hwm;
-    int16_t gain;
+    int16_t gain, gain2;
     double datarate;
     double rate, freq, bw, total_time, setup_time, lo_offset;
+    double rate2, freq2, bw2;
+    uint64_t cal_time, cal_time2;
     bool merge;
 
     FILE *read_ptr;
@@ -167,6 +170,7 @@ int main(int argc, char* argv[])
     time_cal = root.get<std::string>("global.vrt:time_source", "");
     type = root.get<std::string>("global.core:datatype", "");
     stream_id = root.get<uint32_t>("global.vrt:stream_id", 0);
+    cal_time  = root.get<uint64_t>("global.vrt:cal_time", 0);
 
     for (auto& item : root.get_child("captures")) {
         freq = item.second.get<double>("core:frequency");
@@ -177,8 +181,10 @@ int main(int argc, char* argv[])
     printf("    Start time: %s\n", start_time_str.c_str());
     printf("    Sample rate: %i\n", (int)rate);
     printf("    Frequency: %lli\n", (long long int)freq);
+    printf("    Gain: %i\n", (int)gain);
     printf("    Reference: %s\n", ref.c_str());
     printf("    Time calibration: %s\n", time_cal.c_str());
+    printf("    Cal time: %llu\n", (long long unsigned int)cal_time);
     printf("    Data type: %s\n", type.c_str());
     printf("    Stream ID: %u\n", stream_id);
 
@@ -218,13 +224,46 @@ int main(int argc, char* argv[])
 
     if (dual_chan) {
         std::string data_filename_2(data_filename);
+        std::string meta_filename_2(meta_filename);
         if (vm.count("file2")) {
-            boost::filesystem::path base_fn_fp(file2);
-            base_fn_fp.replace_extension(".sigmf-data");
-            data_filename_2 = base_fn_fp.string();
+            boost::filesystem::path base_fn_fp2(file2);
+            base_fn_fp2.replace_extension(".sigmf-meta");
+            meta_filename_2 = base_fn_fp2.string();
+            base_fn_fp2.replace_extension(".sigmf-data");
+            data_filename_2 = base_fn_fp2.string();
         } else {
-            boost::replace_all(data_filename_2,"chan0","chan1");
+            boost::replace_all(data_filename_2, "chan0", "chan1");
+            boost::replace_all(meta_filename_2, "chan0", "chan1");
         }
+
+        pt::ptree root2;
+        pt::read_json(meta_filename_2, root2);
+
+        rate2      = root2.get<double>("global.core:sample_rate", rate);
+        bw2        = root2.get<double>("global.vrt:bandwidth", bw);
+        gain2      = root2.get<int>("global.vrt:rx_gain", gain);
+        ref2       = root2.get<std::string>("global.vrt:reference", ref);
+        time_cal2  = root2.get<std::string>("global.vrt:time_source", time_cal);
+        type2      = root2.get<std::string>("global.core:datatype", type);
+        stream_id2 = root2.get<uint32_t>("global.vrt:stream_id", 2);
+        cal_time2  = root2.get<uint64_t>("global.vrt:cal_time", 0);
+
+        for (auto& item : root2.get_child("captures")) {
+            freq2           = item.second.get<double>("core:frequency", freq);
+            start_time_str2 = item.second.get<std::string>("core:datetime", start_time_str);
+        }
+
+        printf("Second SigMF meta data:\n");
+        printf("    Start time: %s\n", start_time_str2.c_str());
+        printf("    Sample rate: %i\n", (int)rate2);
+        printf("    Frequency: %lli\n", (long long int)freq2);
+        printf("    Gain: %i\n", (int)gain2);
+        printf("    Reference: %s\n", ref2.c_str());
+        printf("    Time calibration: %s\n", time_cal2.c_str());
+        printf("    Cal time: %llu\n", (long long unsigned int)cal_time2);
+        printf("    Data type: %s\n", type2.c_str());
+        printf("    Stream ID: %u\n", stream_id2);
+
         printf("Second SigMF Data Filename: %s\n", data_filename_2.c_str());
         read_ptr_2 = fopen(data_filename_2.c_str(),"rb");  // r for read, b for binary
         if (read_ptr_2 == NULL) {
@@ -368,6 +407,15 @@ int main(int argc, char* argv[])
 
             last_context = now;
 
+            struct timeval interval_time;
+            int64_t first_sample = frame_count*samps_per_buff;
+
+            double interval = (double)first_sample/(double)rate;
+            interval_time.tv_sec = (time_t)interval;
+            interval_time.tv_usec = (interval-(time_t)interval)*1e6;
+
+            timeradd(&time_first_sample, &interval_time, &vrt_time);
+
             // VITA 49.2
             /* Initialize to reasonable values */
             struct vrt_packet pc;
@@ -393,6 +441,11 @@ int main(int argc, char* argv[])
 
             pc.if_context.state_and_event_indicators.calibrated_time = (bool)(time_cal=="external" || time_cal=="pps") ? true : false;
 
+            if (cal_time != 0) {
+                pc.if_context.has.timestamp_calibration_time = true;
+                pc.if_context.timestamp_calibration_time     = cal_time;
+            }
+
             int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
             if (rv < 0) {
                 fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
@@ -400,13 +453,38 @@ int main(int argc, char* argv[])
             zmq_send (zmq_server, buffer, rv*4, 0);
 
             if (dual_chan) {
-                // duplicate context of channel 0 on channel 1
-                pc.fields.stream_id = 2;
-                rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
+                struct vrt_packet pc2;
+                vrt_init_packet(&pc2);
+                vrt_init_context_packet(&pc2);
+
+                pc2.fields.integer_seconds_timestamp    = vrt_time.tv_sec;
+                pc2.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
+
+                pc2.fields.stream_id = 2;
+
+                pc2.if_context.bandwidth                         = bw2;
+                pc2.if_context.sample_rate                       = rate2;
+                pc2.if_context.rf_reference_frequency            = freq2;
+                pc2.if_context.rf_reference_frequency_offset     = 0;
+                pc2.if_context.if_reference_frequency            = 0;
+                pc2.if_context.gain.stage1                       = gain2;
+                pc2.if_context.gain.stage2                       = 0;
+
+                pc2.if_context.state_and_event_indicators.reference_lock =
+                    (bool)(ref2 == "external") ? true : false;
+                pc2.if_context.state_and_event_indicators.calibrated_time =
+                    (bool)(time_cal2 == "external" || time_cal2 == "pps") ? true : false;
+
+                if (cal_time2 != 0) {
+                    pc2.if_context.has.timestamp_calibration_time = true;
+                    pc2.if_context.timestamp_calibration_time     = cal_time2;
+                }
+
+                rv = vrt_write_packet(&pc2, buffer, VRT_DATA_PACKET_SIZE, true);
                 if (rv < 0) {
                     fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
                 }
-                zmq_send (zmq_server, buffer, rv*4, 0);
+                zmq_send(zmq_server, buffer, rv*4, 0);
             }
 
         }
@@ -527,12 +605,16 @@ int main(int argc, char* argv[])
             if (type == 1)
                 frame_count++;
             fseek(read_ptr, -sizeof(uint32_t), SEEK_CUR );
-            fread(samples, words*sizeof(uint32_t), 1, read_ptr);
-            zmq_send (zmq_server, samples, words*sizeof(uint32_t), 0);
+            if (fread(samples, words*sizeof(uint32_t), 1, read_ptr) == 1)
+                zmq_send (zmq_server, samples, words*sizeof(uint32_t), 0);
         } else {
             printf("no more samples in data file\n");
-            if (repeat)
+            if (repeat) {
                 rewind(read_ptr);
+                frame_count = 0;
+                start_time = std::chrono::steady_clock::now();
+                last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
+            }
             else
                 break;
         }
