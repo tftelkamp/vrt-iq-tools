@@ -40,9 +40,6 @@
 
 namespace po = boost::program_options;
 
-#define REAL 0
-#define IMAG 1
-
 const double pi = std::acos(-1.0);
 const std::complex<double> complexi(0.0, 1.0);
 
@@ -77,7 +74,7 @@ int main(int argc, char* argv[])
     uint32_t num_bins;
 
     // variables to be set by po
-    std::string file, type, zmq_address, channel_list;
+    std::string file, type, zmq_address, fringe_stop_address, channel_list, site1, site2, object;
     size_t num_requested_samples;
     uint32_t bins;
     int gain;
@@ -94,6 +91,9 @@ int main(int argc, char* argv[])
     double delta_range_dot = 0;
     double cable_delay = 0;
     double clock_offset = 0;
+    double clock_offset_1 = 0;
+    double clock_offset_2 = 0;
+    double delay_correction = 0;
 
     double range_u = 0;
     double range_v = 0;
@@ -120,7 +120,6 @@ int main(int argc, char* argv[])
     std::complex<double> *xcorr_time;
     double *signal_mag;
 
-
     // setup the program options
     po::options_description desc("Allowed options");
     // clang-format off
@@ -129,7 +128,6 @@ int main(int argc, char* argv[])
         ("help", "help message")
         ("nsamps", po::value<size_t>(&num_requested_samples)->default_value(0), "total number of samples to receive")
         ("duration", po::value<double>(&total_time)->default_value(0), "total number of seconds to receive")
-        // ("progress", "periodically display short-term bandwidth")
         ("channel", po::value<std::string>(&channel_list)->default_value("0,1"), "which VRT channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         ("int-second", "align start of reception to integer second")
         ("num-bins", po::value<uint32_t>(&num_bins)->default_value(1000), "number of bins")
@@ -138,8 +136,14 @@ int main(int argc, char* argv[])
         ("delta-range", po::value<double>(&delta_range)->default_value(0), "delta range (m)")
         ("delta-range-dot", po::value<double>(&delta_range_dot)->default_value(0), "delate range dot (m/s)")
         ("cable-delay", po::value<double>(&cable_delay)->default_value(0), "delay offset (s)")
-        ("clock-offset", po::value<double>(&clock_offset)->default_value(0), "clock offset")
+        ("clock-offset", po::value<double>(&clock_offset)->default_value(0), "total clock offset")
+        ("c1", po::value<double>(&clock_offset_1)->default_value(0), "clock offset site 1")
+        ("c2", po::value<double>(&clock_offset_2)->default_value(0), "clock offset site 2")
+        ("s1", po::value<std::string>(&site1)->default_value(""), "name of site 1")
+        ("s2", po::value<std::string>(&site2)->default_value(""), "name of site 2")
+        ("object", po::value<std::string>(&object)->default_value("object_name"), "name of object")
         ("buffer-depth", po::value<uint16_t>(&buffer_depth)->default_value(10), "Correlation buffer depth in VRT frames")
+        ("fringe-host", po::value<std::string>(&fringe_stop_address)->default_value("127.0.0.1"), "fringe stopper host/address")
         ("correlation", "output cross-correlation instead of cross-spectrum")
         ("null", "run without writing to file")
         ("ecsv", "output in ECSV format (Astropy)")
@@ -165,7 +169,6 @@ int main(int argc, char* argv[])
         return ~0;
     }
 
-    // bool progress               = vm.count("progress") > 0;
     bool stats                  = vm.count("stats") > 0;
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
@@ -174,8 +177,12 @@ int main(int argc, char* argv[])
     // bool dt_trace               = vm.count("dt-trace") > 0;
     bool correlation                   = vm.count("correlation") > 0;
 
-    context_type vrt_context;
-    init_context(&vrt_context);
+    context_type vrt_context[2];
+    init_context(&vrt_context[0]);
+    init_context(&vrt_context[1]);
+    context_type vrt_context_proc;
+    init_context(&vrt_context_proc);
+    uint32_t contexts_received = 0;
 
     dt_ext_context_type dt_ext_context;
     tracker_ext_context_type tracker_ext_context;
@@ -211,14 +218,29 @@ int main(int argc, char* argv[])
     assert(rc == 0);
     zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
 
-    std::string data_address = "localhost";
     int data_port = 70001;
 
-    void *zmq_client = zmq_socket(context, ZMQ_REQ);
+    void *zmq_client = zmq_socket(context, ZMQ_DEALER);
     rc = zmq_setsockopt (zmq_client, ZMQ_RCVHWM, &hwm, sizeof hwm);
-    connect_string = "tcp://" + data_address + ":" + std::to_string(data_port);
+    connect_string = "tcp://" + fringe_stop_address + ":" + std::to_string(data_port);
     rc = zmq_connect(zmq_client, connect_string.c_str());
     assert(rc == 0);
+
+    // Initialize fringe stopper
+
+    char message[1024] = "";
+    zmq_msg_t msg;
+    snprintf(message, 1024, "%u %s %s %s",
+        (unsigned int)0,
+        site1.c_str(),
+        site2.c_str(),
+        object.c_str()
+    );
+    
+    zmq_msg_init_size(&msg, strlen(message));
+    memcpy(zmq_msg_data(&msg), message, strlen(message));
+    zmq_msg_send(&msg, zmq_client, 0);
+    zmq_msg_close(&msg);
 
     bool first_frame = true;
 
@@ -248,47 +270,55 @@ int main(int argc, char* argv[])
     bool first_block = true;
     uint32_t integration_counter = 0;
 
-    // flush the fringe stopper
-    while ( zmq_recv(zmq_client, buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
-
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0) ) {
 
-        int fringe_stop_len = zmq_recv(zmq_client, fringe_stop_buffer, 100000, ZMQ_NOBLOCK);
+        zmq_pollitem_t items[2] = {
+            { subscriber,  0, ZMQ_POLLIN, 0 },
+            { zmq_client,  0, ZMQ_POLLIN, 0 }
+        };
+        zmq_poll(items, 2, 1);
 
-        if (fringe_stop_len > 0) {
-            fringe_stop_buffer[fringe_stop_len] = 0;
-            double values[10];
-            char *pt;
-            pt = strtok (fringe_stop_buffer,",");
-            uint32_t item = 0;
-            while (pt != NULL) {
-                values[item] = atof(pt);
-                pt = strtok (NULL, ",");
-                item++;
+        if (items[1].revents & ZMQ_POLLIN) {
+            int fringe_stop_len = zmq_recv(zmq_client, fringe_stop_buffer, sizeof(fringe_stop_buffer) - 1, 0);
+            if (fringe_stop_len > 0) {
+                fringe_stop_buffer[fringe_stop_len] = 0;
+                double values[10];
+                char *pt;
+                pt = strtok (fringe_stop_buffer,",");
+                uint32_t item = 0;
+                while (pt != NULL) {
+                    values[item] = atof(pt);
+                    pt = strtok (NULL, ",");
+                    item++;
+                }
+                if (values[0] == 0) {
+                    if (values[1] != 0)
+                        t_ephem = values[1]+values[2]/1e12;
+                    delta_range = values[3];
+                    delta_range_dot = values[4];
+                    range_u = values[5];
+                    range_v = values[6];
+                } else {
+                    printf("# ERROR: fringe stopper not initialized\n");
+                    exit(1);
+                }
+
+                // for next FFT
+                current_delay_samples = (double)vrt_context[0].sample_rate*(current_delta_range/c+cable_delay);
+                current_sample_delay = (int32_t)floor(current_delay_samples+0.5);
+                fractional_delay = current_delay_samples - (double)current_sample_delay;
             }
-            if (values[0] != 0)
-                t_ephem = values[0]+values[1]/1e12;
-            delta_range = values[2];
-            delta_range_dot = values[3];
-            cable_delay = values[4];
-            clock_offset = values[5];
-            range_u = values[6];
-            range_v = values[7];
-
-            // printf("# DBG: fringe stop, %f %f %e %e %e %e %f %f\n", values[0], values[1], delta_range, delta_range_dot, cable_delay, clock_offset, range_u, range_v);
-
-            // for next FFT
-            current_delay_samples = (double)vrt_context.sample_rate*(current_delta_range/c+cable_delay);
-            current_sample_delay = (int32_t)floor(current_delay_samples+0.5);
-            fractional_delay = current_delay_samples - (double)current_sample_delay;
         }
+
+        if (not (items[0].revents & ZMQ_POLLIN))
+            continue;
 
         int len = zmq_recv(subscriber, buffer, ZMQ_BUFFER_SIZE, 0);
 
         const auto now = std::chrono::steady_clock::now();
 
-        if (not vrt_process(buffer, sizeof(buffer), &vrt_context, &vrt_packet)) {
+        if (not vrt_process(buffer, sizeof(buffer), &vrt_context_proc, &vrt_packet)) {
             printf("Not a Vita49 packet?\n");
             continue;
         }
@@ -303,20 +333,27 @@ int main(int argc, char* argv[])
 
         uint32_t channel = channel_nums[ch];
 
+        if (vrt_packet.context) {
+            vrt_context[ch] = vrt_context_proc;
+            contexts_received |= (1 << ch);
+        }
+
         if (vrt_packet.extended_context) {
             dt_process(buffer, sizeof(buffer), &vrt_packet, &dt_ext_context);
         }
 
-        if (not start_rx and vrt_packet.context) {
+        if (not start_rx and (contexts_received == 0x3)) {
 
-            if (!ecsv)
-                vrt_print_context(&vrt_context);
-                start_rx = true;
+            if (!ecsv) {
+                vrt_print_context(&vrt_context[0]);
+                vrt_print_context(&vrt_context[1]);
+            }
+            start_rx = true;
 
-                integrations = (uint32_t)round((double)integration_time/((double)num_bins/(double)vrt_context.sample_rate));
+            integrations = (uint32_t)round((double)integration_time/((double)num_bins/(double)vrt_context[0].sample_rate));
 
-                if (total_time > 0)
-                    num_requested_samples = 2 * total_time * vrt_context.sample_rate; // 2 channels
+            if (total_time > 0)
+                num_requested_samples = 2 * total_time * vrt_context[0].sample_rate; // 2 channels
 
             iq_samples = (std::complex<int16_t> **) malloc(sizeof(std::complex<int16_t>*)*channel_nums.size());
             signal = (std::complex<double> **) malloc(sizeof(std::complex<double>*)*channel_nums.size());
@@ -359,42 +396,69 @@ int main(int argc, char* argv[])
                 FFTW_ESTIMATE
             );
 
-            bin_size = (double)vrt_context.sample_rate/(double)num_bins;
+            if (clock_offset == 0) {
+                clock_offset = clock_offset_1 + clock_offset_2;
+            }
+
+            if ((vrt_context[0].timestamp_calibration_time != 0) && (vrt_context[1].timestamp_calibration_time != 0)) {
+                int64_t seconds = vrt_context[0].integer_seconds_timestamp;
+                int64_t frac_seconds = vrt_context[0].fractional_seconds_timestamp;
+
+                delay_correction = clock_offset_1*(seconds+frac_seconds/1e12 - vrt_context[0].timestamp_calibration_time) +
+                                    clock_offset_2*(seconds+frac_seconds/1e12 - vrt_context[1].timestamp_calibration_time);       
+            }
+
+            bin_size = (double)vrt_context[0].sample_rate/(double)num_bins;
 
             if (!ecsv) {
                 printf("# Correlation parameters:\n");
                 printf("#    Mode: %s\n", correlation ? "cross-correlation" : "cross-spectrum");
                 printf("#    Bins: %u\n", num_bins);
-                printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context.sample_rate)/((double)num_bins));
+                printf("#    Bin size [Hz]: %.2f\n", ((double)vrt_context[0].sample_rate)/((double)num_bins));
                 printf("#    Integrations: %u\n", integrations);
-                printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
+                printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context[0].sample_rate);
             } else {
                 uint32_t first_col = 4;
                 printf("# %%ECSV 1.0\n");
                 printf("# ---\n");
 
                 uint32_t ch=0;
-                while(not (vrt_context.stream_id & (1 << ch) ) )
+                while(not (vrt_context[0].stream_id & (1 << ch) ) )
                     ch++;
 
                 printf("# delimiter: \',\'\n");
                 printf("# meta: !!omap\n");
                 printf("# - vrt: !!omap\n");
-                printf("#   - {stream_id: %u}\n", vrt_context.stream_id);
+                printf("#   - {stream_id: %u}\n", vrt_context[0].stream_id);
                 printf("#   - {channel: %u}\n", ch);
-                printf("#   - {sample_rate: %.1f}\n", (float)vrt_context.sample_rate);
-                printf("#   - {frequency: %.1f}\n", (double)vrt_context.rf_freq);
-                printf("#   - {bandwidth: %.1f}\n", (float)vrt_context.bandwidth);
-                printf("#   - {rx_gain: %.1f}\n", (float)vrt_context.gain);
-                printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
-                printf("#   - {time_source: %s}\n", vrt_context.time_cal == 1? "pps" : "internal");
+                printf("#   - {sample_rate: %.1f}\n", (float)vrt_context[0].sample_rate);
+                printf("#   - {frequency: %.1f}\n", (double)vrt_context[0].rf_freq);
+                printf("#   - {bandwidth: %.1f}\n", (float)vrt_context[0].bandwidth);
+                printf("#   - {rx_gain_1: %.1f}\n", (float)vrt_context[0].gain);
+                printf("#   - {rx_gain_2: %.1f}\n", (float)vrt_context[1].gain);
+                printf("#   - {reference_1: %s}\n", vrt_context[0].reflock == 1 ? "external" : "internal");
+                printf("#   - {reference_2: %s}\n", vrt_context[1].reflock == 1 ? "external" : "internal");
+                printf("#   - {time_source_1: %s}\n", vrt_context[0].time_cal == 1? "pps" : "internal");
+                printf("#   - {time_source_2: %s}\n", vrt_context[1].time_cal == 1? "pps" : "internal");
+                if (vrt_context[0].timestamp_calibration_time != 0)
+                    printf("#   - {cal_time_1: %u}\n", vrt_context[0].timestamp_calibration_time);
+                if (vrt_context[1].timestamp_calibration_time != 0)
+                    printf("#   - {cal_time_2: %u}\n", vrt_context[1].timestamp_calibration_time);
                 printf("# - correlation: !!omap\n");
+                printf("#   - {object: %s}\n", object.c_str());
+                printf("#   - {site_1: %s}\n", site1.c_str());
+                printf("#   - {site_2: %s}\n", site2.c_str());
+                printf("#   - {clock_offset: %.6e}\n", clock_offset);
+                printf("#   - {clock_offset_1: %.6e}\n", clock_offset_1);
+                printf("#   - {clock_offset_2: %.6e}\n", clock_offset_2);
+                printf("#   - {delay_correction: %.6e}\n", delay_correction);
+                printf("#   - {delay_offset: %.6e}\n", cable_delay);
                 printf("#   - {mode: %s}\n", correlation ? "cross-correlation" : "cross-spectrum");
                 printf("#   - {bins: %u}\n", num_bins);
                 printf("#   - {col_first_bin: %u}\n", first_col);
-                printf("#   - {bin_size: %.2f}\n", ((double)vrt_context.sample_rate)/((double)num_bins));
+                printf("#   - {bin_size: %.2f}\n", ((double)vrt_context[0].sample_rate)/((double)num_bins));
                 printf("#   - {integrations: %u}\n", integrations);
-                printf("#   - {integration_time: %.2f}\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
+                printf("#   - {integration_time: %.2f}\n", (double)integrations*(double)num_bins/(double)vrt_context[0].sample_rate);
 
                 printf("# datatype:\n");
                 printf("# - {name: timestamp, datatype: float64}\n");
@@ -404,30 +468,33 @@ int main(int argc, char* argv[])
 
                 if (correlation) {
                     for (int32_t i = 0; i < num_bins; ++i) {
-                        printf("# - {name: \'%.4e\', datatype: complex128}\n", (double)(i - (double)num_bins / 2)/(double)vrt_context.sample_rate);
+                        printf("# - {name: \'%.4e\', datatype: complex128}\n", (double)(i - (double)num_bins / 2)/(double)vrt_context[0].sample_rate);
                     }
                 } else {
                     for (int32_t i = 0; i < num_bins; ++i) {
-                        printf("# - {name: \'%.0f\', datatype: complex128}\n", (double)((double)vrt_context.rf_freq + (i*bin_size - vrt_context.sample_rate/2)));
+                        printf("# - {name: \'%.0f\', datatype: complex128}\n", (double)((double)vrt_context[0].rf_freq + (i*bin_size - vrt_context[0].sample_rate/2)));
                     }
                 }
                 printf("# schema: astropy-2.0\n");
             }
+
+            cable_delay += delay_correction;    
+            
             // Header
             printf("timestamp, u, v, w");
 
             if (correlation) {
                 for (int32_t i = 0; i < num_bins; i++) {
-                        printf(", %.4e", (double)(i - (double)num_bins / 2)/(double)vrt_context.sample_rate);
+                        printf(", %.4e", (double)(i - (double)num_bins / 2)/(double)vrt_context[0].sample_rate);
                 }
             } else {
                 for (int32_t i = 0; i < num_bins; ++i) {
-                            printf(", %.0f", (double)((double)vrt_context.rf_freq + (i*bin_size - vrt_context.sample_rate/2)));
+                            printf(", %.0f", (double)((double)vrt_context[0].rf_freq + (i*bin_size - vrt_context[0].sample_rate/2)));
                 }
             }
             printf("\n");
 
-            current_delay = (double)vrt_context.sample_rate*(current_delta_range/c+cable_delay);
+            current_delay = (double)vrt_context[0].sample_rate*(current_delta_range/c+cable_delay);
             current_sample_delay = (int32_t)floor(current_delay+0.5);
             fractional_delay = current_delay - (double)current_sample_delay;
 
@@ -441,7 +508,7 @@ int main(int argc, char* argv[])
 
             char message[512] = "";
             zmq_msg_t msg;
-            snprintf(message, 512, "%llu %llu",(long long unsigned int)vrt_packet.integer_seconds_timestamp,(long long unsigned int)vrt_packet.fractional_seconds_timestamp);
+            snprintf(message, 512, "%u %llu %llu", (unsigned int)1, (long long unsigned int)vrt_packet.integer_seconds_timestamp,(long long unsigned int)vrt_packet.fractional_seconds_timestamp);
             zmq_msg_init_size(&msg, strlen(message));
             memcpy(zmq_msg_data(&msg), message, strlen(message));
             zmq_msg_send(&msg, zmq_client, 0);
@@ -526,7 +593,7 @@ int main(int argc, char* argv[])
 
                         int64_t seconds = vrt_packet.integer_seconds_timestamp;
                         int64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
-                        frac_seconds += (k-num_bins/2)*1e12/vrt_context.sample_rate;
+                        frac_seconds += (k-num_bins/2)*1e12/vrt_context[0].sample_rate;
                         if (frac_seconds > 1e12) {
                             frac_seconds -= 1e12;
                             seconds++;
@@ -547,9 +614,9 @@ int main(int argc, char* argv[])
                         current_delta_range = delta_range + delta_range_dot * (t-t_ephem);
                         current_delay = current_delta_range/c + cable_delay;
 
-                        std::complex<double> phase_correction = std::exp(complexi*-2.0*pi*(double)vrt_context.rf_freq*current_delay);
+                        std::complex<double> phase_correction = std::exp(complexi*-2.0*pi*(double)vrt_context[0].rf_freq*current_delay);
 
-                        double df = clock_offset * vrt_context.rf_freq;
+                        double df = clock_offset * vrt_context[0].rf_freq;
 
                         clock_phase =  std::exp(-2.0 * complexi * pi * df * (t-t0));
 
@@ -599,7 +666,7 @@ int main(int argc, char* argv[])
                         }
 
                         // set for next FFT
-                        current_delay_samples = (double)vrt_context.sample_rate*(current_delta_range/c+cable_delay);
+                        current_delay_samples = (double)vrt_context[0].sample_rate*(current_delta_range/c+cable_delay);
                         current_sample_delay = (int32_t)floor(current_delay_samples+0.5);
                         fractional_delay = current_delay_samples - (double)current_sample_delay;
                     }
