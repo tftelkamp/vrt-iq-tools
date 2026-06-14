@@ -621,13 +621,26 @@ int main(int argc, char* argv[])
                         clock_phase =  std::exp(-2.0 * complexi * pi * df * (t-t0));
 
                         // correlate and integrate
-                        for (int32_t i = 0; i < num_bins; i++) {
-                            std::complex<double> frac_corr = std::exp(-1.0 * complexi * pi * fractional_delay *
-                                (double)(2.0 * (((int)i + (int)num_bins / 2) % (int)num_bins) / (double)num_bins - 1.0)
-                            );
+                        // frac_corr is a linear phase ramp in fftshift bin order.
+                        // Split at the wrap point (i=N/2) so each half is a pure geometric
+                        // sequence: no branches inside either loop, compiler can vectorize freely.
+                        std::complex<double> combined_phase = phase_correction * clock_phase;
+                        std::complex<double> frac_corr_step = std::exp(complexi * (-2.0 * pi * fractional_delay / (double)num_bins));
+                        std::complex<double> frac_corr_jump = std::exp(complexi * ( 2.0 * pi * fractional_delay));
+                        std::complex<double> frac_corr = 1.0; // theta(0) = 0
+
+                        for (int32_t i = 0; i < (int32_t)(num_bins / 2); i++) {
                             xcorr[i] = fft_result[0][i] * conj(fft_result[1][i]);
-                            xcorr_integrated[i] +=  phase_correction * clock_phase * frac_corr * xcorr[i];
+                            xcorr_integrated[i] += combined_phase * frac_corr * xcorr[i];
                             signal_mag[i] += std::abs(fft_result[0][i]) * std::abs(fft_result[1][i]);
+                            frac_corr *= frac_corr_step;
+                        }
+                        frac_corr *= frac_corr_jump;
+                        for (int32_t i = (int32_t)(num_bins / 2); i < (int32_t)num_bins; i++) {
+                            xcorr[i] = fft_result[0][i] * conj(fft_result[1][i]);
+                            xcorr_integrated[i] += combined_phase * frac_corr * xcorr[i];
+                            signal_mag[i] += std::abs(fft_result[0][i]) * std::abs(fft_result[1][i]);
+                            frac_corr *= frac_corr_step;
                         }
 
                         if (integration_counter == integrations) {
