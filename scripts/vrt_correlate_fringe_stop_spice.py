@@ -79,7 +79,7 @@ while True:
 
 		ant1_name = (received_fields[1]).decode("utf-8").rstrip()
 		ant2_name = (received_fields[2]).decode("utf-8").rstrip()
-		object_name = (received_fields[3]).decode("utf-8").rstrip()
+		object_name = b' '.join(received_fields[3:]).decode("utf-8").rstrip()
 
 		if ant1_name in ANTENNA_TABLE:
 		    earth_loc1 = ANTENNA_TABLE[ant1_name]
