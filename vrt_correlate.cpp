@@ -113,6 +113,8 @@ int main(int argc, char* argv[])
     int32_t current_sample_delay;
 
     std::complex<int16_t> **iq_samples;
+    uint32_t write_head[2];
+    uint32_t buf_size, buf_mask;
     std::complex<double> **signal;
     std::complex<double> **fft_result;
     std::complex<double> *xcorr;
@@ -362,8 +364,14 @@ int main(int argc, char* argv[])
             for (size_t ch=0; ch < channel_nums.size(); ch++)
                 signal[ch] = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
 
+            uint32_t buf_needed = VRT_SAMPLES_PER_PACKET * (buffer_depth + 1);
+            buf_size = 1;
+            while (buf_size < buf_needed) buf_size <<= 1;
+            buf_mask = buf_size - 1;
+            write_head[0] = write_head[1] = 0;
+
             for (size_t ch=0; ch < channel_nums.size(); ch++)
-                iq_samples[ch] = (std::complex<int16_t>*) calloc(VRT_SAMPLES_PER_PACKET*(buffer_depth+1), sizeof(std::complex<int16_t>));
+                iq_samples[ch] = (std::complex<int16_t>*) calloc(buf_size, sizeof(std::complex<int16_t>));
 
             for (size_t ch=0; ch < channel_nums.size(); ch++)
                 fft_result[ch] = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
@@ -546,15 +554,19 @@ int main(int argc, char* argv[])
                 first_block = false;
             }
 
-            for (int32_t b = 0; b < buffer_depth; b++) { // TODO: only copy the channel that is actually shifted
-                memcpy((char*)&iq_samples[ch][b*VRT_SAMPLES_PER_PACKET], (char*)&iq_samples[ch][(b+1)*VRT_SAMPLES_PER_PACKET], VRT_SAMPLES_PER_PACKET*sizeof(std::complex<int16_t>)); // sizeof
+            {
+                uint32_t space = buf_size - write_head[ch];
+                if ((uint32_t)vrt_packet.num_rx_samps <= space) {
+                    memcpy(&iq_samples[ch][write_head[ch]], &buffer[vrt_packet.offset],
+                           vrt_packet.num_rx_samps * sizeof(std::complex<int16_t>));
+                } else {
+                    memcpy(&iq_samples[ch][write_head[ch]], &buffer[vrt_packet.offset],
+                           space * sizeof(std::complex<int16_t>));
+                    memcpy(&iq_samples[ch][0], &buffer[vrt_packet.offset + space],
+                           (vrt_packet.num_rx_samps - space) * sizeof(std::complex<int16_t>));
+                }
+                write_head[ch] = (write_head[ch] + vrt_packet.num_rx_samps) & buf_mask;
             }
-
-            memcpy(
-                &iq_samples[ch][VRT_SAMPLES_PER_PACKET * buffer_depth],
-                &buffer[vrt_packet.offset],
-                vrt_packet.num_rx_samps * sizeof(std::complex<int16_t>)
-            );
 
             if (ch==1) {
                 // both channels received (we assume they are in order)
@@ -567,16 +579,19 @@ int main(int argc, char* argv[])
                     ch0_shift = abs(current_sample_delay);
                 }
 
+                uint32_t base0 = (write_head[0] - vrt_packet.num_rx_samps - ch0_shift) & buf_mask;
+                uint32_t base1 = (write_head[1] - vrt_packet.num_rx_samps - ch1_shift) & buf_mask;
+
                 for (int32_t k = 0; k < vrt_packet.num_rx_samps; k++) {
 
                     signal[0][signal_pointer] = std::complex<double>(
-                        (double)iq_samples[0][buffer_depth*VRT_SAMPLES_PER_PACKET-ch0_shift+k].real() / 32768.0,
-                        (double)iq_samples[0][buffer_depth*VRT_SAMPLES_PER_PACKET-ch0_shift+k].imag() / 32768.0
+                        (double)iq_samples[0][(base0 + k) & buf_mask].real() / 32768.0,
+                        (double)iq_samples[0][(base0 + k) & buf_mask].imag() / 32768.0
                     );
 
                     signal[1][signal_pointer] = std::complex<double>(
-                        (double)iq_samples[1][buffer_depth*VRT_SAMPLES_PER_PACKET-ch1_shift+k].real() / 32768.0,
-                        (double)iq_samples[1][buffer_depth*VRT_SAMPLES_PER_PACKET-ch1_shift+k].imag() / 32768.0
+                        (double)iq_samples[1][(base1 + k) & buf_mask].real() / 32768.0,
+                        (double)iq_samples[1][(base1 + k) & buf_mask].imag() / 32768.0
                     );
 
                     signal_pointer++;
