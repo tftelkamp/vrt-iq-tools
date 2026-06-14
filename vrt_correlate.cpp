@@ -405,14 +405,14 @@ int main(int argc, char* argv[])
             );
 
             if (clock_offset == 0) {
-                clock_offset = clock_offset_1 + clock_offset_2;
+                clock_offset = -clock_offset_1 + clock_offset_2;
             }
 
             if ((vrt_context[0].timestamp_calibration_time != 0) && (vrt_context[1].timestamp_calibration_time != 0)) {
                 int64_t seconds = vrt_context[0].integer_seconds_timestamp;
                 int64_t frac_seconds = vrt_context[0].fractional_seconds_timestamp;
 
-                delay_correction = clock_offset_1*(seconds+frac_seconds/1e12 - vrt_context[0].timestamp_calibration_time) +
+                delay_correction = -clock_offset_1*(seconds+frac_seconds/1e12 - vrt_context[0].timestamp_calibration_time) +
                                     clock_offset_2*(seconds+frac_seconds/1e12 - vrt_context[1].timestamp_calibration_time);       
             }
 
