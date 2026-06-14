@@ -141,9 +141,9 @@ int main(int argc, char* argv[])
         ("clock-offset", po::value<double>(&clock_offset)->default_value(0), "total clock offset")
         ("c1", po::value<double>(&clock_offset_1)->default_value(0), "clock offset site 1")
         ("c2", po::value<double>(&clock_offset_2)->default_value(0), "clock offset site 2")
-        ("s1", po::value<std::string>(&site1)->default_value(""), "name of site 1")
-        ("s2", po::value<std::string>(&site2)->default_value(""), "name of site 2")
-        ("object", po::value<std::string>(&object)->default_value("object_name"), "name of object")
+        ("s1", po::value<std::string>(&site1), "name of site 1")
+        ("s2", po::value<std::string>(&site2), "name of site 2")
+        ("object", po::value<std::string>(&object), "name of object")
         ("buffer-depth", po::value<uint16_t>(&buffer_depth)->default_value(10), "Correlation buffer depth in VRT frames")
         ("fringe-host", po::value<std::string>(&fringe_stop_address)->default_value("127.0.0.1"), "fringe stopper host/address")
         ("correlation", "output cross-correlation instead of cross-spectrum")
@@ -177,7 +177,8 @@ int main(int argc, char* argv[])
     bool int_second             = (bool)vm.count("int-second");
     bool ecsv                   = vm.count("ecsv") > 0;
     // bool dt_trace               = vm.count("dt-trace") > 0;
-    bool correlation                   = vm.count("correlation") > 0;
+    bool correlation            = vm.count("correlation") > 0;
+    bool use_fringe_stopper     = (vm.count("object") > 0) && (vm.count("s1") > 0) && (vm.count("s2") > 0);
 
     context_type vrt_context[2];
     init_context(&vrt_context[0]);
@@ -230,19 +231,21 @@ int main(int argc, char* argv[])
 
     // Initialize fringe stopper
 
-    char message[1024] = "";
-    zmq_msg_t msg;
-    snprintf(message, 1024, "%u %s %s %s",
-        (unsigned int)0,
-        site1.c_str(),
-        site2.c_str(),
-        object.c_str()
-    );
+    if (use_fringe_stopper) {
+        char message[1024] = "";
+        zmq_msg_t msg;
+        snprintf(message, 1024, "%u %s %s %s",
+            (unsigned int)0,
+            site1.c_str(),
+            site2.c_str(),
+            object.c_str()
+        );
     
-    zmq_msg_init_size(&msg, strlen(message));
-    memcpy(zmq_msg_data(&msg), message, strlen(message));
-    zmq_msg_send(&msg, zmq_client, ZMQ_DONTWAIT);
-    zmq_msg_close(&msg);
+        zmq_msg_init_size(&msg, strlen(message));
+        memcpy(zmq_msg_data(&msg), message, strlen(message));
+        zmq_msg_send(&msg, zmq_client, ZMQ_DONTWAIT);
+        zmq_msg_close(&msg);
+    }
 
     bool first_frame = true;
 
@@ -281,7 +284,7 @@ int main(int argc, char* argv[])
         };
         zmq_poll(items, 2, 1);
 
-        if (items[1].revents & ZMQ_POLLIN) {
+        if (use_fringe_stopper & items[1].revents & ZMQ_POLLIN) {
             int fringe_stop_len = zmq_recv(zmq_client, fringe_stop_buffer, sizeof(fringe_stop_buffer) - 1, 0);
             if (fringe_stop_len > 0) {
                 fringe_stop_buffer[fringe_stop_len] = 0;
@@ -510,7 +513,7 @@ int main(int argc, char* argv[])
 
         const auto time_since_last_req = now - last_req;
 
-        if (vrt_packet.data and time_since_last_req > std::chrono::milliseconds(100)) {
+        if (use_fringe_stopper && vrt_packet.data && time_since_last_req > std::chrono::milliseconds(100)) {
 
             last_req = now;
 
