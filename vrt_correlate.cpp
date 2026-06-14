@@ -550,32 +550,24 @@ int main(int argc, char* argv[])
                 memcpy((char*)&iq_samples[ch][b*VRT_SAMPLES_PER_PACKET], (char*)&iq_samples[ch][(b+1)*VRT_SAMPLES_PER_PACKET], VRT_SAMPLES_PER_PACKET*sizeof(std::complex<int16_t>)); // sizeof
             }
 
-            for (int32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
-
-                int16_t re;
-                memcpy(&re, (char*)&buffer[vrt_packet.offset+i], 2);
-                int16_t img;
-                memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
-
-                iq_samples[ch][i+VRT_SAMPLES_PER_PACKET*buffer_depth] = std::complex<int16_t>(re,img);
-
-            }
+            memcpy(
+                &iq_samples[ch][VRT_SAMPLES_PER_PACKET * buffer_depth],
+                &buffer[vrt_packet.offset],
+                vrt_packet.num_rx_samps * sizeof(std::complex<int16_t>)
+            );
 
             if (ch==1) {
                 // both channels received (we assume they are in order)
 
+                int32_t ch0_shift = 0;
+                int32_t ch1_shift = 0;
+                if (current_sample_delay < 0) {
+                    ch1_shift = abs(current_sample_delay);
+                } else {
+                    ch0_shift = abs(current_sample_delay);
+                }
+
                 for (int32_t k = 0; k < vrt_packet.num_rx_samps; k++) {
-
-                    int32_t ch0_shift = 0;
-                    int32_t ch1_shift = 0;
-
-                    if (current_sample_delay < 0) {
-                        // shift ch1
-                        ch1_shift = abs(current_sample_delay);
-                    } else {
-                        // chift ch0
-                        ch0_shift = abs(current_sample_delay);
-                    }
 
                     signal[0][signal_pointer] = std::complex<double>(
                         (double)iq_samples[0][buffer_depth*VRT_SAMPLES_PER_PACKET-ch0_shift+k].real() / 32768.0,
