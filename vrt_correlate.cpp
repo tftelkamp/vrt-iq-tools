@@ -239,7 +239,7 @@ int main(int argc, char* argv[])
     
     zmq_msg_init_size(&msg, strlen(message));
     memcpy(zmq_msg_data(&msg), message, strlen(message));
-    zmq_msg_send(&msg, zmq_client, 0);
+    zmq_msg_send(&msg, zmq_client, ZMQ_DONTWAIT);
     zmq_msg_close(&msg);
 
     bool first_frame = true;
@@ -511,7 +511,7 @@ int main(int argc, char* argv[])
             snprintf(message, 512, "%u %llu %llu", (unsigned int)1, (long long unsigned int)vrt_packet.integer_seconds_timestamp,(long long unsigned int)vrt_packet.fractional_seconds_timestamp);
             zmq_msg_init_size(&msg, strlen(message));
             memcpy(zmq_msg_data(&msg), message, strlen(message));
-            zmq_msg_send(&msg, zmq_client, 0);
+            zmq_msg_send(&msg, zmq_client, ZMQ_DONTWAIT);
             zmq_msg_close(&msg);
         }
 
