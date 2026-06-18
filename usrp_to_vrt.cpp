@@ -812,8 +812,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         uint32_t usrp_seconds;
         do {
             gettimeofday(&time_now, nullptr);
-            time_t integer_time = (time_t)((double)time_now.tv_sec + (double)time_now.tv_usec/1e6 + 2.0 - pps_offset);
-            uhd::time_spec_t set_pps_time = uhd::time_spec_t(integer_time + pps_offset);
+            int64_t integer_time = (int64_t)((double)time_now.tv_sec + (double)time_now.tv_usec/1e6 + 2.0 - pps_offset);
+            uhd::time_spec_t set_pps_time = uhd::time_spec_t(integer_time, (double)pps_offset);
             std::cout << boost::format("Wait for PPS sync...") << std::endl;
             usrp->set_time_unknown_pps(set_pps_time);
             boost::this_thread::sleep_for(boost::chrono::milliseconds(2100));
@@ -1080,6 +1080,24 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
                 pc.if_context.state_and_event_indicators.has.calibrated_time = true;
                 pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (ref=="gpsdo"));
+
+                // timestamp_adjustment
+                if (vm.count("pps")) {
+                    double pps_frac_time = usrp->get_time_last_pps().get_frac_secs();
+                    int64_t pps_integer_seconds = usrp->get_time_last_pps().get_full_secs();
+
+                    if (md.time_spec.get_full_secs() - pps_integer_seconds < 3) {
+                        pps_frac_time -= pps_offset;
+                        if (pps_frac_time > 0.5)
+                            pps_frac_time -= 1;
+                        pc.if_context.has.timestamp_adjustment = true;
+                        pc.if_context.timestamp_adjustment = (uint64_t)(pps_frac_time*1e12);
+                    } else {
+                        pc.if_context.has.timestamp_adjustment = false;
+                    }
+                } else {
+                    pc.if_context.has.timestamp_adjustment = false;
+                }
 
                 int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
                 if (rv < 0) {
