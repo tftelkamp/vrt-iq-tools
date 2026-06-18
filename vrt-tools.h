@@ -82,6 +82,7 @@ void init_context(context_type* context) {
     context->reflock = false;
     context->time_cal = false;
     context->timestamp_calibration_time = 0;
+    context->timestamp_adjustment = 0;
 }
 
 bool check_packet_count(int8_t counter, context_type* vrt_context) {
