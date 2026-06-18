@@ -48,7 +48,7 @@ struct context_type {
     uint64_t fractional_seconds_timestamp;
     uint64_t integer_seconds_timestamp;
     uint32_t timestamp_calibration_time;
-    uint64_t timestamp_adjustment;
+    int64_t timestamp_adjustment;
 };
 
 struct packet_type {

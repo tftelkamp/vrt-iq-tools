@@ -1091,7 +1091,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                         if (pps_frac_time > 0.5)
                             pps_frac_time -= 1;
                         pc.if_context.has.timestamp_adjustment = true;
-                        pc.if_context.timestamp_adjustment = (uint64_t)(pps_frac_time*1e12);
+                        pc.if_context.timestamp_adjustment = (int64_t)(pps_frac_time*1e12);
                     } else {
                         pc.if_context.has.timestamp_adjustment = false;
                     }
