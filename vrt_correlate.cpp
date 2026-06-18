@@ -94,6 +94,7 @@ int main(int argc, char* argv[])
     double clock_offset_1 = 0;
     double clock_offset_2 = 0;
     double delay_correction = 0;
+    double clock_delay = 0;
 
     double range_u = 0;
     double range_v = 0;
@@ -310,7 +311,7 @@ int main(int argc, char* argv[])
                 }
 
                 // for next FFT
-                current_delay_samples = (double)vrt_context[0].sample_rate*(current_delta_range/c+cable_delay);
+                current_delay_samples = (double)vrt_context[0].sample_rate*(current_delta_range/c + cable_delay + clock_delay);
                 current_sample_delay = (int32_t)floor(current_delay_samples+0.5);
                 fractional_delay = current_delay_samples - (double)current_sample_delay;
             }
@@ -455,6 +456,10 @@ int main(int argc, char* argv[])
                     printf("#   - {cal_time_1: %u}\n", vrt_context[0].timestamp_calibration_time);
                 if (vrt_context[1].timestamp_calibration_time != 0)
                     printf("#   - {cal_time_2: %u}\n", vrt_context[1].timestamp_calibration_time);
+                if (vrt_context[0].timestamp_adjustment != 0)
+                    printf("#   - {time_adjust_1: %.9f}\n", (double)vrt_context[0].timestamp_adjustment/1e12);
+                if (vrt_context[1].timestamp_adjustment != 0)
+                    printf("#   - {time_adjust_2: %.9f}\n", (double)vrt_context[1].timestamp_adjustment/1e12);
                 printf("# - correlation: !!omap\n");
                 printf("#   - {object: %s}\n", object.c_str());
                 printf("#   - {site_1: %s}\n", site1.c_str());
@@ -621,34 +626,36 @@ int main(int argc, char* argv[])
 
                         integration_counter++;
 
+                        clock_delay = (-clock_offset_1 * (t-t0) + clock_offset_2 * (t-t0));       
+
                         current_delta_range = delta_range + delta_range_dot * (t-t_ephem);
-                        current_delay = current_delta_range/c + cable_delay;
+                        current_delay = current_delta_range/c + cable_delay + clock_delay;
+
+                        current_delay_samples = (double)vrt_context[0].sample_rate*(current_delay);
+                        current_sample_delay = (int32_t)floor(current_delay_samples+0.5);
+                        fractional_delay = current_delay_samples - (double)current_sample_delay;
 
                         std::complex<double> phase_correction = std::exp(complexi*-2.0*pi*(double)vrt_context[0].rf_freq*current_delay);
-
-                        double df = clock_offset * vrt_context[0].rf_freq;
-
-                        clock_phase =  std::exp(-2.0 * complexi * pi * df * (t-t0));
 
                         // correlate and integrate
                         // frac_corr is a linear phase ramp in fftshift bin order.
                         // Split at the wrap point (i=N/2) so each half is a pure geometric
                         // sequence: no branches inside either loop, compiler can vectorize freely.
-                        std::complex<double> combined_phase = phase_correction * clock_phase;
+                        
                         std::complex<double> frac_corr_step = std::exp(complexi * (-2.0 * pi * fractional_delay / (double)num_bins));
                         std::complex<double> frac_corr_jump = std::exp(complexi * ( 2.0 * pi * fractional_delay));
                         std::complex<double> frac_corr = 1.0; // theta(0) = 0
 
                         for (int32_t i = 0; i < (int32_t)(num_bins / 2); i++) {
                             xcorr[i] = fft_result[0][i] * conj(fft_result[1][i]);
-                            xcorr_integrated[i] += combined_phase * frac_corr * xcorr[i];
+                            xcorr_integrated[i] += phase_correction * frac_corr * xcorr[i];
                             signal_mag[i] += std::abs(fft_result[0][i]) * std::abs(fft_result[1][i]);
                             frac_corr *= frac_corr_step;
                         }
                         frac_corr *= frac_corr_jump;
                         for (int32_t i = (int32_t)(num_bins / 2); i < (int32_t)num_bins; i++) {
                             xcorr[i] = fft_result[0][i] * conj(fft_result[1][i]);
-                            xcorr_integrated[i] += combined_phase * frac_corr * xcorr[i];
+                            xcorr_integrated[i] += phase_correction * frac_corr * xcorr[i];
                             signal_mag[i] += std::abs(fft_result[0][i]) * std::abs(fft_result[1][i]);
                             frac_corr *= frac_corr_step;
                         }
@@ -687,11 +694,6 @@ int main(int argc, char* argv[])
                                 signal_mag[i] = 0;
                             }
                         }
-
-                        // set for next FFT
-                        current_delay_samples = (double)vrt_context[0].sample_rate*(current_delta_range/c+cable_delay);
-                        current_sample_delay = (int32_t)floor(current_delay_samples+0.5);
-                        fractional_delay = current_delay_samples - (double)current_sample_delay;
                     }
                 }
             }
