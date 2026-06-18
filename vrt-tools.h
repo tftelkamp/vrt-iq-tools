@@ -48,6 +48,7 @@ struct context_type {
     uint64_t fractional_seconds_timestamp;
     uint64_t integer_seconds_timestamp;
     uint32_t timestamp_calibration_time;
+    uint64_t timestamp_adjustment;
 };
 
 struct packet_type {
@@ -113,6 +114,8 @@ void vrt_print_context(context_type* vrt_context) {
     printf("#    Time cal: %s\n", vrt_context->time_cal == 1? "pps" : "internal");
     if (vrt_context->timestamp_calibration_time != 0)
         printf("#    Cal time: %u\n", vrt_context->timestamp_calibration_time);
+    if (vrt_context->timestamp_adjustment != 0)
+        printf("#    Timestamp adjust: %.9f\n", (double)vrt_context->timestamp_adjustment/1e12);
 
 }
 
@@ -183,6 +186,9 @@ bool vrt_process(uint32_t* buffer, uint32_t size, context_type* vrt_context, pac
 
             if (c.has.timestamp_calibration_time)
                 vrt_context->timestamp_calibration_time = c.timestamp_calibration_time;
+
+            if (c.has.timestamp_adjustment)
+                vrt_context->timestamp_adjustment = c.timestamp_adjustment;
 
             vrt_context->context_changed = c.context_field_change_indicator;
             vrt_packet->context = true;
