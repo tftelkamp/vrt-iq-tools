@@ -461,6 +461,9 @@ int main(int argc, char* argv[])
                     if (vrt_context.timestamp_calibration_time != 0) {
                         json += str(boost::format("        \"vrt:cal_time\": %u,\n") % vrt_context.timestamp_calibration_time);
                     }
+                    if (vrt_context.timestamp_adjustment != 0) {
+                        json += str(boost::format("        \"vrt:time_adjust\": %.9f,\n") % ((double)vrt_context.timestamp_adjustment/1e12));
+                    }
                     json += str(boost::format(
                     "        \"vrt:rx_gain\": %i,\n"
                     "        \"vrt:bandwidth\": %u,\n"

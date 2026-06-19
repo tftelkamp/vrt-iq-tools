@@ -423,6 +423,10 @@ int main(int argc, char* argv[])
                 printf("#   - {rx_gain: %.1f}\n", (float)vrt_context.gain);
                 printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
                 printf("#   - {time_source: %s}\n", vrt_context.time_cal == 1? "pps" : "internal");
+                    if (vrt_context.timestamp_calibration_time != 0)
+                printf("#   - {cal_time: %u}\n", vrt_context.timestamp_calibration_time);
+                    if (vrt_context.timestamp_adjustment != 0)
+                printf("#   - {time_adjust: %.9f}\n", (double)vrt_context.timestamp_adjustment/1e12);
                 printf("# - spectrum: !!omap\n");
                 printf("#   - {db: %s}\n", db ? "True" : "False");
                 printf("#   - {bins: %u}\n", num_bins);

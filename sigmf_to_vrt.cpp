@@ -92,6 +92,7 @@ int main(int argc, char* argv[])
     double rate, freq, bw, total_time, setup_time, lo_offset;
     double rate2, freq2, bw2;
     uint64_t cal_time, cal_time2;
+    int64_t time_adjust, time_adjust2;
     bool merge;
 
     FILE *read_ptr;
@@ -171,6 +172,7 @@ int main(int argc, char* argv[])
     type = root.get<std::string>("global.core:datatype", "");
     stream_id = root.get<uint32_t>("global.vrt:stream_id", 0);
     cal_time  = root.get<uint64_t>("global.vrt:cal_time", 0);
+    time_adjust  = root.get<int64_t>("global.vrt:time_adjust", 0);
 
     for (auto& item : root.get_child("captures")) {
         freq = item.second.get<double>("core:frequency");
@@ -185,6 +187,7 @@ int main(int argc, char* argv[])
     printf("    Reference: %s\n", ref.c_str());
     printf("    Time calibration: %s\n", time_cal.c_str());
     printf("    Cal time: %llu\n", (long long unsigned int)cal_time);
+    printf("    Time adjust: %llu\n", (long long signed int)time_adjust);
     printf("    Data type: %s\n", type.c_str());
     printf("    Stream ID: %u\n", stream_id);
 
@@ -247,6 +250,7 @@ int main(int argc, char* argv[])
         type2      = root2.get<std::string>("global.core:datatype", type);
         stream_id2 = root2.get<uint32_t>("global.vrt:stream_id", 2);
         cal_time2  = root2.get<uint64_t>("global.vrt:cal_time", 0);
+        time_adjust2  = root.get<int64_t>("global.vrt:time_adjust", 0);
 
         for (auto& item : root2.get_child("captures")) {
             freq2           = item.second.get<double>("core:frequency", freq);
@@ -261,6 +265,7 @@ int main(int argc, char* argv[])
         printf("    Reference: %s\n", ref2.c_str());
         printf("    Time calibration: %s\n", time_cal2.c_str());
         printf("    Cal time: %llu\n", (long long unsigned int)cal_time2);
+        printf("    Time adjust: %llu\n", (long long signed int)time_adjust2);
         printf("    Data type: %s\n", type2.c_str());
         printf("    Stream ID: %u\n", stream_id2);
 
@@ -446,6 +451,11 @@ int main(int argc, char* argv[])
                 pc.if_context.timestamp_calibration_time     = cal_time;
             }
 
+            if (time_adjust != 0) {
+                pc.if_context.has.timestamp_adjustment = true;
+                pc.if_context.timestamp_adjustment     = time_adjust;
+            }
+
             int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
             if (rv < 0) {
                 fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
@@ -480,6 +490,11 @@ int main(int argc, char* argv[])
                     pc2.if_context.timestamp_calibration_time     = cal_time2;
                 }
 
+                if (time_adjust2 != 0) {
+                    pc2.if_context.has.timestamp_adjustment = true;
+                    pc2.if_context.timestamp_adjustment     = time_adjust2;
+                }
+
                 rv = vrt_write_packet(&pc2, buffer, VRT_DATA_PACKET_SIZE, true);
                 if (rv < 0) {
                     fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
@@ -489,7 +504,7 @@ int main(int argc, char* argv[])
 
         }
 
-            // Merge
+        // Merge
         if (merge) {
             int mergelen;
             for (size_t m = 0; m < merge_zmq.size(); m++) {
@@ -504,7 +519,6 @@ int main(int argc, char* argv[])
         }
 
         // Read
-
         if (not vrt and fread(samples, sizeof(samples), 1, read_ptr) == 1) {
 
             num_words_read = samps_per_buff;
