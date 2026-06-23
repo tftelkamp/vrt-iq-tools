@@ -87,6 +87,9 @@ int main(int argc, char* argv[])
     float amplitude;
     float bin_size, integration_time = 0.0;
 
+    bool normalize;
+    bool ecsv;
+
     double delta_range = 0;
     double delta_range_dot = 0;
     double cable_delay = 0;
@@ -95,6 +98,7 @@ int main(int argc, char* argv[])
     double clock_offset_2 = 0;
     double delay_correction = 0;
     double clock_delay = 0;
+    double phase_offset = 0;
 
     double range_u = 0;
     double range_v = 0;
@@ -121,6 +125,8 @@ int main(int argc, char* argv[])
     std::complex<double> *xcorr;
     std::complex<double> *xcorr_integrated;
     std::complex<double> *xcorr_time;
+    std::complex<double> *fft_x_integrated;
+    std::complex<double> *fft_y_integrated;
     double *signal_mag;
 
     // setup the program options
@@ -135,7 +141,7 @@ int main(int argc, char* argv[])
         ("int-second", "align start of reception to integer second")
         ("num-bins", po::value<uint32_t>(&num_bins)->default_value(1000), "number of bins")
         ("integration-time", po::value<float>(&integration_time)->default_value(1.0), "integration time (seconds)")
-        ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of second channel")
+        ("amplitude", po::value<float>(&amplitude)->default_value(1), "amplitude correction of first channel")
         ("delta-range", po::value<double>(&delta_range)->default_value(0), "delta range (m)")
         ("delta-range-dot", po::value<double>(&delta_range_dot)->default_value(0), "delate range dot (m/s)")
         ("cable-delay", po::value<double>(&cable_delay)->default_value(0), "delay offset (s)")
@@ -145,11 +151,14 @@ int main(int argc, char* argv[])
         ("s1", po::value<std::string>(&site1), "name of site 1")
         ("s2", po::value<std::string>(&site2), "name of site 2")
         ("object", po::value<std::string>(&object), "name of object")
+        ("phase-offset", po::value<double>(&phase_offset)->default_value(0), "phase offset between channels (degrees)")
         ("buffer-depth", po::value<uint16_t>(&buffer_depth)->default_value(10), "Correlation buffer depth in VRT frames")
         ("fringe-host", po::value<std::string>(&fringe_stop_address)->default_value("127.0.0.1"), "fringe stopper host/address")
         ("correlation", "output cross-correlation instead of cross-spectrum")
+        ("all-hands", "output all hands (xy, xx, yy)")
+        ("normalize", po::value<bool>(&normalize)->default_value(true), "normalize cross-spectrum/cross-correlation")
         ("null", "run without writing to file")
-        ("ecsv", "output in ECSV format (Astropy)")
+        ("ecsv", po::value<bool>(&ecsv)->default_value(true)->implicit_value(true), "output in ECSV format (Astropy)")
         ("continue", "don't abort on a bad packet")
         ("instance", po::value<uint16_t>(&instance), "VRT ZMQ instance")
         ("address", po::value<std::string>(&zmq_address)->default_value("127.0.0.1"), "VRT ZMQ address")
@@ -176,9 +185,9 @@ int main(int argc, char* argv[])
     bool null                   = vm.count("null") > 0;
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = (bool)vm.count("int-second");
-    bool ecsv                   = vm.count("ecsv") > 0;
     // bool dt_trace               = vm.count("dt-trace") > 0;
     bool correlation            = vm.count("correlation") > 0;
+    bool all_hands              = vm.count("all-hands") > 0;
     bool use_fringe_stopper     = (vm.count("object") > 0) && (vm.count("s1") > 0) && (vm.count("s2") > 0);
 
     context_type vrt_context[2];
@@ -384,10 +393,14 @@ int main(int argc, char* argv[])
 
             xcorr = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
             xcorr_integrated = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
+            fft_x_integrated = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
+            fft_y_integrated = (std::complex<double>*) fftw_malloc(sizeof(std::complex<double>) * num_bins);
             signal_mag = (double*)calloc(num_bins, sizeof(double));
 
             for (uint32_t i = 0; i < num_bins; i++) {
                 xcorr_integrated[i] = 0;
+                fft_x_integrated[i] = 0;
+                fft_y_integrated[i] = 0;
                 signal_mag[i] = 0;
             }
 
@@ -430,7 +443,7 @@ int main(int argc, char* argv[])
                 printf("#    Integrations: %u\n", integrations);
                 printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context[0].sample_rate);
             } else {
-                uint32_t first_col = 4;
+                uint32_t first_col = 5;
                 printf("# %%ECSV 1.0\n");
                 printf("# ---\n");
 
@@ -478,6 +491,7 @@ int main(int argc, char* argv[])
 
                 printf("# datatype:\n");
                 printf("# - {name: timestamp, datatype: float64}\n");
+                printf("# - {name: type, datatype: string}\n");
                 printf("# - {name: u, unit: m, datatype: float64}\n");
                 printf("# - {name: v, unit: m, datatype: float64}\n");
                 printf("# - {name: w, unit: m, datatype: float64}\n");
@@ -497,7 +511,7 @@ int main(int argc, char* argv[])
             cable_delay += delay_correction;    
             
             // Header
-            printf("timestamp, u, v, w");
+            printf("timestamp, type, u, v, w");
 
             if (correlation) {
                 for (int32_t i = 0; i < num_bins; i++) {
@@ -593,8 +607,8 @@ int main(int argc, char* argv[])
                 for (int32_t k = 0; k < vrt_packet.num_rx_samps; k++) {
 
                     signal[0][signal_pointer] = std::complex<double>(
-                        (double)iq_samples[0][(base0 + k) & buf_mask].real() / 32768.0,
-                        (double)iq_samples[0][(base0 + k) & buf_mask].imag() / 32768.0
+                        amplitude * (double)iq_samples[0][(base0 + k) & buf_mask].real() / 32768.0,
+                        amplitude * (double)iq_samples[0][(base0 + k) & buf_mask].imag() / 32768.0
                     );
 
                     signal[1][signal_pointer] = std::complex<double>(
@@ -635,7 +649,7 @@ int main(int argc, char* argv[])
                         current_sample_delay = (int32_t)floor(current_delay_samples+0.5);
                         fractional_delay = current_delay_samples - (double)current_sample_delay;
 
-                        std::complex<double> phase_correction = std::exp(complexi*-2.0*pi*(double)vrt_context[0].rf_freq*current_delay);
+                        std::complex<double> phase_correction = std::exp(complexi*-2.0*pi*( (double)vrt_context[0].rf_freq*current_delay + (double)phase_offset/360.0));
 
                         // correlate and integrate
                         // frac_corr is a linear phase ramp in fftshift bin order.
@@ -647,28 +661,36 @@ int main(int argc, char* argv[])
                         std::complex<double> frac_corr = 1.0; // theta(0) = 0
 
                         for (int32_t i = 0; i < (int32_t)(num_bins / 2); i++) {
+                            fft_result[0][i] *= phase_correction * frac_corr;
                             xcorr[i] = fft_result[0][i] * conj(fft_result[1][i]);
-                            xcorr_integrated[i] += phase_correction * frac_corr * xcorr[i];
+                            xcorr_integrated[i] += xcorr[i];
+                            fft_x_integrated[i] += fft_result[0][i] * conj(fft_result[0][i]);
+                            fft_y_integrated[i] += fft_result[1][i] * conj(fft_result[1][i]);
                             signal_mag[i] += std::abs(fft_result[0][i]) * std::abs(fft_result[1][i]);
                             frac_corr *= frac_corr_step;
                         }
                         frac_corr *= frac_corr_jump;
                         for (int32_t i = (int32_t)(num_bins / 2); i < (int32_t)num_bins; i++) {
+                            fft_result[0][i] *= phase_correction * frac_corr;
                             xcorr[i] = fft_result[0][i] * conj(fft_result[1][i]);
-                            xcorr_integrated[i] += phase_correction * frac_corr * xcorr[i];
+                            xcorr_integrated[i] += xcorr[i];
+                            fft_x_integrated[i] += fft_result[0][i] * conj(fft_result[0][i]);
+                            fft_y_integrated[i] += fft_result[1][i] * conj(fft_result[1][i]);
                             signal_mag[i] += std::abs(fft_result[0][i]) * std::abs(fft_result[1][i]);
                             frac_corr *= frac_corr_step;
                         }
 
                         if (integration_counter == integrations) {
 
-                            for (int32_t i = 0; i < num_bins; i++) {
-                                if (signal_mag[i]>0)
-                                    xcorr_integrated[i] = xcorr_integrated[i] / signal_mag[i];
+                            if (normalize) {
+                                for (int32_t i = 0; i < num_bins; i++) {
+                                    if (signal_mag[i]>0) 
+                                        xcorr_integrated[i] = xcorr_integrated[i] / signal_mag[i];
+                                }
                             }
 
                             printf("%llu.%09lli", (long long unsigned int)seconds, (long long int)(frac_seconds/1e3));
-
+                            printf(",%s", "xy"); // no space(s)
                             printf(", %.12e, %.12e, %.12e", range_u, range_v, current_delta_range);
 
                             if (correlation) {
@@ -678,19 +700,38 @@ int main(int argc, char* argv[])
                                 for (uint32_t i = 0; i < num_bins; i++) {
                                     printf(", (%.6e%s%.6ej)", xcorr_time[i].real(), (xcorr_time[i].imag() > 0) ? "+" : "-", abs(xcorr_time[i].imag()) );
                                 }
+                                printf("\n");
                             } else {
                                 for (uint32_t i = 0; i < num_bins; i++) {
                                     printf(", (%.6e%s%.6ej)", xcorr_integrated[i].real(), (xcorr_integrated[i].imag() > 0) ? "+" : "-", abs(xcorr_integrated[i].imag()) );
                                 }
+                                printf("\n");
+                                if (all_hands) {
+                                    printf("%llu.%09lli", (long long unsigned int)seconds, (long long int)(frac_seconds/1e3));
+                                    printf(",%s", "xx"); // no space(s)
+                                    printf(", %.12e, %.12e, %.12e", range_u, range_v, current_delta_range);
+                                    for (uint32_t i = 0; i < num_bins; i++) {
+                                        printf(", (%.6e%s%.6ej)", fft_x_integrated[i].real(), (fft_x_integrated[i].imag() > 0) ? "+" : "-", abs(fft_x_integrated[i].imag()) );
+                                    }
+                                    printf("\n");
+                                    printf("%llu.%09lli", (long long unsigned int)seconds, (long long int)(frac_seconds/1e3));
+                                    printf(",%s", "yy"); // no space(s)
+                                    printf(", %.12e, %.12e, %.12e", range_u, range_v, current_delta_range);
+                                    for (uint32_t i = 0; i < num_bins; i++) {
+                                        printf(", (%.6e%s%.6ej)", fft_y_integrated[i].real(), (fft_y_integrated[i].imag() > 0) ? "+" : "-", abs(fft_y_integrated[i].imag()) );
+                                    }
+                                    printf("\n");
+                                }
                             }
 
-                            printf("\n");
                             fflush(stdout);
 
                             integration_counter = 0;
 
                             for (uint32_t i = 0; i < num_bins; i++) {
                                 xcorr_integrated[i] = 0;
+                                fft_x_integrated[i] = 0;
+                                fft_y_integrated[i] = 0;
                                 signal_mag[i] = 0;
                             }
                         }
