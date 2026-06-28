@@ -29,11 +29,6 @@ int sockfd, connfd;
 
 namespace po = boost::program_options;
 
-static bool stop_signal_called = false;
-void sig_int_handler(int)
-{
-    stop_signal_called = true;
-}
 
 ssize_t readLine(int fd, void *buffer, size_t n) {
 

@@ -30,17 +30,13 @@
 #include <vrt/vrt_util.h>
 
 #include "vrt-tools.h"
+#include "vrt_common.h"
 
 // gnuradio pmt
 #include <pmt/pmt.h>
 
 namespace po = boost::program_options;
 
-static bool stop_signal_called = false;
-void sig_int_handler(int)
-{
-    stop_signal_called = true;
-}
 
 //! Change to filename, e.g. from usrp_samples.dat to usrp_samples.chan0.dat,
 //  but only if multiple names are to be generated.
@@ -57,20 +53,6 @@ std::string generate_out_filename(
     return base_fn_fp.string();
 }
 
-template <typename samp_type> inline float get_abs_val(samp_type t)
-{
-    return std::fabs(t);
-}
-
-inline float get_abs_val(std::complex<int16_t> t)
-{
-    return std::fabs(t.real());
-}
-
-inline float get_abs_val(std::complex<int8_t> t)
-{
-    return std::fabs(t.real());
-}
 
 int main(int argc, char* argv[])
 {

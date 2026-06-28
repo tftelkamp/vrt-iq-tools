@@ -35,6 +35,7 @@
 #include <fftw3.h>
 
 #include "vrt-tools.h"
+#include "vrt_common.h"
 #include "dt-extended-context.h"
 #include "tracker-extended-context.h"
 
@@ -43,26 +44,7 @@ namespace po = boost::program_options;
 const double pi = std::acos(-1.0);
 const std::complex<double> complexi(0.0, 1.0);
 
-static bool stop_signal_called = false;
-void sig_int_handler(int)
-{
-    stop_signal_called = true;
-}
 
-template <typename samp_type> inline float get_abs_val(samp_type t)
-{
-    return std::fabs(t);
-}
-
-inline float get_abs_val(std::complex<int16_t> t)
-{
-    return std::fabs(t.real());
-}
-
-inline float get_abs_val(std::complex<int8_t> t)
-{
-    return std::fabs(t.real());
-}
 
 int main(int argc, char* argv[])
 {

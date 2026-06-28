@@ -37,6 +37,7 @@
 
 // VRT tools functions
 #include "vrt-tools.h"
+#include "vrt_common.h"
 
 #define DEFAULT_VGA_IF_GAIN (5)
 #define DEFAULT_LNA_GAIN (1)
@@ -57,26 +58,7 @@ boost::circular_buffer<int16_t> cb(65536*2*4*2);
 
 boost::shared_mutex _access;
 
-static bool stop_signal_called = false;
-void sig_int_handler(int)
-{
-    stop_signal_called = true;
-}
 
-template <typename samp_type> inline float get_abs_val(samp_type t)
-{
-    return std::fabs(t);
-}
-
-inline float get_abs_val(std::complex<int16_t> t)
-{
-    return std::fabs(t.real());
-}
-
-inline float get_abs_val(std::complex<int8_t> t)
-{
-    return std::fabs(t.real());
-}
 
 // From Phil Karn ka9q (modified)
 double true_freq(uint64_t freq_hz, uint32_t rate, int8_t fw_version) {

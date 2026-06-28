@@ -33,16 +33,12 @@
 #include <vrt/vrt_util.h>
 
 #include "vrt-tools.h"
+#include "vrt_common.h"
 #include "dt-extended-context.h"
 #include "tracker-extended-context.h"
 
 namespace po = boost::program_options;
 
-static bool stop_signal_called = false;
-void sig_int_handler(int)
-{
-    stop_signal_called = true;
-}
 
 //! Change to filename, e.g. from vrt_samples.dat to vrt_samples.chan0.dat,
 //  but only if multiple names are to be generated.

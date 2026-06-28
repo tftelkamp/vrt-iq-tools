@@ -42,16 +42,12 @@
 
 // VRT tools functions
 #include "vrt-tools.h"
+#include "vrt_common.h"
 
 unsigned long long num_total_samps = 0;
 
 namespace po = boost::program_options;
 
-static bool stop_signal_called = false;
-void sig_int_handler(int)
-{
-    stop_signal_called = true;
-}
 
 static UHD_INLINE boost::uint32_t GPIO_BIT(const size_t x)
 {

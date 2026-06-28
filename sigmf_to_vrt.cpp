@@ -51,6 +51,7 @@ namespace pt = boost::property_tree;
 
 // VRT tools functions
 #include "vrt-tools.h"
+#include "vrt_common.h"
 
 unsigned long long num_total_samps = 0;
 
@@ -58,26 +59,7 @@ int sockfd, connfd;
 
 namespace po = boost::program_options;
 
-static bool stop_signal_called = false;
-void sig_int_handler(int)
-{
-    stop_signal_called = true;
-}
 
-template <typename samp_type> inline float get_abs_val(samp_type t)
-{
-    return std::fabs(t);
-}
-
-inline float get_abs_val(std::complex<int16_t> t)
-{
-    return std::fabs(t.real());
-}
-
-inline float get_abs_val(std::complex<int8_t> t)
-{
-    return std::fabs(t.real());
-}
 
 int main(int argc, char* argv[])
 {
