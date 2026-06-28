@@ -82,13 +82,18 @@ inline float get_abs_val(std::complex<int8_t> t)
 int main(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string udp_forward, ref, file, file2, time_cal, type, start_time_str;
+    std::string udp_forward, ref, file, file2, time_cal, type, start_time_str, merge_address_list, merge_port_list, start_at_str;
+    std::string ref2, time_cal2, type2, start_time_str2;
     uint16_t port, instance;
-    uint32_t stream_id;
+    uint32_t stream_id, stream_id2;
     int hwm;
-    int16_t gain;
+    int16_t gain, gain2;
     double datarate;
     double rate, freq, bw, total_time, setup_time, lo_offset;
+    double rate2, freq2, bw2;
+    uint64_t cal_time, cal_time2;
+    int64_t time_adjust, time_adjust2;
+    bool merge;
 
     FILE *read_ptr;
     FILE *read_ptr_2;
@@ -101,6 +106,7 @@ int main(int argc, char* argv[])
         ("file", po::value<std::string>(&file)->default_value("samples.sigmf-meta"), "name of the SigMF meta file")
         ("file2", po::value<std::string>(&file2), "name of the second SigMF data file (used for dual-chan)")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
+        ("start-time", po::value<std::string>(&start_at_str), "start streaming at given timestamp")
         ("datarate", po::value<double>(&datarate)->default_value(0), "rate of outgoing samples")
         ("dual-chan", "use two SigMF files for dual channel stream (chan0+chan1)")
         ("progress", "periodically display short-term bandwidth")
@@ -110,6 +116,9 @@ int main(int argc, char* argv[])
         ("vrt", "read VRT stream from file")
         ("repeat", "repeat the input file")
         ("instance", po::value<uint16_t>(&instance), "VRT ZMQ instance")
+        ("merge", po::value<bool>(&merge)->default_value(true), "Merge another VRT ZMQ stream (SUB connect)")
+        ("merge-port", po::value<std::string>(&merge_port_list)->default_value("50011"), "VRT ZMQ merge port")
+        ("merge-address", po::value<std::string>(&merge_address_list)->default_value("localhost"), "VRT ZMQ merge address")
         ("port", po::value<uint16_t>(&port)->default_value(50100), "VRT ZMQ port")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
     ;
@@ -139,9 +148,41 @@ int main(int argc, char* argv[])
     bool dual_chan              = (vm.count("dual-chan")) || (vm.count("file2")) > 0;
     bool repeat                 = vm.count("repeat") > 0;
     bool vrt                    = vm.count("vrt") > 0;
+    bool start_at_timestamp     = vm.count("start-time") > 0;
 
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
+
+    boost::posix_time::ptime utc_time;
+    if (start_at_timestamp) {
+        // Check for unix time
+        try {
+            boost::lexical_cast<double>(start_at_str);
+            double unix_start = boost::lexical_cast<double>(start_at_str);
+            utc_time = boost::posix_time::from_time_t(unix_start);
+            double fraction = unix_start - ((int64_t)unix_start);
+            utc_time += boost::posix_time::microseconds((int64_t)(fraction*1000000));
+        } catch (boost::bad_lexical_cast&) {
+            // not unix time
+
+            // Replace 'T' with space
+            size_t t_pos = start_at_str.find('T');
+            if (t_pos != std::string::npos) {
+                start_at_str[t_pos] = ' ';
+            }
+
+            // Remove 'Z' if present
+            size_t z_pos = start_at_str.find('Z');
+            if (z_pos != std::string::npos) {
+                start_at_str.erase(z_pos, 1);
+            }
+
+            // Parse the string into a ptime object
+            utc_time = boost::posix_time::time_from_string(start_at_str);
+        }
+        // Print parsed time
+        std::cout << "# UTC start time: " << utc_time << std::endl;
+    }
 
     // seed random generator with seconds and microseconds
     srand(time_now.tv_usec + time_now.tv_sec);
@@ -163,6 +204,8 @@ int main(int argc, char* argv[])
     time_cal = root.get<std::string>("global.vrt:time_source", "");
     type = root.get<std::string>("global.core:datatype", "");
     stream_id = root.get<uint32_t>("global.vrt:stream_id", 0);
+    cal_time  = root.get<uint64_t>("global.vrt:cal_time", 0);
+    time_adjust  = root.get<int64_t>("global.vrt:time_adjust", 0);
 
     for (auto& item : root.get_child("captures")) {
         freq = item.second.get<double>("core:frequency");
@@ -173,8 +216,11 @@ int main(int argc, char* argv[])
     printf("    Start time: %s\n", start_time_str.c_str());
     printf("    Sample rate: %i\n", (int)rate);
     printf("    Frequency: %lli\n", (long long int)freq);
+    printf("    Gain: %i\n", (int)gain);
     printf("    Reference: %s\n", ref.c_str());
     printf("    Time calibration: %s\n", time_cal.c_str());
+    printf("    Cal time: %llu\n", (long long unsigned int)cal_time);
+    printf("    Time adjust: %llu\n", (long long signed int)time_adjust);
     printf("    Data type: %s\n", type.c_str());
     printf("    Stream ID: %u\n", stream_id);
 
@@ -214,13 +260,48 @@ int main(int argc, char* argv[])
 
     if (dual_chan) {
         std::string data_filename_2(data_filename);
+        std::string meta_filename_2(meta_filename);
         if (vm.count("file2")) {
-            boost::filesystem::path base_fn_fp(file2);
-            base_fn_fp.replace_extension(".sigmf-data");
-            data_filename_2 = base_fn_fp.string();
+            boost::filesystem::path base_fn_fp2(file2);
+            base_fn_fp2.replace_extension(".sigmf-meta");
+            meta_filename_2 = base_fn_fp2.string();
+            base_fn_fp2.replace_extension(".sigmf-data");
+            data_filename_2 = base_fn_fp2.string();
         } else {
-            boost::replace_all(data_filename_2,"chan0","chan1");
+            boost::replace_all(data_filename_2, "chan0", "chan1");
+            boost::replace_all(meta_filename_2, "chan0", "chan1");
         }
+
+        pt::ptree root2;
+        pt::read_json(meta_filename_2, root2);
+
+        rate2      = root2.get<double>("global.core:sample_rate", rate);
+        bw2        = root2.get<double>("global.vrt:bandwidth", bw);
+        gain2      = root2.get<int>("global.vrt:rx_gain", gain);
+        ref2       = root2.get<std::string>("global.vrt:reference", ref);
+        time_cal2  = root2.get<std::string>("global.vrt:time_source", time_cal);
+        type2      = root2.get<std::string>("global.core:datatype", type);
+        stream_id2 = root2.get<uint32_t>("global.vrt:stream_id", 2);
+        cal_time2  = root2.get<uint64_t>("global.vrt:cal_time", 0);
+        time_adjust2  = root.get<int64_t>("global.vrt:time_adjust", 0);
+
+        for (auto& item : root2.get_child("captures")) {
+            freq2           = item.second.get<double>("core:frequency", freq);
+            start_time_str2 = item.second.get<std::string>("core:datetime", start_time_str);
+        }
+
+        printf("Second SigMF meta data:\n");
+        printf("    Start time: %s\n", start_time_str2.c_str());
+        printf("    Sample rate: %i\n", (int)rate2);
+        printf("    Frequency: %lli\n", (long long int)freq2);
+        printf("    Gain: %i\n", (int)gain2);
+        printf("    Reference: %s\n", ref2.c_str());
+        printf("    Time calibration: %s\n", time_cal2.c_str());
+        printf("    Cal time: %llu\n", (long long unsigned int)cal_time2);
+        printf("    Time adjust: %llu\n", (long long signed int)time_adjust2);
+        printf("    Data type: %s\n", type2.c_str());
+        printf("    Stream ID: %u\n", stream_id2);
+
         printf("Second SigMF Data Filename: %s\n", data_filename_2.c_str());
         read_ptr_2 = fopen(data_filename_2.c_str(),"rb");  // r for read, b for binary
         if (read_ptr_2 == NULL) {
@@ -304,12 +385,89 @@ int main(int argc, char* argv[])
 
     auto vrt_time = time_first_sample;
 
+    if (start_at_timestamp) {
+        if (vrt) {
+            printf("--start-time is not supported with --vrt\n");
+            exit(1);
+        }
+        uintmax_t datafilesize = boost::filesystem::file_size(data_filename);
+
+        boost::posix_time::time_duration seek_duration = utc_time - t1;
+        double seek_seconds = seek_duration.total_microseconds() / 1e6;
+
+        if (seek_seconds < 0) {
+            printf("--start-time is before the start of the recording\n");
+            exit(1);
+        }
+
+        int64_t seek_samples = (int64_t)(seek_seconds * rate);
+        int64_t seek_bytes = seek_samples * 4;  // 4 bytes per sample (ci16_le)
+
+        if (seek_bytes >= (int64_t)datafilesize) {
+            printf("--start-time is past the end of the recording\n");
+            exit(1);
+        }
+
+        fseek(read_ptr, seek_bytes, SEEK_SET);
+        if (dual_chan) {
+            fseek(read_ptr_2, seek_bytes, SEEK_SET);
+        }
+
+        boost::posix_time::ptime actual_start =
+            t1 + boost::posix_time::microseconds(seek_samples * 1000000LL / (int64_t)rate);
+        time_t integer_actual = boost::posix_time::to_time_t(actual_start);
+        boost::posix_time::ptime actual_integer(boost::posix_time::from_time_t(integer_actual));
+        boost::posix_time::time_duration actual_frac = actual_start - actual_integer;
+        time_first_sample.tv_sec = integer_actual;
+        time_first_sample.tv_usec = actual_frac.total_microseconds();
+        vrt_time = time_first_sample;
+    }
+
     // trigger context update
     last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
 
     uint64_t update_interval = 1e6*samps_per_buff/datarate;
 
     printf("Update interval: %llu\n", (long long unsigned int)update_interval);
+
+    // Merge
+    std::vector<void*>merge_zmq;
+    if (merge) {
+        std::vector<std::string>merge_address_strings;
+        std::vector<std::string>merge_port_strings;
+
+        std::vector<std::string>merge_addresses;
+        std::vector<uint16_t>merge_ports;
+
+        boost::split(merge_address_strings, merge_address_list, boost::is_any_of("\"',"));
+        boost::split(merge_port_strings, merge_port_list, boost::is_any_of("\"',"));
+        for (size_t i = 0; i < merge_address_strings.size(); i++) {
+            merge_addresses.push_back(merge_address_strings[i]);
+        }
+        for (size_t i = 0; i < merge_port_strings.size(); i++) {
+            merge_ports.push_back(std::stod(merge_port_strings[i]));
+        }
+
+        size_t number_of_mergers = merge_addresses.size() > merge_ports.size() ? merge_addresses.size() : merge_ports.size();
+
+        for (size_t i = 0; i < number_of_mergers; i++) {
+
+            uint16_t merge_port = (merge_ports.size() > i) ? merge_ports[i] : merge_ports[0];
+            std::string merge_address = (merge_addresses.size() > i) ? merge_addresses[i] : merge_addresses[0];
+
+            merge_zmq.push_back(zmq_socket(context, ZMQ_SUB));
+
+            std::string connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
+            rc = zmq_connect(merge_zmq[i], connect_string.c_str());
+            assert(rc == 0);
+            zmq_setsockopt(merge_zmq[i], ZMQ_SUBSCRIBE, "", 0);
+        }
+    }
+
+    // flush merge queue
+    if (merge)
+        for (size_t m = 0; m < merge_zmq.size(); m++)
+            while ( zmq_recv(merge_zmq[m], buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
 
     while (not stop_signal_called) {
 
@@ -324,6 +482,15 @@ int main(int argc, char* argv[])
         if (not vrt and time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL)) {
 
             last_context = now;
+
+            struct timeval interval_time;
+            int64_t first_sample = frame_count*samps_per_buff;
+
+            double interval = (double)first_sample/(double)rate;
+            interval_time.tv_sec = (time_t)interval;
+            interval_time.tv_usec = (interval-(time_t)interval)*1e6;
+
+            timeradd(&time_first_sample, &interval_time, &vrt_time);
 
             // VITA 49.2
             /* Initialize to reasonable values */
@@ -350,6 +517,16 @@ int main(int argc, char* argv[])
 
             pc.if_context.state_and_event_indicators.calibrated_time = (bool)(time_cal=="external" || time_cal=="pps") ? true : false;
 
+            if (cal_time != 0) {
+                pc.if_context.has.timestamp_calibration_time = true;
+                pc.if_context.timestamp_calibration_time     = cal_time;
+            }
+
+            if (time_adjust != 0) {
+                pc.if_context.has.timestamp_adjustment = true;
+                pc.if_context.timestamp_adjustment     = time_adjust;
+            }
+
             int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
             if (rv < 0) {
                 fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
@@ -357,19 +534,62 @@ int main(int argc, char* argv[])
             zmq_send (zmq_server, buffer, rv*4, 0);
 
             if (dual_chan) {
-                // duplicate context of channel 0 on channel 1
-                pc.fields.stream_id = 2;
-                rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
+                struct vrt_packet pc2;
+                vrt_init_packet(&pc2);
+                vrt_init_context_packet(&pc2);
+
+                pc2.fields.integer_seconds_timestamp    = vrt_time.tv_sec;
+                pc2.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
+
+                pc2.fields.stream_id = 2;
+
+                pc2.if_context.bandwidth                         = bw2;
+                pc2.if_context.sample_rate                       = rate2;
+                pc2.if_context.rf_reference_frequency            = freq2;
+                pc2.if_context.rf_reference_frequency_offset     = 0;
+                pc2.if_context.if_reference_frequency            = 0;
+                pc2.if_context.gain.stage1                       = gain2;
+                pc2.if_context.gain.stage2                       = 0;
+
+                pc2.if_context.state_and_event_indicators.reference_lock =
+                    (bool)(ref2 == "external") ? true : false;
+                pc2.if_context.state_and_event_indicators.calibrated_time =
+                    (bool)(time_cal2 == "external" || time_cal2 == "pps") ? true : false;
+
+                if (cal_time2 != 0) {
+                    pc2.if_context.has.timestamp_calibration_time = true;
+                    pc2.if_context.timestamp_calibration_time     = cal_time2;
+                }
+
+                if (time_adjust2 != 0) {
+                    pc2.if_context.has.timestamp_adjustment = true;
+                    pc2.if_context.timestamp_adjustment     = time_adjust2;
+                }
+
+                rv = vrt_write_packet(&pc2, buffer, VRT_DATA_PACKET_SIZE, true);
                 if (rv < 0) {
                     fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
                 }
-                zmq_send (zmq_server, buffer, rv*4, 0);
+                zmq_send(zmq_server, buffer, rv*4, 0);
             }
 
         }
 
-        // Read
+        // Merge
+        if (merge) {
+            int mergelen;
+            for (size_t m = 0; m < merge_zmq.size(); m++) {
+                while ( (mergelen = zmq_recv(merge_zmq[m], buffer, 100000, ZMQ_NOBLOCK)) > 0  ) {
+                    zmq_msg_t msg;
+                    zmq_msg_init_size (&msg, mergelen);
+                    memcpy (zmq_msg_data(&msg), buffer, mergelen);
+                    zmq_msg_send(&msg, zmq_server, 0);
+                    zmq_msg_close(&msg);
+                }
+            }
+        }
 
+        // Read
         if (not vrt and fread(samples, sizeof(samples), 1, read_ptr) == 1) {
 
             num_words_read = samps_per_buff;
@@ -470,12 +690,16 @@ int main(int argc, char* argv[])
             if (type == 1)
                 frame_count++;
             fseek(read_ptr, -sizeof(uint32_t), SEEK_CUR );
-            fread(samples, words*sizeof(uint32_t), 1, read_ptr);
-            zmq_send (zmq_server, samples, words*sizeof(uint32_t), 0);
+            if (fread(samples, words*sizeof(uint32_t), 1, read_ptr) == 1)
+                zmq_send (zmq_server, samples, words*sizeof(uint32_t), 0);
         } else {
             printf("no more samples in data file\n");
-            if (repeat)
+            if (repeat) {
                 rewind(read_ptr);
+                frame_count = 0;
+                start_time = std::chrono::steady_clock::now();
+                last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
+            }
             else
                 break;
         }

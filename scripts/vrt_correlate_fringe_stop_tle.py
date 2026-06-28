@@ -7,6 +7,10 @@
 import sys
 import os
 import time
+
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 import numpy as np
 
 from astropy.time import Time
@@ -16,6 +20,11 @@ from astropy.coordinates import SkyCoord, EarthLocation
 import astropy.units as u
 from astropy.units import Quantity
 import astropy.constants
+
+# Skyfield
+from skyfield.api import EarthSatellite, load, wgs84, utc
+from scipy.constants import c
+from skyfield.api import utc
 
 import zmq
 from argparse import ArgumentParser
@@ -37,11 +46,12 @@ if args.list:
 port = 70001
 context = zmq.Context()
 socket = context.socket(zmq.ROUTER)
-socket.bind("tcp://*:{0}".format(port))
+socket.bind ("tcp://*:{0}".format(port))
 
 initialized = False;
 
 while True:
+	#  Wait for next request from client
 	parts = socket.recv_multipart()
 	identity = parts[0]
 	message = parts[1]
@@ -82,9 +92,18 @@ while True:
 			socket.send_multipart([identity, to_send.encode()])
 			continue
 
+		# Locations
+		site1 = wgs84.latlon(earth_loc1.lat.deg, earth_loc1.lon.deg, earth_loc1.height.value)
+		site2 = wgs84.latlon(earth_loc2.lat.deg, earth_loc2.lon.deg, earth_loc2.height.value)
+
+		ts = load.timescale()
+
+		print(object_name)
+
+		url = 'https://celestrak.org/NORAD/elements/gp.php?FORMAT=TLE&CATNR={}'.format(object_name)
+		filename = '/tmp/tle-CATNR-{}.txt'.format(object_name)
 		try:
-			source = SkyCoord.from_name(object_name)
-			print(source)
+			satellites = load.tle_file(url, filename=filename)
 		except:
 			print("Loading " + object_name + " failed")
 			print("Not initialized!");
@@ -92,16 +111,9 @@ while True:
 			socket.send_multipart([identity, to_send.encode()])
 			continue
 
-		baseline = EarthLocation(ant1_xyz.x - ant2_xyz.x, ant1_xyz.y - ant2_xyz.y, ant1_xyz.z - ant2_xyz.z)
+		print(satellites)
 
-		# this north/east logic is copied from destevez
-		north_radec = [source.ra.deg, source.dec.deg + 90]
-		if north_radec[1] > 90:
-		    north_radec[1] = 180 - north_radec[1]
-		    north_radec[0] = 180 + north_radec[0]
-		north = SkyCoord(ra = north_radec[0]*u.deg, dec = north_radec[1]*u.deg)
-
-		baseline_itrs = baseline.get_itrs().cartesian.xyz
+		source_sat = satellites[0]
 
 		initialized = True;
 
@@ -117,21 +129,28 @@ while True:
 		frac_seconds = received_fields[2];
 
 		unix_time = float(int_seconds)+float(frac_seconds)/1e12
+		print(unix_time)
 		fringe_time = Time(unix_time, format='unix');
 
-		print("Received request for:", fringe_time.isot)
+		timestamp = Time(Time(fringe_time, precision=6).isot, precision=6)
+		print("Received request for:", timestamp.isot)
+		
+		skyfield_ts = ts.from_astropy(fringe_time)
 
-		source_itrs = source.transform_to( ITRS(obstime = Time(fringe_time))).cartesian
-		north_itrs = north.transform_to(ITRS(obstime = Time(fringe_time))).cartesian
-		east_itrs = north_itrs.cross(source_itrs)
+		state1 = (source_sat - site1).at(skyfield_ts).frame_latlon_and_rates(site1)
+		state2 = (source_sat - site2).at(skyfield_ts).frame_latlon_and_rates(site2)
 
-		baseline_projected_w = source_itrs.xyz.T.dot(baseline_itrs).value
-		baseline_projected_w_min1sec = source.transform_to(ITRS(obstime = Time(fringe_time)-1*u.s)).cartesian.xyz.T.dot(baseline_itrs).value
-		baseline_projected_w_plus1sec = source.transform_to(ITRS(obstime = Time(fringe_time)+1*u.s)).cartesian.xyz.T.dot(baseline_itrs).value
-		baseline_projected_w_dot = (baseline_projected_w_plus1sec - baseline_projected_w_min1sec)/2.0
+		range_site1 = state1[-4].m
+		range_site2 = state2[-4].m
 
-		baseline_projected_v = north_itrs.xyz.T.dot(baseline_itrs).value
-		baseline_projected_u = east_itrs.xyz.T.dot(baseline_itrs).value
+		v_site1 = state1[-1].m_per_s
+		v_site2 = state2[-1].m_per_s
+
+		baseline_projected_w = range_site2 - range_site1
+		baseline_projected_w_dot = v_site2 - v_site1
+
+		baseline_projected_v = 0; #north_itrs.xyz.T.dot(baseline_itrs).value
+		baseline_projected_u = 0; #east_itrs.xyz.T.dot(baseline_itrs).value
 
 		to_send = "{0:d},{1:d},{2:d},{3:.12e},{4:.12e},{5:.12e},{6:.12e}".format(
 			0,

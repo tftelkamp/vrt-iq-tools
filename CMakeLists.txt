@@ -6,7 +6,7 @@ project(
   DESCRIPTION "VRT IQ tools"
   LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 
 #select the release build type by default to get optimization flags (from Soapy)
 if(NOT CMAKE_BUILD_TYPE)
@@ -88,6 +88,14 @@ if(${UHD_FOUND})
   target_link_libraries(usrp_to_vrt PRIVATE ${UHD_LIBRARIES})
 else()
   message(WARNING "UHD not found, not building usrp_to_vrt")
+endif()
+
+find_package(HackRF)
+if(${HackRF_FOUND})
+  add_executable(hackrf_to_vrt hackrf_to_vrt.cpp)
+  target_link_libraries(hackrf_to_vrt PRIVATE HackRF::hackrf_static)
+else()
+  message(WARNING "HackRF not found, not building hackrf_to_vrt")
 endif()
 
 find_library(RTLSDR_LIBRARY rtlsdr)

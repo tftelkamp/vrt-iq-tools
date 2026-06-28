@@ -418,11 +418,16 @@ int main(int argc, char* argv[])
                 printf("#   - {stream_id: %u}\n", vrt_context.stream_id);
                 printf("#   - {channel: %u}\n", ch);
                 printf("#   - {sample_rate: %.1f}\n", (float)vrt_context.sample_rate);
-                printf("#   - {frequency: %.1f}\n", (double)vrt_context.rf_freq);
+                printf("#   - {frequency: %.2f}\n", (double)vrt_context.rf_freq);
+                printf("#   - {frac_frequency: %e}\n", (double)vrt_context.rf_frac_freq);
                 printf("#   - {bandwidth: %.1f}\n", (float)vrt_context.bandwidth);
                 printf("#   - {rx_gain: %.1f}\n", (float)vrt_context.gain);
                 printf("#   - {reference: %s}\n", vrt_context.reflock == 1 ? "external" : "internal");
                 printf("#   - {time_source: %s}\n", vrt_context.time_cal == 1? "pps" : "internal");
+                    if (vrt_context.timestamp_calibration_time != 0)
+                printf("#   - {cal_time: %u}\n", vrt_context.timestamp_calibration_time);
+                    if (vrt_context.timestamp_adjustment != 0)
+                printf("#   - {time_adjust: %.9f}\n", (double)vrt_context.timestamp_adjustment/1e12);
                 printf("# - spectrum: !!omap\n");
                 printf("#   - {db: %s}\n", db ? "True" : "False");
                 printf("#   - {bins: %u}\n", num_bins);
