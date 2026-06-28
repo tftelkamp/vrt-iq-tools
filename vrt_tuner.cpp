@@ -14,6 +14,7 @@
 #include <chrono>
 // #include <complex>
 #include <csignal>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <thread>
