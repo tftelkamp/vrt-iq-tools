@@ -18,14 +18,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Compile time options
-OPTION(VRT_IQ_TOOLS_TESTING OFF)
+option(VRT_IQ_TOOLS_TESTING OFF)
 
-#select the release build type by default to get optimization flags (from Soapy)
+# select the release build type by default to get optimization flags (from
+# Soapy)
 if(NOT CMAKE_BUILD_TYPE)
-   set(CMAKE_BUILD_TYPE "Release")
-   message(STATUS "Build type not specified: defaulting to release.")
+  set(CMAKE_BUILD_TYPE "Release")
+  message(STATUS "Build type not specified: defaulting to release.")
 endif(NOT CMAKE_BUILD_TYPE)
-set(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE} CACHE STRING "")
+set(CMAKE_BUILD_TYPE
+    ${CMAKE_BUILD_TYPE}
+    CACHE STRING "")
 
 if(POLICY CMP0167)
   cmake_policy(SET CMP0167 NEW)
@@ -41,52 +44,54 @@ find_path(FFTW3_INCLUDE_DIR NAMES fftw3.h REQUIRED)
 # Fetch the submodule if not found
 find_package(Git QUIET)
 if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-    message(STATUS "Fetching libvrt submodule...")
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        RESULT_VARIABLE GIT_SUBMOD_RESULT
+  message(STATUS "Fetching libvrt submodule...")
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    RESULT_VARIABLE GIT_SUBMOD_RESULT)
+  if(NOT GIT_SUBMOD_RESULT EQUAL "0")
+    message(
+      FATAL_ERROR
+        "Failed to fetch libvrt submodule. "
+        "Git returned error code ${GIT_SUBMOD_RESULT}"
     )
-    if(NOT GIT_SUBMOD_RESULT EQUAL "0")
-        message(FATAL_ERROR "Failed to fetch libvrt submodule. Git returned error code ${GIT_SUBMOD_RESULT}")
-    endif()
+  endif()
 
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        OUTPUT_VARIABLE GIT_BRANCH
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    if(NOT GIT_BRANCH)
-      set(GIT_BRANCH "unknown")
-    endif()
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_BRANCH
+    ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT GIT_BRANCH)
+    set(GIT_BRANCH "unknown")
+  endif()
 
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        OUTPUT_VARIABLE GIT_COMMIT
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    if(NOT GIT_COMMIT)
-      set(GIT_COMMIT "unknown")
-    endif()
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT
+    ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT GIT_COMMIT)
+    set(GIT_COMMIT "unknown")
+  endif()
 
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} log -1 --format=%ci
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        OUTPUT_VARIABLE GIT_DATE
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    if(NOT GIT_DATE)
-      set(GIT_DATE "unknown")
-    endif()
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} log -1 --format=%ci
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_DATE
+    ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT GIT_DATE)
+    set(GIT_DATE "unknown")
+  endif()
 
-    add_compile_definitions(GIT_BRANCH="${GIT_BRANCH}" GIT_COMMIT="${GIT_COMMIT}" GIT_DATE="${GIT_DATE}")
+  add_compile_definitions(GIT_BRANCH="${GIT_BRANCH}" GIT_COMMIT="${GIT_COMMIT}"
+                          GIT_DATE="${GIT_DATE}")
 else()
-    message(FATAL_ERROR "Git is required to fetch libvrt submodule. Please make sure Git is installed.")
+  message(
+    FATAL_ERROR
+      "Git is required to fetch libvrt submodule. "
+      "Please make sure Git is installed."
+  )
 endif()
 add_subdirectory(libvrt)
 
@@ -131,8 +136,7 @@ if(AIRSPY_LIBRARY)
   target_include_directories(airspy_to_vrt PRIVATE ${AIRSPY_INCLUDE_DIR})
   target_link_libraries(airspy_to_vrt PRIVATE ${AIRSPY_LIBRARY})
 else()
-  message(
-    WARNING "Airspy library not found, not building airspy_to_vrt")
+  message(WARNING "Airspy library not found, not building airspy_to_vrt")
 endif()
 
 find_library(IIO_LIBRARY iio)
@@ -141,11 +145,14 @@ if(IIO_LIBRARY AND AD9361_LIBRARY)
   find_path(IIO_INCLUDE_DIR NAMES iio.h REQUIRED)
   find_path(AD9361_INCLUDE_DIR NAMES ad9361.h REQUIRED)
   add_executable(iio_to_vrt src/iio_to_vrt.cpp)
-  target_include_directories(iio_to_vrt PRIVATE ${IIO_INCLUDE_DIR} ${AD9361_INCLUDE_DIR})
+  target_include_directories(iio_to_vrt PRIVATE ${IIO_INCLUDE_DIR}
+                                                ${AD9361_INCLUDE_DIR})
   target_link_libraries(iio_to_vrt PRIVATE ${IIO_LIBRARY} ${AD9361_LIBRARY})
 else()
   message(
-    WARNING "libiio and libad9361 not both found, building without iio_to_vrt (pluto)")
+    WARNING
+      "libiio and libad9361 not both found, building without iio_to_vrt (pluto)"
+  )
 endif()
 
 find_package(CUDAToolkit)
@@ -227,7 +234,8 @@ foreach(target ${all_targets})
   endif()
   target_include_directories(${target} PRIVATE ${ZMQ_INCLUDE_DIR})
   target_link_libraries(${target} PRIVATE ${ZMQ_LIBRARY})
-  target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libvrt/include)
+  target_include_directories(${target}
+                             PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libvrt/include)
   target_link_libraries(${target} PRIVATE vrt)
   target_include_directories(${target} PRIVATE ${Boost_INCLUDE_DIRS})
   target_link_libraries(${target} PRIVATE ${Boost_LIBRARIES})
@@ -235,36 +243,33 @@ endforeach()
 
 find_package(SoapySDR CONFIG)
 
-if (NOT SoapySDR_FOUND)
-    message(WARNING "SoapySDR development files not found - skipping support")
+if(NOT SoapySDR_FOUND)
+  message(WARNING "SoapySDR development files not found - skipping support")
 else()
-    include_directories(${ZMQ_INCLUDE_DIR})
-    SOAPY_SDR_MODULE_UTIL(
-        TARGET VrtDevice
-        SOURCES src/vrt_soapy.cpp
-        LIBRARIES ${ZMQ_LIBRARY}
-    )
-    target_include_directories(VrtDevice PRIVATE ${ZMQ_INCLUDE_DIR})
-    target_link_libraries(VrtDevice PRIVATE ${ZMQ_LIBRARY})
-    target_include_directories(VrtDevice PRIVATE ${Boost_INCLUDE_DIRS})
-    target_link_libraries(VrtDevice PRIVATE ${Boost_LIBRARIES})
-    target_include_directories(VrtDevice PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libvrt/include)
-    target_link_libraries(VrtDevice PRIVATE vrt)
-endif ()
+  include_directories(${ZMQ_INCLUDE_DIR})
+  soapy_sdr_module_util(TARGET VrtDevice SOURCES src/vrt_soapy.cpp LIBRARIES
+                        ${ZMQ_LIBRARY})
+  target_include_directories(VrtDevice PRIVATE ${ZMQ_INCLUDE_DIR})
+  target_link_libraries(VrtDevice PRIVATE ${ZMQ_LIBRARY})
+  target_include_directories(VrtDevice PRIVATE ${Boost_INCLUDE_DIRS})
+  target_link_libraries(VrtDevice PRIVATE ${Boost_LIBRARIES})
+  target_include_directories(VrtDevice
+                             PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libvrt/include)
+  target_link_libraries(VrtDevice PRIVATE vrt)
+endif()
 
 install(TARGETS ${all_targets})
 
-
 if(VRT_IQ_TOOLS_TESTING)
-    find_package(Catch2 3 QUIET)
-    if (NOT Catch2_FOUND)
-        message("Catch2 not found, downloading version: ${CATCH2_VERSION} ...")
-        FetchContent_Declare(Catch2
-            GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-            GIT_TAG ${CATCH2_VERSION}
-        )
-        FetchContent_MakeAvailable(Catch2)
-    endif ()
+  find_package(Catch2 3 QUIET)
+  if(NOT Catch2_FOUND)
+    message("Catch2 not found, downloading version: ${CATCH2_VERSION} ...")
+    FetchContent_Declare(
+      Catch2
+      GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+      GIT_TAG ${CATCH2_VERSION})
+    FetchContent_MakeAvailable(Catch2)
+  endif()
 
-    add_subdirectory(tests)
+  add_subdirectory(tests)
 endif()
