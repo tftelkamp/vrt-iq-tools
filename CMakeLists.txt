@@ -12,8 +12,7 @@ project(
 set(MIMICPP_VERSION v9.3.0)
 set(CATCH2_VERSION v3.8.1)
 
-# 20 or higher is needed for mimicpp
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 
 # To use clangd as LSP (for Neovim / Vim etc)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
