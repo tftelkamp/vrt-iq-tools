@@ -257,13 +257,6 @@ install(TARGETS ${all_targets})
 
 
 if(VRT_IQ_TOOLS_TESTING)
-    FetchContent_Declare(mimicpp
-        GIT_REPOSITORY https://github.com/DNKpp/mimicpp
-        VERSION ${MIMICPP_VERSION}
-        GIT_TAG ${MIMICPP_VERSION}
-    )
-    FetchContent_MakeAvailable(mimicpp)
-
     find_package(Catch2 3 QUIET)
     if (NOT Catch2_FOUND)
         message("Catch2 not found, downloading version: ${CATCH2_VERSION} ...")
