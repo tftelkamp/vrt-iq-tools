@@ -6,7 +6,7 @@ vrt-iq-tools is a collection of programs used for streaming IQ data using (a sli
 
 ### Dependencies
 
-This package needs much of libboost, libzmq, libfftw3 and libfftw3f. On a clean Ubuntu 22.04 system, these can be installed with:
+This package needs much of libboost, libzmq, libfftw3 and libfftw3f. On a clean Ubuntu 24.04 system, these can be installed with:
 
 
 ```bash
@@ -18,7 +18,7 @@ Optional dependencies:
 * `librtlsdr-dev` for RTL-SDR support
 * `libuhd-dev` for UHD (USRP) support
 * `libiio-dev` and `libad9361-dev` for IIO (PLUTO) support
-* `libgnuradio-pmt3.10.1` for gnuradio support
+* `libgnuradio-pmt3.10.9t64` for gnuradio support
 * `nvidia-cuda-toolkit-gcc` for GPU acceleration of some tools
 * `libpsrdada` for DADA support, see [installation instructions](https://psrdada.sourceforge.net/download.shtml)
 
