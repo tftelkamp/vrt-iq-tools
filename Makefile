@@ -19,7 +19,7 @@ strf: vrt_rffft
 #LIBS = -L.
 
 CFLAGS = -std=c++17
-INCLUDES = -I. -I/opt/local/include -I../libvrt/include -I/opt/homebrew/include/
+INCLUDES = -I./include -I/opt/local/include -I../libvrt/include -I/opt/homebrew/include/
 LIBS = -L. -L../libvrt/build/ -L/usr/local/lib -L/opt/local/lib -L/opt/homebrew/lib/
 
 BOOSTLIBS = -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lboost_date_time
@@ -34,148 +34,148 @@ GIT_DEFINES = -DGIT_BRANCH='"$(GIT_BRANCH)"' \
               -DGIT_COMMIT='"$(GIT_COMMIT)"' \
               -DGIT_DATE='"$(GIT_DATE)"'
 
-vrt_version: vrt_version.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) $(GIT_DEFINES) vrt_version.cpp -o vrt_version
+vrt_version: src/vrt_version.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) $(GIT_DEFINES) src/vrt_version.cpp -o vrt_version
 
-usrp_to_vrt: usrp_to_vrt.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) usrp_to_vrt.cpp -o usrp_to_vrt \
+usrp_to_vrt: src/usrp_to_vrt.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/usrp_to_vrt.cpp -o usrp_to_vrt \
 		-luhd -lpthread -lzmq -lvrt $(BOOSTLIBS)
 
-vrt_to_sigmf: vrt_to_sigmf.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_sigmf vrt_to_sigmf.cpp \
+vrt_to_sigmf: src/vrt_to_sigmf.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_sigmf src/vrt_to_sigmf.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread
 
-vrt_to_gnuradio: vrt_to_gnuradio.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_gnuradio vrt_to_gnuradio.cpp \
+vrt_to_gnuradio: src/vrt_to_gnuradio.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_gnuradio src/vrt_to_gnuradio.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lgnuradio-pmt
 
-vrt_to_void: vrt_to_void.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_void vrt_to_void.cpp \
+vrt_to_void: src/vrt_to_void.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_void src/vrt_to_void.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
-vrt_to_stdout: vrt_to_stdout.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_stdout vrt_to_stdout.cpp \
+vrt_to_stdout: src/vrt_to_stdout.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_stdout src/vrt_to_stdout.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
-vrt_to_udp: vrt_to_udp.cpp
-		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_udp vrt_to_udp.cpp \
+vrt_to_udp: src/vrt_to_udp.cpp
+		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_udp src/vrt_to_udp.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
-vrt_to_fifo: vrt_to_fifo.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_fifo vrt_to_fifo.cpp \
+vrt_to_fifo: src/vrt_to_fifo.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_fifo src/vrt_to_fifo.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
-vrt_tuner: vrt_tuner.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_tuner vrt_tuner.cpp \
+vrt_tuner: src/vrt_tuner.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_tuner src/vrt_tuner.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
-vrt_channelizer: vrt_channelizer.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_channelizer vrt_channelizer.cpp \
+vrt_channelizer: src/vrt_channelizer.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_channelizer src/vrt_channelizer.cpp \
 		-lfftw3f -lvrt -lzmq $(BOOSTLIBS)
 
-vrt_gpu_channelizer: vrt_gpu_channelizer.cu
-		nvcc -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_gpu_channelizer vrt_gpu_channelizer.cu \
+vrt_gpu_channelizer: src/vrt_gpu_channelizer.cu
+		nvcc -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_gpu_channelizer src/vrt_gpu_channelizer.cu \
 		$(BOOSTLIBS) -lzmq -lvrt -lcufft
 
-vrt_buffer: vrt_buffer.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_buffer vrt_buffer.cpp \
+vrt_buffer: src/vrt_buffer.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_buffer src/vrt_buffer.cpp \
 		-lzmq -lvrt $(BOOSTLIBS)
 
-vrt_merge: vrt_merge.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_merge vrt_merge.cpp \
+vrt_merge: src/vrt_merge.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_merge src/vrt_merge.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
-vrt_quantize: vrt_quantize.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_quantize vrt_quantize.cpp \
+vrt_quantize: src/vrt_quantize.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_quantize src/vrt_quantize.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
-vrt_to_rtl_tcp: vrt_to_rtl_tcp.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_rtl_tcp vrt_to_rtl_tcp.cpp \
+vrt_to_rtl_tcp: src/vrt_to_rtl_tcp.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_rtl_tcp src/vrt_to_rtl_tcp.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
-vrt_fftmax: vrt_fftmax.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_fftmax vrt_fftmax.cpp \
+vrt_fftmax: src/vrt_fftmax.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_fftmax src/vrt_fftmax.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
 
-vrt_pulsar: vrt_pulsar.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_pulsar vrt_pulsar.cpp \
+vrt_pulsar: src/vrt_pulsar.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_pulsar src/vrt_pulsar.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
 
-vrt_correlate: vrt_correlate.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_correlate vrt_correlate.cpp \
+vrt_correlate: src/vrt_correlate.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_correlate src/vrt_correlate.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
 
-vrt_to_filterbank: vrt_to_filterbank.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_filterbank vrt_to_filterbank.cpp \
+vrt_to_filterbank: src/vrt_to_filterbank.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_filterbank src/vrt_to_filterbank.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3 -lfftw3_threads
 
-vrt_fftmax_quad: vrt_fftmax_quad.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_fftmax_quad vrt_fftmax_quad.cpp \
+vrt_fftmax_quad: src/vrt_fftmax_quad.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_fftmax_quad src/vrt_fftmax_quad.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
 
-vrt_spectrum: vrt_spectrum.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_spectrum vrt_spectrum.cpp \
+vrt_spectrum: src/vrt_spectrum.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_spectrum src/vrt_spectrum.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpthread -lfftw3
 
-vrt_metadata: vrt_metadata.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_metadata vrt_metadata.cpp \
+vrt_metadata: src/vrt_metadata.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_metadata src/vrt_metadata.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
-vrt_forwarder: vrt_forwarder.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_forwarder vrt_forwarder.cpp \
+vrt_forwarder: src/vrt_forwarder.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_forwarder src/vrt_forwarder.cpp \
 		-lzmq $(BOOSTLIBS)
 
-rtlsdr_to_vrt: convenience.o rtlsdr_to_vrt.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) convenience.o rtlsdr_to_vrt.cpp -o rtlsdr_to_vrt \
+rtlsdr_to_vrt: convenience.o src/rtlsdr_to_vrt.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) convenience.o src/rtlsdr_to_vrt.cpp -o rtlsdr_to_vrt \
 		$(BOOSTLIBS) -lzmq -lvrt -lrtlsdr
 
-airspy_to_vrt: airspy_to_vrt.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) airspy_to_vrt.cpp -o airspy_to_vrt \
+airspy_to_vrt: src/airspy_to_vrt.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/airspy_to_vrt.cpp -o airspy_to_vrt \
 		$(BOOSTLIBS) -lpthread -lzmq -lvrt -lairspy
 
-hackrf_to_vrt: hackrf_to_vrt.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) hackrf_to_vrt.cpp -o hackrf_to_vrt \
+hackrf_to_vrt: src/hackrf_to_vrt.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/hackrf_to_vrt.cpp -o hackrf_to_vrt \
 		$(BOOSTLIBS) -lpthread -lzmq -lvrt -lhackrf
 
-rfspace_to_vrt: rfspace_to_vrt.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) rfspace_to_vrt.cpp -o rfspace_to_vrt \
+rfspace_to_vrt: src/rfspace_to_vrt.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/rfspace_to_vrt.cpp -o rfspace_to_vrt \
 		$(BOOSTLIBS) -lzmq -lvrt
 
-iio_to_vrt: iio_to_vrt.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) iio_to_vrt.cpp -o iio_to_vrt \
+iio_to_vrt: src/iio_to_vrt.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/iio_to_vrt.cpp -o iio_to_vrt \
 		-liio -lad9361 -lpthread -lzmq -lvrt $(BOOSTLIBS)
 
-query_dt_console: query_dt_console.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) query_dt_console.cpp -o query_dt_console \
+query_dt_console: src/query_dt_console.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/query_dt_console.cpp -o query_dt_console \
 		$(BOOSTLIBS)
 
-sigmf_to_vrt: sigmf_to_vrt.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) sigmf_to_vrt.cpp -o sigmf_to_vrt \
+sigmf_to_vrt: src/sigmf_to_vrt.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/sigmf_to_vrt.cpp -o sigmf_to_vrt \
 		$(BOOSTLIBS) -lzmq -lvrt
 
-play_vrt: play_vrt.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) play_vrt.cpp -o play_vrt \
+play_vrt: src/play_vrt.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/play_vrt.cpp -o play_vrt \
 		$(BOOSTLIBS) -lzmq -lvrt
 
-control_vrt: control_vrt.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) control_vrt.cpp -o control_vrt \
+control_vrt: src/control_vrt.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/control_vrt.cpp -o control_vrt \
 		$(BOOSTLIBS) -lzmq -lvrt
 
-vrt_gpu_fftmax: vrt_gpu_fftmax.cu
-		nvcc -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_gpu_fftmax vrt_gpu_fftmax.cu \
+vrt_gpu_fftmax: src/vrt_gpu_fftmax.cu
+		nvcc -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o src/vrt_gpu_fftmax vrt_gpu_fftmax.cu \
 		$(BOOSTLIBS) -lzmq -lvrt -lcufft
 
-vrt_to_dada: vrt_to_dada.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_dada vrt_to_dada.cpp \
+vrt_to_dada: src/vrt_to_dada.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_dada src/vrt_to_dada.cpp \
 		-lvrt -lzmq $(BOOSTLIBS) -lpsrdada \
 		-I/home_local/camrasdemo/psrsoft/usr/include -L/home_local/camrasdemo/psrsoft/usr/lib
 
-vrt_rffft: vrt_rffft.cpp
-		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) vrt_rffft.cpp -o vrt_rffft \
+vrt_rffft: src/vrt_rffft.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/vrt_rffft.cpp -o vrt_rffft \
 		$(BOOSTLIBS) -lzmq -lvrt -lfftw3f
 
-convenience.o: convenience.c
-		${CXX} -O3 -c $(INCLUDES) $(CFLAGS) -o convenience.o convenience.c
+convenience.o: src/convenience.c
+		${CXX} -O3 -c $(INCLUDES) $(CFLAGS) -o convenience.o src/convenience.c
 
 install: all
 		install -m 755 vrt_fftmax        $(DESTDIR)$(PREFIX)/bin/
