@@ -106,7 +106,7 @@ endif()
 
 find_package(HackRF)
 if(${HackRF_FOUND})
-  add_executable(hackrf_to_vrt hackrf_to_vrt.cpp)
+  add_executable(hackrf_to_vrt src/hackrf_to_vrt.cpp)
   target_link_libraries(hackrf_to_vrt PRIVATE HackRF::hackrf_static)
 else()
   message(WARNING "HackRF not found, not building hackrf_to_vrt")
@@ -241,7 +241,7 @@ else()
     include_directories(${ZMQ_INCLUDE_DIR})
     SOAPY_SDR_MODULE_UTIL(
         TARGET VrtDevice
-        SOURCES vrt_soapy.cpp
+        SOURCES src/vrt_soapy.cpp
         LIBRARIES ${ZMQ_LIBRARY}
     )
     target_include_directories(VrtDevice PRIVATE ${ZMQ_INCLUDE_DIR})
