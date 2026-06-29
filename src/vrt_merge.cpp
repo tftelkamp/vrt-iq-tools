@@ -105,7 +105,7 @@ int main(int argc, char* argv[])
     if (vm.count("help")) {
         std::cout << boost::format("VRT merge. %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application merges two VRT streams.\n"
+                  << "This application merges two VRT streams into a single synchronzed stream with two channels. It requires equal timestsamps in the streams.\n"
                   << std::endl;
         return ~0;
     }
@@ -257,7 +257,7 @@ int main(int argc, char* argv[])
                 rx_stored_len[0] = len1;
             } else if (vrt_packet1.context) {
                 zmq_msg_t msg;
-                rx_buffer[0][1] = htonl(1u);
+                rx_buffer[0][1] = htonl(1 << 0);  // Channel 0
                 zmq_msg_init_size (&msg, len1);
                 memcpy (zmq_msg_data(&msg), rx_buffer[0], len1);
                 zmq_msg_send(&msg, responder, 0);
@@ -294,7 +294,7 @@ int main(int argc, char* argv[])
                 rx_stored_len[1] = len2;
             } else if (vrt_packet2.context) {
                 zmq_msg_t msg;
-                rx_buffer[1][1] = htonl(2u);
+                rx_buffer[1][1] = htonl(1 << 1);  // Channel 1
                 zmq_msg_init_size (&msg, len2);
                 memcpy (zmq_msg_data(&msg), rx_buffer[1], len2);
                 zmq_msg_send(&msg, responder, 0);
