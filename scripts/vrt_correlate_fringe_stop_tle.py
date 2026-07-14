@@ -21,6 +21,8 @@ import astropy.units as u
 from astropy.units import Quantity
 import astropy.constants
 
+import csv
+
 # Skyfield
 from skyfield.api import EarthSatellite, load, wgs84, utc
 from scipy.constants import c
@@ -100,10 +102,18 @@ while True:
 
 		print(object_name)
 
-		url = 'https://celestrak.org/NORAD/elements/gp.php?FORMAT=TLE&CATNR={}'.format(object_name)
-		filename = '/tmp/tle-CATNR-{}.txt'.format(object_name)
+		max_days = 1.0 # download again once 1 day old
+		filename = '/tmp/OMM-CATNR-{}.txt'.format(object_name)
+		url = 'https://celestrak.org/NORAD/elements/gp.php?FORMAT=csv&CATNR={}'.format(object_name)
+
+		if not load.exists(filename) or load.days_old(filename) >= max_days:
+		    load.download(url, filename=filename)
+
+		with load.open(filename, mode='r') as f:
+		    data = list(csv.DictReader(f))
+
 		try:
-			satellites = load.tle_file(url, filename=filename)
+			sats = [EarthSatellite.from_omm(ts, fields) for fields in data]
 		except:
 			print("Loading " + object_name + " failed")
 			print("Not initialized!");
@@ -111,9 +121,9 @@ while True:
 			socket.send_multipart([identity, to_send.encode()])
 			continue
 
-		print(satellites)
+		print(sats)
 
-		source_sat = satellites[0]
+		source_sat = sats[0]
 
 		initialized = True;
 
