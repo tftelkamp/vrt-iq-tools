@@ -246,16 +246,17 @@ find_package(SoapySDR CONFIG)
 if(NOT SoapySDR_FOUND)
   message(WARNING "SoapySDR development files not found - skipping support")
 else()
-  include_directories(${ZMQ_INCLUDE_DIR})
-  soapy_sdr_module_util(TARGET VrtDevice SOURCES src/vrt_soapy.cpp LIBRARIES
-                        ${ZMQ_LIBRARY})
-  target_include_directories(VrtDevice PRIVATE ${ZMQ_INCLUDE_DIR})
-  target_link_libraries(VrtDevice PRIVATE ${ZMQ_LIBRARY})
-  target_include_directories(VrtDevice PRIVATE ${Boost_INCLUDE_DIRS})
-  target_link_libraries(VrtDevice PRIVATE ${Boost_LIBRARIES})
-  target_include_directories(VrtDevice
-                             PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libvrt/include)
-  target_link_libraries(VrtDevice PRIVATE vrt)
+  soapy_sdr_module_util(TARGET VrtDevice SOURCES src/vrt_soapy.cpp)
+
+  target_include_directories(VrtDevice PRIVATE
+                             ${ZMQ_INCLUDE_DIR}
+                             ${Boost_INCLUDE_DIRS}
+                             ${CMAKE_CURRENT_SOURCE_DIR}/libvrt/include)
+
+  target_link_libraries(VrtDevice PRIVATE
+                        ${ZMQ_LIBRARY}
+                        ${Boost_LIBRARIES}
+                        vrt)
 endif()
 
 install(TARGETS ${all_targets})
