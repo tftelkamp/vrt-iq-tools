@@ -6,7 +6,7 @@
 
 #define _FILE_OFFSET_BITS 64
 
-#include <hackrf.h>
+#include <libhackrf/hackrf.h>
 
 #include <stdbool.h>
 #include <stdio.h>
