@@ -8,6 +8,7 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include <cstring>
 
 #define VRT_SOAPY_DEBUG
 
