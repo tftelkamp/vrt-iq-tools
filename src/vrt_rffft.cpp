@@ -36,7 +36,7 @@
 #include <vrt/vrt_types.h>
 #include <vrt/vrt_util.h>
 
-#include <complex.h>
+#include <complex>
 
 #include "vrt-tools.h"
 
