@@ -21,8 +21,6 @@
 #define VRT_CONTEXT_INTERVAL 200
 
 #include <boost/format.hpp>
-#include <boost/lexical_cast.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
 #include <chrono>
 
 // VRT
@@ -36,6 +34,9 @@
 #include <cctype>
 #include <cmath>
 #include <complex>
+#include <cstdio>
+#include <cstdlib>
+#include <iostream>
 #include <string>
 #include <sys/time.h>
 #include <time.h>
@@ -47,10 +48,6 @@
  * picosecond count as the internal currency everywhere and treat the ISO 8601
  * text form as a presentation layer only.
  *
- * boost::posix_time::ptime cannot be the carrier: in a default boost build its
- * tick is one microsecond (time_duration::ticks_per_second() == 1000000), and
- * it silently truncates any finer fraction it is asked to parse. So only whole
- * seconds go through boost, and the sub-second part is handled separately.
  */
 #define VRT_PS_PER_SECOND 1000000000000ULL
 
@@ -80,10 +77,36 @@ inline void vrt_time_normalize(struct vrt_time_ps* t) {
 inline std::string vrt_iso_datetime_ns(uint64_t seconds, uint64_t frac_ps) {
     struct vrt_time_ps t = {(int64_t)seconds, frac_ps};
     vrt_time_normalize(&t);
-    return str(boost::format("%s.%09u")
-               % boost::posix_time::to_iso_extended_string(
-                     boost::posix_time::from_time_t((time_t)t.seconds))
-               % (uint32_t)(t.frac_ps / 1000));
+
+    const time_t secs = (time_t)t.seconds;
+    struct tm     utc  = {};
+    gmtime_r(&secs, &utc);
+
+    char buf[48];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d.%09llu",
+             utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
+             utc.tm_hour, utc.tm_min, utc.tm_sec,
+             (unsigned long long)(t.frac_ps / 1000));
+    return std::string(buf);
+}
+
+/* Days since 1970-01-01 for a civil date, proleptic Gregorian. Used instead of
+ * timegm(), which is not standard C, and unlike mktime() needs no time zone. */
+inline int64_t vrt_days_from_civil(int64_t y, unsigned m, unsigned d) {
+    y -= m <= 2;
+    const int64_t  era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = (unsigned)(y - era * 400);                       /* [0, 399]    */
+    const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;  /* [0, 365]    */
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;           /* [0, 146096] */
+    return era * 146097 + (int64_t)doe - 719468;
+}
+
+/* Days in a month of a proleptic Gregorian year. */
+inline unsigned vrt_days_in_month(int64_t y, unsigned m) {
+    static const unsigned len[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (m == 2 and ((y % 4 == 0 and y % 100 != 0) or y % 400 == 0))
+        return 29;
+    return len[m - 1];
 }
 
 /* Parse "YYYY-MM-DDTHH:MM:SS[.frac]" into whole seconds and a picosecond
@@ -99,8 +122,8 @@ inline bool vrt_parse_iso_datetime_ns(const std::string& text, struct vrt_time_p
     if (not s.empty() and (s.back() == 'Z' or s.back() == 'z'))
         s.pop_back();
 
-    /* Split the fraction off before boost sees it, so it cannot be truncated
-     * to boost's microsecond tick. */
+    /* Split the fraction off: the civil-time part below carries whole seconds
+     * only, and the fraction is kept to picoseconds. */
     std::string frac_str;
     const size_t dot = s.find('.');
     if (dot != std::string::npos) {
@@ -108,20 +131,29 @@ inline bool vrt_parse_iso_datetime_ns(const std::string& text, struct vrt_time_p
         s.erase(dot);
     }
 
-    const size_t t_pos = s.find('T');
-    if (t_pos != std::string::npos)
-        s[t_pos] = ' ';
-
-    boost::posix_time::ptime parsed;
-    try {
-        parsed = boost::posix_time::time_from_string(s);
-    } catch (std::exception&) {
-        return false;
+    /* "YYYY-MM-DDTHH:MM:SS", or the same with the seconds left off. */
+    int  y = 0, mo = 0, d = 0, h = 0, mi = 0, sec = 0, used = 0;
+    char sep = 0;
+    if (sscanf(s.c_str(), "%d-%d-%d%c%d:%d:%d%n", &y, &mo, &d, &sep, &h, &mi, &sec, &used) < 7) {
+        used = 0;
+        if (sscanf(s.c_str(), "%d-%d-%d%c%d:%d%n", &y, &mo, &d, &sep, &h, &mi, &used) < 6)
+            return false;
+        sec = 0;
     }
-    if (parsed.is_not_a_date_time())
+    if (sep != 'T' and sep != ' ')
         return false;
 
-    t->seconds = (int64_t)boost::posix_time::to_time_t(parsed);
+    /* Reject trailing text rather than silently accepting a malformed time. */
+    for (size_t i = (size_t)used; i < s.size(); i++)
+        if (not isspace((unsigned char)s[i]))
+            return false;
+
+    if (mo < 1 or mo > 12 or d < 1 or (unsigned)d > vrt_days_in_month(y, (unsigned)mo) or
+        h < 0 or h > 23 or mi < 0 or mi > 59 or sec < 0 or sec > 60)
+        return false;
+
+    t->seconds = vrt_days_from_civil(y, (unsigned)mo, (unsigned)d) * 86400
+                 + (int64_t)h * 3600 + (int64_t)mi * 60 + (int64_t)sec;
 
     /* Keep the leading digits only, then pad or truncate to 12 of them. */
     size_t digits = 0;
@@ -146,16 +178,18 @@ inline bool vrt_parse_iso_datetime_ns(const std::string& text, struct vrt_time_p
  * double holds about 0.2 us of resolution at present-day epochs. Use the ISO
  * form when the fraction matters. */
 inline bool vrt_parse_time_arg(const std::string& text, struct vrt_time_ps* t) {
-    try {
-        const double unix_start = boost::lexical_cast<double>(text);
-        const double whole      = std::floor(unix_start);
-        t->seconds              = (int64_t)whole;
-        t->frac_ps              = (uint64_t)std::llround((unix_start - whole) * (double)VRT_PS_PER_SECOND);
+    /* A bare decimal number is a Unix time; anything else is tried as ISO. */
+    const char* begin = text.c_str();
+    char*       end   = NULL;
+    const double unix_start = strtod(begin, &end);
+    if (end != begin and *end == '\0' and std::isfinite(unix_start)) {
+        const double whole = std::floor(unix_start);
+        t->seconds         = (int64_t)whole;
+        t->frac_ps         = (uint64_t)std::llround((unix_start - whole) * (double)VRT_PS_PER_SECOND);
         vrt_time_normalize(t);
         return true;
-    } catch (boost::bad_lexical_cast&) {
-        return vrt_parse_iso_datetime_ns(text, t);
     }
+    return vrt_parse_iso_datetime_ns(text, t);
 }
 
 /* Order two picosecond timestamps. */
