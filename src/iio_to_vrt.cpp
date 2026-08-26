@@ -415,14 +415,13 @@ int main(int argc, char* argv[])
 
     // END IIO
 
-    struct timeval time_now{};
-    gettimeofday(&time_now, nullptr);
+    struct vrt_time_ps time_now = vrt_time_now();
 
     // if (vm.count("pps")) {
     // }
 
-    gettimeofday(&time_now, nullptr);
-    std::cout << boost::format("PC Clock time: %.6f seconds\n") % (time_now.tv_sec + (double)time_now.tv_usec / 1e6);
+    time_now = vrt_time_now();
+    std::cout << boost::format("PC Clock time: %.9f seconds\n") % ((double)time_now.seconds + (double)time_now.frac_ps / 1e12);
 
     // RX
 
@@ -466,11 +465,10 @@ int main(int argc, char* argv[])
     int64_t time_per_block = (1e12*VRT_SAMPLES_PER_PACKET)/sample_rate;
     
     if (int_second) {
-        gettimeofday(&time_now, nullptr);
-        struct timeval new_time{};
-        gettimeofday(&new_time, nullptr);
-        while (time_now.tv_sec==new_time.tv_sec)
-            gettimeofday(&new_time, nullptr);
+        time_now = vrt_time_now();
+        struct vrt_time_ps new_time = vrt_time_now();
+        while (time_now.seconds==new_time.seconds)
+            new_time = vrt_time_now();
     }
     
     // flush merge queue
@@ -494,7 +492,7 @@ int main(int argc, char* argv[])
 
         const auto now = std::chrono::steady_clock::now();
 
-        gettimeofday(&time_now, nullptr);
+        time_now = vrt_time_now();
 
         // Refill RX buffer
         nbytes_rx = iio_buffer_refill(rxbuf);
@@ -524,8 +522,8 @@ int main(int argc, char* argv[])
         if (first_frame) {
             std::cout << boost::format(
                              "First frame: %u samples, %u full secs, %.09f frac secs")
-                             % (num_rx_samps) % (time_now.tv_sec)
-                             % ((double)(time_now.tv_usec/1e6))
+                             % (num_rx_samps) % (time_now.seconds)
+                             % ((double)time_now.frac_ps/1e12)
                       << std::endl;
             first_frame = false;
             last_update = now;
@@ -546,8 +544,8 @@ int main(int argc, char* argv[])
             vrt_init_context_packet(&pc);
 
             // Use host time, not very accurate
-            pc.fields.integer_seconds_timestamp = time_now.tv_sec;
-            pc.fields.fractional_seconds_timestamp = 1e6*time_now.tv_usec;
+            pc.fields.integer_seconds_timestamp = time_now.seconds;
+            pc.fields.fractional_seconds_timestamp = time_now.frac_ps;
 
             for (size_t ch = 0; ch < channel_nums.size(); ch++) {
                 size_t channel = channel_nums[ch];
@@ -617,8 +615,8 @@ int main(int argc, char* argv[])
                 p.header.packet_count = (uint8_t)frame_count%16;
 
                 // Use host time, not very accurate
-                p.fields.integer_seconds_timestamp = time_now.tv_sec;
-                p.fields.fractional_seconds_timestamp = 1e6*time_now.tv_usec + block_count*time_per_block;
+                p.fields.integer_seconds_timestamp = time_now.seconds;
+                p.fields.fractional_seconds_timestamp = time_now.frac_ps + block_count*time_per_block;
 
                 if (p.fields.fractional_seconds_timestamp > 1e12) {
                     p.fields.fractional_seconds_timestamp -= 1e12;

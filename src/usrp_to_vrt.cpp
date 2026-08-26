@@ -266,15 +266,15 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                 if (c.state_and_event_indicators.user_defined == 0x1) {
                     if (c.state_and_event_indicators.has.calibrated_time && c.state_and_event_indicators.calibrated_time) {
 
-                        timeval vrt_time;
-                        vrt_time.tv_sec = f.integer_seconds_timestamp;
-                        vrt_time.tv_usec = f.fractional_seconds_timestamp/1e6;
-                        uhd::time_spec_t start_time(vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
+                        uhd::time_spec_t start_time((int64_t)f.integer_seconds_timestamp,
+                                                    (double)f.fractional_seconds_timestamp / 1e12);
 
                         metadata.has_time_spec = true;
                         metadata.time_spec = start_time;
 
-                        printf("Timed transmit queued (%ld frac %.09f).\n", vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
+                        printf("Timed transmit queued (%lld frac %.09f).\n",
+                               (long long int)f.integer_seconds_timestamp,
+                               (double)f.fractional_seconds_timestamp / 1e12);
 
                         // GPIO
                         if (enable_gpio) {
@@ -301,10 +301,8 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                     // GPIO
                     if (enable_gpio) {
                         if (c.state_and_event_indicators.has.calibrated_time && c.state_and_event_indicators.calibrated_time) {
-                            timeval vrt_time;
-                            vrt_time.tv_sec = f.integer_seconds_timestamp;
-                            vrt_time.tv_usec = f.fractional_seconds_timestamp/1e6;
-                            uhd::time_spec_t stop_time(vrt_time.tv_sec, (double)vrt_time.tv_usec / 1e6);
+                            uhd::time_spec_t stop_time((int64_t)f.integer_seconds_timestamp,
+                                                       (double)f.fractional_seconds_timestamp / 1e12);
                             usrp->set_command_time(stop_time + uhd::time_spec_t(gpio_stop_delay));
                             usrp->set_gpio_attr(gpio, "OUT", 0, GPIO_BIT(gpio_bit));
                         } else {
@@ -800,28 +798,27 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // reset usrp time to prepare for transmit/receive
     std::cout << boost::format("Setting device timestamp to current time...") << std::endl;
 
-    struct timeval time_now{};
-    gettimeofday(&time_now, nullptr);
+    struct vrt_time_ps time_now = vrt_time_now();
 
-    // seed random generator with seconds and microseconds
-    srand(time_now.tv_usec + time_now.tv_sec);
+    // seed random generator with the current time
+    srand((unsigned)(time_now.frac_ps/1000000 + time_now.seconds));
 
     // Non-PPS
-    usrp->set_time_now(uhd::time_spec_t(time_now.tv_sec, (double)time_now.tv_usec / 1e6));
+    usrp->set_time_now(uhd::time_spec_t((int64_t)time_now.seconds, (double)time_now.frac_ps / 1e12));
 
     // PPS
     if (actual_time_source == "external") {
         uint32_t usrp_seconds;
         do {
-            gettimeofday(&time_now, nullptr);
-            int64_t integer_time = (int64_t)((double)time_now.tv_sec + (double)time_now.tv_usec/1e6 + 2.0 - pps_offset);
+            time_now = vrt_time_now();
+            int64_t integer_time = (int64_t)((double)time_now.seconds + (double)time_now.frac_ps/1e12 + 2.0 - pps_offset);
             uhd::time_spec_t set_pps_time = uhd::time_spec_t(integer_time, (double)pps_offset);
             std::cout << boost::format("Wait for PPS sync...") << std::endl;
             usrp->set_time_unknown_pps(set_pps_time);
             boost::this_thread::sleep_for(boost::chrono::milliseconds(2100));
-            gettimeofday(&time_now, nullptr);
+            time_now = vrt_time_now();
             usrp_seconds = usrp->get_time_now().get_full_secs();
-        } while (usrp_seconds != time_now.tv_sec);
+        } while (usrp_seconds != time_now.seconds);
 
         timestamp_calibration_time = (uint32_t)usrp_seconds;
         std::cout << boost::format("Done...") << std::endl;
@@ -868,15 +865,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                          % (usrp->get_time_last_pps().get_real_secs());
         std::cout << boost::format("UHD Device time right now:  %.6f seconds\n")
                          % (usrp->get_time_now().get_real_secs());
-        gettimeofday(&time_now, nullptr);
-        std::cout << boost::format("PC Clock time:              %.6f seconds\n") % (time_now.tv_sec + (double)time_now.tv_usec / 1e6);  //time(NULL);
+        time_now = vrt_time_now();
+        std::cout << boost::format("PC Clock time:              %.9f seconds\n") % ((double)time_now.seconds + (double)time_now.frac_ps / 1e12);  //time(NULL);
     } else {
         std::cout << boost::format("UHD Device time last PPS:   %.6f seconds\n")
                          % (usrp->get_time_last_pps().get_real_secs());
         std::cout << boost::format("UHD Device time right now:  %.6f seconds\n")
                          % (usrp->get_time_now().get_real_secs());
-        gettimeofday(&time_now, nullptr);
-        std::cout << boost::format("PC Clock time:              %.6f seconds\n") % (time_now.tv_sec + (double)time_now.tv_usec / 1e6);
+        time_now = vrt_time_now();
+        std::cout << boost::format("PC Clock time:              %.9f seconds\n") % ((double)time_now.seconds + (double)time_now.frac_ps / 1e12);
     }
 
     // TX

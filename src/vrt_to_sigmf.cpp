@@ -5,7 +5,6 @@
 #include <unistd.h>
 
 #include <boost/format.hpp>
-#include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
@@ -160,35 +159,16 @@ int main(int argc, char* argv[])
     bool vrt                    = vm.count("vrt") > 0;
     bool zmq_split              = vm.count("zmq-split") > 0;
 
-    boost::posix_time::ptime utc_time;
+    // Unix time or ISO 8601, kept to picosecond resolution
+    struct vrt_time_ps utc_time = {0, 0};
     if (start_at_timestamp) {
-        // Check for unix time
-        try {
-            boost::lexical_cast<double>(start_reception);
-            double unix_start = boost::lexical_cast<double>(start_reception);
-            utc_time = boost::posix_time::from_time_t(unix_start);
-            double fraction = unix_start - ((int64_t)unix_start);
-            utc_time += boost::posix_time::microseconds((int64_t)(fraction*1000000));
-        } catch (boost::bad_lexical_cast&) {
-            // not unix time
-
-            // Replace 'T' with space
-            size_t t_pos = start_reception.find('T');
-            if (t_pos != std::string::npos) {
-                start_reception[t_pos] = ' ';
-            }
-
-            // Remove 'Z' if present
-            size_t z_pos = start_reception.find('Z');
-            if (z_pos != std::string::npos) {
-                start_reception.erase(z_pos, 1);
-            }
-
-            // Parse the string into a ptime object
-            utc_time = boost::posix_time::time_from_string(start_reception);
+        if (not vrt_parse_time_arg(start_reception, &utc_time)) {
+            std::cerr << "Failed to parse --start-time: " << start_reception << std::endl;
+            return ~0;
         }
         // Print parsed time
-        std::cout << "UTC start time: " << utc_time << std::endl;
+        std::cout << "UTC start time: " << vrt_iso_datetime_ns(utc_time.seconds, utc_time.frac_ps)
+                  << std::endl;
     }
 
     context_type vrt_context;
@@ -372,7 +352,7 @@ int main(int argc, char* argv[])
                     if (dt_trace) {
                         char const *trackerStrings[] = {"idle", "azel", "j2000tracker", "moontracker", "suntracker", "sattracker", "manual"};
                         json += str(boost::format(
-                        "        \"dt:datetime\": \"%s.%06.0f\",\n"
+                        "        \"dt:datetime\": \"%s\",\n"
                         "        \"dt:pointing:active_tracker\": \"%s\",\n"
                         "        \"dt:pointing:tracking_enabled\": \"%s\",\n"
                         "        \"dt:pointing:refraction\": \"%s\",\n"
@@ -399,8 +379,7 @@ int main(int argc, char* argv[])
                         "        \"dt:pointing:model:za\": %.6f,\n"
                         "        \"dt:pointing:model:aa\": %.6f,\n"
                         "        \"dt:focusbox_position_mm\": %.0f,\n" )
-                        % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(dt_ext_context.integer_seconds_timestamp)))
-                        % ((double)(dt_ext_context.fractional_seconds_timestamp/1e6))
+                        % (vrt_iso_datetime_ns(dt_ext_context.integer_seconds_timestamp, dt_ext_context.fractional_seconds_timestamp))
                         % (trackerStrings[dt_ext_context.active_tracker])
                         % (dt_ext_context.tracking_enabled ? "true" : "false")
                         % (dt_ext_context.refraction ? "true" : "false")
@@ -430,7 +409,7 @@ int main(int argc, char* argv[])
                     }
                     if (tracking) {
                         json += str(boost::format(
-                        "        \"tracker:datetime\": \"%s.%06.0f\",\n"
+                        "        \"tracker:datetime\": \"%s\",\n"
                         "        \"tracker:object_name\": \"%.32s\",\n"
                         "        \"tracker:tracking_source\": \"%.32s\",\n"
                         "        \"tracker:object_id\": %i,\n"
@@ -443,8 +422,7 @@ int main(int argc, char* argv[])
                         "        \"tracker:frequency\": %.0f,\n"
                         "        \"tracker:doppler\": %.4f,\n"
                         "        \"tracker:doppler_rate\": %.4f,\n" )
-                        % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(tracker_ext_context.integer_seconds_timestamp)))
-                        % ((double)(tracker_ext_context.fractional_seconds_timestamp/1e6))
+                        % (vrt_iso_datetime_ns(tracker_ext_context.integer_seconds_timestamp, tracker_ext_context.fractional_seconds_timestamp))
                         % (tracker_ext_context.object_name)
                         % (tracker_ext_context.tracking_source)
                         % (tracker_ext_context.object_id)
@@ -478,7 +456,7 @@ int main(int argc, char* argv[])
                     "            \"core:sample_start\": 0,\n"
                     "            \"core:frequency\": %.0f,\n"
                     "            \"vrt:frac_frequency\": %.6e,\n"
-                    "            \"core:datetime\": \"%s.%06.0f\"\n"
+                    "            \"core:datetime\": \"%s\"\n"
                     "        }\n"
                     "    ]\n"
                     "}\n")
@@ -490,8 +468,7 @@ int main(int argc, char* argv[])
                     % channel
                     % vrt_context.rf_freq
                     % vrt_context.rf_frac_freq
-                    % (boost::posix_time::to_iso_extended_string(boost::posix_time::from_time_t(vrt_context.starttime_integer)))
-                    % (double)(vrt_context.starttime_fractional/1e6) );
+                    % (vrt_iso_datetime_ns(vrt_context.starttime_integer, vrt_context.starttime_fractional)) );
                     *metafiles[ch] << json;
                     *metafiles[ch] << std::endl;
                     metafiles[ch]->close();
@@ -522,10 +499,9 @@ int main(int argc, char* argv[])
                     break;
 
             if (start_at_timestamp) {
-                boost::posix_time::ptime vrt_timestamp = boost::posix_time::from_time_t(vrt_packet.integer_seconds_timestamp);
-                vrt_timestamp += boost::posix_time::microseconds((int64_t)vrt_packet.fractional_seconds_timestamp/1000000);
-                // std::cout << "vrt time: " << vrt_timestamp << std::endl;
-                if (vrt_timestamp < utc_time) {
+                const struct vrt_time_ps vrt_timestamp = {(int64_t)vrt_packet.integer_seconds_timestamp,
+                                                          vrt_packet.fractional_seconds_timestamp};
+                if (vrt_time_before(vrt_timestamp, utc_time)) {
                     continue;
                 } else {
                     start_at_timestamp = false;

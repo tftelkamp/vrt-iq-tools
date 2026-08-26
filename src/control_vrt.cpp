@@ -123,10 +123,9 @@ int main(int argc, char* argv[])
 
     pc.fields.stream_id = 1<<channel;
 
-    struct timeval time_now{};
-    gettimeofday(&time_now, nullptr);
-    pc.fields.integer_seconds_timestamp = time_now.tv_sec;
-    pc.fields.fractional_seconds_timestamp = 1e3*time_now.tv_usec;
+    const struct vrt_time_ps time_now = vrt_time_now();
+    pc.fields.integer_seconds_timestamp = time_now.seconds;
+    pc.fields.fractional_seconds_timestamp = time_now.frac_ps;
 
     pc.if_context.has.bandwidth   = false;
     pc.if_context.has.sample_rate = false;

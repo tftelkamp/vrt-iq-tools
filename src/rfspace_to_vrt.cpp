@@ -330,11 +330,10 @@ int main(int argc, char* argv[])
 
     transaction( atten, sizeof(atten), response);
 
-    struct timeval time_now{};
-    gettimeofday(&time_now, nullptr);
+    struct vrt_time_ps time_now = vrt_time_now();
 
-    // seed random generator with seconds and microseconds
-    srand(time_now.tv_usec + time_now.tv_sec);
+    // seed random generator with the current time
+    srand((unsigned)(time_now.frac_ps/1000000 + time_now.seconds));
 
  	// Receive
 
@@ -428,11 +427,10 @@ int main(int argc, char* argv[])
 
     // Hack
     if (int_second) {
-    	gettimeofday(&time_now, nullptr);
-    	struct timeval new_time{};
-    	gettimeofday(&new_time, nullptr);
-        while (time_now.tv_sec==new_time.tv_sec)
-        	gettimeofday(&new_time, nullptr);
+    	time_now = vrt_time_now();
+    	struct vrt_time_ps new_time = vrt_time_now();
+        while (time_now.seconds==new_time.seconds)
+        	new_time = vrt_time_now();
     }
 
     // Run this loop until either time expired (if a duration was given), until
@@ -480,7 +478,7 @@ int main(int argc, char* argv[])
         // RX
         ssize_t rx_bytes = recvfrom(udp_sockfd, data, sizeof(data), 0, (struct sockaddr *)&sa_in, &addrlen);
 
-        gettimeofday(&time_now, nullptr);
+        time_now = vrt_time_now();
 
         // No need to check, we configure the SDR for 16 bit
         // if ( (0x04 == data[0] && (0x84 == data[1] || 0x82 == data[1])) )
@@ -546,9 +544,9 @@ int main(int argc, char* argv[])
             else
                 pc.if_context.context_field_change_indicator = false;
 
-            gettimeofday(&time_now, nullptr);
-            pc.fields.integer_seconds_timestamp = time_now.tv_sec;
-            pc.fields.fractional_seconds_timestamp = 1e3*time_now.tv_usec;
+            time_now = vrt_time_now();
+            pc.fields.integer_seconds_timestamp = time_now.seconds;
+            pc.fields.fractional_seconds_timestamp = time_now.frac_ps;
 
             pc.fields.stream_id = p.fields.stream_id;
 
@@ -585,31 +583,27 @@ int main(int argc, char* argv[])
         if (first_frame) {
                 std::cout << boost::format(
                                  "First frame: %u samples, %u full secs, %.09f frac secs (counter %u)")
-                                 % (rx_samples) % time_now.tv_sec
-                                 % (time_now.tv_usec/1e6)
+                                 % (rx_samples) % time_now.seconds
+                                 % ((double)time_now.frac_ps/1e12)
                                  % sequence
                           << std::endl;
                 first_frame = false;
                 time_first_sample = time_now;
                 // If PPS is enabled, the first packet should be on the PPS
                 if ( vm.count("pps") && (sequence==0) )
-                    time_first_sample.tv_usec = 0;
+                    time_first_sample.frac_ps = 0;
         }
 
     	while (cb.size() > 2*samps_per_buff ) {
 
-        	gettimeofday(&time_now, nullptr);
+        	time_now = vrt_time_now();
 
             num_words_read = samps_per_buff;
 
-            struct timeval interval_time, vrt_time;
-            int64_t first_sample = sample_counter - cb.size()/2;
+            const uint64_t first_sample = sample_counter - cb.size()/2;
 
-            double interval = (double)first_sample/(double)u32_rate;
-            interval_time.tv_sec = (time_t)interval;
-            interval_time.tv_usec = (interval-(time_t)interval)*1e6;
-
-            timeradd(&time_first_sample, &interval_time, &vrt_time);
+            const struct vrt_time_ps vrt_time =
+                vrt_time_add_samples(time_first_sample, first_sample, (double)u32_rate);
 
 	        for (uint32_t i = 0; i < 2*samps_per_buff; i++) {
     			bodydata[i] = (int16_t)cb.front();
@@ -620,8 +614,8 @@ int main(int argc, char* argv[])
 
 	        p.body = bodydata;
 	        p.header.packet_count = (uint8_t)frame_count%16;
-	        p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
-	        p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
+	        p.fields.integer_seconds_timestamp = vrt_time.seconds;
+	        p.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
 	
 	        zmq_msg_t msg;
 	        int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);

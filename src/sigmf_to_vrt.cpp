@@ -5,7 +5,6 @@
 //
 
 #include <boost/format.hpp>
-#include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
@@ -43,7 +42,6 @@
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
 // #include <boost/date_time.hpp>
 
 // Short alias for this namespace
@@ -153,35 +151,16 @@ int main(int argc, char* argv[])
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
 
-    boost::posix_time::ptime utc_time;
+    // Unix time or ISO 8601, kept to picosecond resolution
+    struct vrt_time_ps utc_time = {0, 0};
     if (start_at_timestamp) {
-        // Check for unix time
-        try {
-            boost::lexical_cast<double>(start_at_str);
-            double unix_start = boost::lexical_cast<double>(start_at_str);
-            utc_time = boost::posix_time::from_time_t(unix_start);
-            double fraction = unix_start - ((int64_t)unix_start);
-            utc_time += boost::posix_time::microseconds((int64_t)(fraction*1000000));
-        } catch (boost::bad_lexical_cast&) {
-            // not unix time
-
-            // Replace 'T' with space
-            size_t t_pos = start_at_str.find('T');
-            if (t_pos != std::string::npos) {
-                start_at_str[t_pos] = ' ';
-            }
-
-            // Remove 'Z' if present
-            size_t z_pos = start_at_str.find('Z');
-            if (z_pos != std::string::npos) {
-                start_at_str.erase(z_pos, 1);
-            }
-
-            // Parse the string into a ptime object
-            utc_time = boost::posix_time::time_from_string(start_at_str);
+        if (not vrt_parse_time_arg(start_at_str, &utc_time)) {
+            std::cerr << "Failed to parse --start-time: " << start_at_str << std::endl;
+            exit(1);
         }
         // Print parsed time
-        std::cout << "# UTC start time: " << utc_time << std::endl;
+        std::cout << "# UTC start time: " << vrt_iso_datetime_ns(utc_time.seconds, utc_time.frac_ps)
+                  << std::endl;
     }
 
     // seed random generator with seconds and microseconds
@@ -372,16 +351,16 @@ int main(int argc, char* argv[])
     uint32_t first_word;
     std::complex<short> samples[VRT_SAMPLES_PER_PACKET];
 
-    timeval time_first_sample;
+    struct vrt_time_ps time_first_sample;
 
-    boost::posix_time::ptime t1(boost::posix_time::from_iso_extended_string(start_time_str));
+    if (not vrt_parse_iso_datetime_ns(start_time_str, &time_first_sample)) {
+        std::cerr << "Failed to parse core:datetime: " << start_time_str << std::endl;
+        exit(1);
+    }
 
-    time_t integer_time_first_sample = boost::posix_time::to_time_t(t1);
-    boost::posix_time::ptime t2(boost::posix_time::from_time_t(integer_time_first_sample));
-
-    boost::posix_time::time_duration fractional_sec = t1-t2;
-    time_first_sample.tv_sec = integer_time_first_sample;
-    time_first_sample.tv_usec = fractional_sec.total_microseconds();
+    /* Sample index of the first sample read, counted from the start of the
+     * recording. Non-zero when --start-time seeks into the file. */
+    uint64_t first_sample_offset = 0;
 
     auto vrt_time = time_first_sample;
 
@@ -392,15 +371,17 @@ int main(int argc, char* argv[])
         }
         uintmax_t datafilesize = boost::filesystem::file_size(data_filename);
 
-        boost::posix_time::time_duration seek_duration = utc_time - t1;
-        double seek_seconds = seek_duration.total_microseconds() / 1e6;
+        /* Distance to seek, in picoseconds, so a sub-microsecond --start-time
+         * still lands on the right sample. */
+        const __int128 seek_ps = ((__int128)utc_time.seconds - time_first_sample.seconds) * VRT_PS_PER_SECOND +
+                                 (__int128)utc_time.frac_ps - time_first_sample.frac_ps;
 
-        if (seek_seconds < 0) {
+        if (seek_ps < 0) {
             printf("--start-time is before the start of the recording\n");
             exit(1);
         }
 
-        int64_t seek_samples = (int64_t)(seek_seconds * rate);
+        int64_t seek_samples = (int64_t)((seek_ps * (__int128)llround(rate)) / (__int128)VRT_PS_PER_SECOND);
         int64_t seek_bytes = seek_samples * 4;  // 4 bytes per sample (ci16_le)
 
         if (seek_bytes >= (int64_t)datafilesize) {
@@ -413,14 +394,10 @@ int main(int argc, char* argv[])
             fseek(read_ptr_2, seek_bytes, SEEK_SET);
         }
 
-        boost::posix_time::ptime actual_start =
-            t1 + boost::posix_time::microseconds(seek_samples * 1000000LL / (int64_t)rate);
-        time_t integer_actual = boost::posix_time::to_time_t(actual_start);
-        boost::posix_time::ptime actual_integer(boost::posix_time::from_time_t(integer_actual));
-        boost::posix_time::time_duration actual_frac = actual_start - actual_integer;
-        time_first_sample.tv_sec = integer_actual;
-        time_first_sample.tv_usec = actual_frac.total_microseconds();
-        vrt_time = time_first_sample;
+        /* The seek lands on a sample boundary, which is not exactly the
+         * requested time: report the time of the sample actually reached. */
+        first_sample_offset = (uint64_t)seek_samples;
+        vrt_time = vrt_time_add_samples(time_first_sample, first_sample_offset, rate);
     }
 
     // trigger context update
@@ -483,14 +460,9 @@ int main(int argc, char* argv[])
 
             last_context = now;
 
-            struct timeval interval_time;
-            int64_t first_sample = frame_count*samps_per_buff;
+            const uint64_t first_sample = first_sample_offset + frame_count*samps_per_buff;
 
-            double interval = (double)first_sample/(double)rate;
-            interval_time.tv_sec = (time_t)interval;
-            interval_time.tv_usec = (interval-(time_t)interval)*1e6;
-
-            timeradd(&time_first_sample, &interval_time, &vrt_time);
+            vrt_time = vrt_time_add_samples(time_first_sample, first_sample, rate);
 
             // VITA 49.2
             /* Initialize to reasonable values */
@@ -500,8 +472,8 @@ int main(int argc, char* argv[])
             /* VRT Configure. Note that context packets cannot have a trailer word. */
             vrt_init_context_packet(&pc);
 
-            pc.fields.integer_seconds_timestamp = vrt_time.tv_sec;
-            pc.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
+            pc.fields.integer_seconds_timestamp = vrt_time.seconds;
+            pc.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
 
             pc.fields.stream_id = 1;
 
@@ -538,8 +510,8 @@ int main(int argc, char* argv[])
                 vrt_init_packet(&pc2);
                 vrt_init_context_packet(&pc2);
 
-                pc2.fields.integer_seconds_timestamp    = vrt_time.tv_sec;
-                pc2.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
+                pc2.fields.integer_seconds_timestamp    = vrt_time.seconds;
+                pc2.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
 
                 pc2.fields.stream_id = 2;
 
@@ -594,20 +566,15 @@ int main(int argc, char* argv[])
 
             num_words_read = samps_per_buff;
 
-            struct timeval interval_time;
-            int64_t first_sample = frame_count*samps_per_buff;
+            const uint64_t first_sample = first_sample_offset + frame_count*samps_per_buff;
 
-            double interval = (double)first_sample/(double)rate;
-            interval_time.tv_sec = (time_t)interval;
-            interval_time.tv_usec = (interval-(time_t)interval)*1e6;
-
-            timeradd(&time_first_sample, &interval_time, &vrt_time);
+            vrt_time = vrt_time_add_samples(time_first_sample, first_sample, rate);
 
             if (first_frame) {
                 std::cout << boost::format(
                                  "First frame: %u samples, %u full secs, %.09f frac secs")
-                                 % (num_words_read) % vrt_time.tv_sec
-                                 % (vrt_time.tv_usec/1e6)
+                                 % (num_words_read) % vrt_time.seconds
+                                 % ((double)vrt_time.frac_ps/1e12)
                           << std::endl;
                 first_frame = false;
             }
@@ -615,8 +582,8 @@ int main(int argc, char* argv[])
             p.fields.stream_id = 1;
             p.body = samples;
             p.header.packet_count = (uint8_t)frame_count%16;
-            p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
-            p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
+            p.fields.integer_seconds_timestamp = vrt_time.seconds;
+            p.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
 
             zmq_msg_t msg;
             int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
@@ -631,8 +598,8 @@ int main(int argc, char* argv[])
                     p.fields.stream_id = 2;
                     p.body = samples;
                     p.header.packet_count = (uint8_t)frame_count%16;
-                    p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
-                    p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
+                    p.fields.integer_seconds_timestamp = vrt_time.seconds;
+                    p.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
 
                     zmq_msg_t msg;
                     int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);

@@ -534,11 +534,10 @@ int main(int argc, char* argv[])
     // Sleep setup time
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
 
-    struct timeval time_now{};
-    gettimeofday(&time_now, nullptr);
+    struct vrt_time_ps time_now = vrt_time_now();
 
-    // seed random generator with seconds and microseconds
-    srand(time_now.tv_usec + time_now.tv_sec);
+    // seed random generator with the current time
+    srand((unsigned)(time_now.frac_ps/1000000 + time_now.seconds));
 
  	// Receive
 
@@ -575,11 +574,10 @@ int main(int argc, char* argv[])
 
 
     if (int_second) {
-    	gettimeofday(&time_now, nullptr);
-    	struct timeval new_time{};
-    	gettimeofday(&new_time, nullptr);
-        while (time_now.tv_sec==new_time.tv_sec)
-        	gettimeofday(&new_time, nullptr);
+    	time_now = vrt_time_now();
+    	struct vrt_time_ps new_time = vrt_time_now();
+        while (time_now.seconds==new_time.seconds)
+        	new_time = vrt_time_now();
     }
 
     // Run this loop until either time expired (if a duration was given), until
@@ -606,13 +604,13 @@ int main(int argc, char* argv[])
             boost::shared_lock< boost::shared_mutex > lock(_access);
         	while (cb.size() > 2*samps_per_buff ) {
 
-            	gettimeofday(&time_now, nullptr);
+            	time_now = vrt_time_now();
 
     	        if (first_frame) {
     	            std::cout << boost::format(
     	                             "First frame: %u full secs, %.09f frac secs")
-    	                             % time_now.tv_sec
-    	                             % (time_now.tv_usec/1e6)
+    	                             % time_now.seconds
+    	                             % ((double)time_now.frac_ps/1e12)
     	                      << std::endl;
     	            first_frame = false;
     	        }
@@ -630,8 +628,8 @@ int main(int argc, char* argv[])
 
     	        p.body = bodydata;
     	        p.header.packet_count = (uint8_t)frame_count%16;
-    	        p.fields.integer_seconds_timestamp = time_now.tv_sec;
-    	        p.fields.fractional_seconds_timestamp = 1e6*time_now.tv_usec;
+    	        p.fields.integer_seconds_timestamp = time_now.seconds;
+    	        p.fields.fractional_seconds_timestamp = time_now.frac_ps;
     	
     	        zmq_msg_t msg;
     	        int rc = zmq_msg_init_size (&msg, SIZE*4);
@@ -657,9 +655,9 @@ int main(int argc, char* argv[])
     	            /* VRT Configure. Note that context packets cannot have a trailer word. */
     	            vrt_init_context_packet(&pc);
 
-    	            gettimeofday(&time_now, nullptr);
-    	            pc.fields.integer_seconds_timestamp = time_now.tv_sec;
-    	            pc.fields.fractional_seconds_timestamp = 1e3*time_now.tv_usec;
+    	            time_now = vrt_time_now();
+    	            pc.fields.integer_seconds_timestamp = time_now.seconds;
+    	            pc.fields.fractional_seconds_timestamp = time_now.frac_ps;
 
     	            pc.fields.stream_id = p.fields.stream_id;
 

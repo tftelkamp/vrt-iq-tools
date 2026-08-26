@@ -5,14 +5,11 @@
 #include <unistd.h>
 
 #include <boost/format.hpp>
-#include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/thread/thread.hpp>
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/date_time/posix_time/posix_time_io.hpp>
 
 #include <chrono>
 #include <csignal>
@@ -130,32 +127,12 @@ int main(int argc, char* argv[])
 
     bool has_waited_for_start_time = false;
 
-    boost::posix_time::ptime utc_time;
+    // Unix time or ISO 8601, kept to picosecond resolution
+    struct vrt_time_ps utc_time = {0, 0};
     if (start_at_timestamp) {
-        try {
-            // Check for unix time
-            boost::lexical_cast<double>(start_reception);
-            double unix_start = boost::lexical_cast<double>(start_reception);
-            utc_time = boost::posix_time::from_time_t(unix_start);
-            double fraction = unix_start - ((int64_t)unix_start);
-            utc_time += boost::posix_time::microseconds((int64_t)(fraction*1000000));
-       } catch (boost::bad_lexical_cast&) {
-            // not unix time
-
-            // Replace 'T' with space
-            size_t t_pos = start_reception.find('T');
-            if (t_pos != std::string::npos) {
-                start_reception[t_pos] = ' ';
-            }
-
-            // Remove 'Z' if present
-            size_t z_pos = start_reception.find('Z');
-            if (z_pos != std::string::npos) {
-                start_reception.erase(z_pos, 1);
-            }
-
-            // Parse the string into a ptime object
-            utc_time = boost::posix_time::time_from_string(start_reception);
+        if (not vrt_parse_time_arg(start_reception, &utc_time)) {
+            std::cerr << "Failed to parse --start-time: " << start_reception << std::endl;
+            return ~0;
         }
     }
 
@@ -335,16 +312,15 @@ int main(int argc, char* argv[])
                     break;
 
             if (start_at_timestamp) {
-                boost::posix_time::ptime vrt_timestamp = boost::posix_time::from_time_t(vrt_packet.integer_seconds_timestamp);
-                vrt_timestamp += boost::posix_time::microseconds((int64_t)vrt_packet.fractional_seconds_timestamp/1000000);
-                // std::cout << "vrt time: " << vrt_timestamp << std::endl;
-                if (vrt_timestamp <= utc_time) {
+                const struct vrt_time_ps vrt_timestamp = {(int64_t)vrt_packet.integer_seconds_timestamp,
+                                                          vrt_packet.fractional_seconds_timestamp};
+                if (not vrt_time_before(utc_time, vrt_timestamp)) {
                     has_waited_for_start_time = true;
                     continue;
                 } else {
                     start_at_timestamp = false;
                     if (not has_waited_for_start_time) {
-                        std::cerr << "Requested start time " << boost::posix_time::to_iso_extended_string(utc_time) << " lies before first received data" << std::endl;
+                        std::cerr << "Requested start time " << vrt_iso_datetime_ns(utc_time.seconds, utc_time.frac_ps) << " lies before first received data" << std::endl;
                         return EXIT_FAILURE;
                     }
                     last_update = now;
