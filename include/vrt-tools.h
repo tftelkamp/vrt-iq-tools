@@ -21,6 +21,8 @@
 #define VRT_CONTEXT_INTERVAL 200
 
 #include <boost/format.hpp>
+#include <boost/lexical_cast.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include <chrono>
 
 // VRT
@@ -31,7 +33,174 @@
 #include <vrt/vrt_write.h>
 #include <vrt/vrt_read.h>
 
+#include <cctype>
+#include <cmath>
 #include <complex>
+#include <string>
+#include <sys/time.h>
+#include <time.h>
+
+/* Timestamps
+ *
+ * VRT real-time fractional timestamps (VRT_TSF_REAL_TIME) count picoseconds
+ * since the last second shift, and must stay below 1e12. Keep that integer
+ * picosecond count as the internal currency everywhere and treat the ISO 8601
+ * text form as a presentation layer only.
+ *
+ * boost::posix_time::ptime cannot be the carrier: in a default boost build its
+ * tick is one microsecond (time_duration::ticks_per_second() == 1000000), and
+ * it silently truncates any finer fraction it is asked to parse. So only whole
+ * seconds go through boost, and the sub-second part is handled separately.
+ */
+#define VRT_PS_PER_SECOND 1000000000000ULL
+
+/* Seconds since the epoch plus a picosecond fraction. */
+struct vrt_time_ps {
+    int64_t  seconds;
+    uint64_t frac_ps;
+};
+
+/* Carry any whole seconds out of the fraction, so frac_ps < 1e12 and the value
+ * is within the bounds vrt_write_packet() enforces for VRT_TSF_REAL_TIME. */
+inline void vrt_time_normalize(struct vrt_time_ps* t) {
+    if (t->frac_ps >= VRT_PS_PER_SECOND) {
+        t->seconds += (int64_t)(t->frac_ps / VRT_PS_PER_SECOND);
+        t->frac_ps %= VRT_PS_PER_SECOND;
+    }
+}
+
+/* Format as an ISO 8601 extended timestamp with nanosecond resolution, e.g.
+ * "2026-08-25T12:00:00.123456789". Times are UTC; no zone designator is
+ * appended, matching what earlier versions wrote.
+ *
+ * The fraction is truncated rather than rounded. Rounding here used to be able
+ * to carry into a tenth digit: the old "%s.%06.0f" formatting of a fraction in
+ * the last half microsecond of a second produced ".1000000", a malformed
+ * timestamp a second adrift. */
+inline std::string vrt_iso_datetime_ns(uint64_t seconds, uint64_t frac_ps) {
+    struct vrt_time_ps t = {(int64_t)seconds, frac_ps};
+    vrt_time_normalize(&t);
+    return str(boost::format("%s.%09u")
+               % boost::posix_time::to_iso_extended_string(
+                     boost::posix_time::from_time_t((time_t)t.seconds))
+               % (uint32_t)(t.frac_ps / 1000));
+}
+
+/* Parse "YYYY-MM-DDTHH:MM:SS[.frac]" into whole seconds and a picosecond
+ * fraction. A space is accepted in place of the 'T' and a trailing 'Z' is
+ * ignored. Any number of fractional digits is taken: the fraction is padded or
+ * truncated to picoseconds, so the microsecond timestamps written by earlier
+ * versions and the nanosecond ones written now both read back exactly.
+ * Returns false if the date and time part cannot be parsed. */
+inline bool vrt_parse_iso_datetime_ns(const std::string& text, struct vrt_time_ps* t) {
+    std::string s = text;
+
+    /* Times are UTC; drop a zone designator if one is present. */
+    if (not s.empty() and (s.back() == 'Z' or s.back() == 'z'))
+        s.pop_back();
+
+    /* Split the fraction off before boost sees it, so it cannot be truncated
+     * to boost's microsecond tick. */
+    std::string frac_str;
+    const size_t dot = s.find('.');
+    if (dot != std::string::npos) {
+        frac_str = s.substr(dot + 1);
+        s.erase(dot);
+    }
+
+    const size_t t_pos = s.find('T');
+    if (t_pos != std::string::npos)
+        s[t_pos] = ' ';
+
+    boost::posix_time::ptime parsed;
+    try {
+        parsed = boost::posix_time::time_from_string(s);
+    } catch (std::exception&) {
+        return false;
+    }
+    if (parsed.is_not_a_date_time())
+        return false;
+
+    t->seconds = (int64_t)boost::posix_time::to_time_t(parsed);
+
+    /* Keep the leading digits only, then pad or truncate to 12 of them. */
+    size_t digits = 0;
+    while (digits < frac_str.size() and isdigit((unsigned char)frac_str[digits]))
+        digits++;
+
+    uint64_t ps = 0;
+    for (size_t i = 0; i < 12; i++) {
+        ps *= 10;
+        if (i < digits)
+            ps += (uint64_t)(frac_str[i] - '0');
+    }
+    t->frac_ps = ps;
+
+    return true;
+}
+
+/* Parse either a decimal Unix time or an ISO 8601 timestamp, as the
+ * --start-time option of several of these tools accepts.
+ *
+ * Note that a Unix time given as a decimal number cannot carry nanoseconds: a
+ * double holds about 0.2 us of resolution at present-day epochs. Use the ISO
+ * form when the fraction matters. */
+inline bool vrt_parse_time_arg(const std::string& text, struct vrt_time_ps* t) {
+    try {
+        const double unix_start = boost::lexical_cast<double>(text);
+        const double whole      = std::floor(unix_start);
+        t->seconds              = (int64_t)whole;
+        t->frac_ps              = (uint64_t)std::llround((unix_start - whole) * (double)VRT_PS_PER_SECOND);
+        vrt_time_normalize(t);
+        return true;
+    } catch (boost::bad_lexical_cast&) {
+        return vrt_parse_iso_datetime_ns(text, t);
+    }
+}
+
+/* Order two picosecond timestamps. */
+inline bool vrt_time_before(const struct vrt_time_ps& a, const struct vrt_time_ps& b) {
+    if (a.seconds != b.seconds)
+        return a.seconds < b.seconds;
+    return a.frac_ps < b.frac_ps;
+}
+
+/* Time of an absolute sample index, given the time of sample 0.
+ *
+ * Integer arithmetic, so an exact sample rate gives an exact answer however
+ * long the stream runs. Deriving each packet's fraction from a running double
+ * seconds count, as these tools used to, quantized every timestamp to a whole
+ * microsecond. */
+inline struct vrt_time_ps vrt_time_add_samples(struct vrt_time_ps t0, uint64_t sample, double rate) {
+    struct vrt_time_ps t   = t0;
+    const uint64_t rate_i  = (uint64_t)std::llround(rate);
+
+    if (rate_i != 0 and (double)rate_i == rate) {
+        t.seconds += (int64_t)(sample / rate_i);
+        /* 128-bit intermediate: (sample % rate_i) * 1e12 overflows 64 bits
+         * for rates above about 18 Msps. */
+        t.frac_ps += (uint64_t)(((unsigned __int128)(sample % rate_i) * VRT_PS_PER_SECOND) / rate_i);
+    } else {
+        /* Non-integer sample rate: fall back to floating point. */
+        const double offset = (double)sample / rate;
+        const double whole  = std::floor(offset);
+        t.seconds += (int64_t)whole;
+        t.frac_ps += (uint64_t)std::llround((offset - whole) * (double)VRT_PS_PER_SECOND);
+    }
+
+    vrt_time_normalize(&t);
+    return t;
+}
+
+/* Current wall-clock time in picoseconds. clock_gettime() reports
+ * nanoseconds, where gettimeofday() stops at microseconds. */
+inline struct vrt_time_ps vrt_time_now(void) {
+    struct timespec ts {};
+    clock_gettime(CLOCK_REALTIME, &ts);
+    struct vrt_time_ps t = {(int64_t)ts.tv_sec, (uint64_t)ts.tv_nsec * 1000ULL};
+    vrt_time_normalize(&t);
+    return t;
+}
 
 struct context_type {
     bool context_received;

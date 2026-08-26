@@ -105,7 +105,7 @@ int main(int argc, char* argv[])
   float *z,length,fchan=100.0,tint=1.0,zavg,zstd,*zw;
   char *cz;
   double freq,samp_rate,mjd,freqmin=-1,freqmax=-1;
-  struct timeval start,end;
+  struct vrt_time_ps start,end;
   char tbuf[30],nfd[32],header[256]="";
   int sign=1,fac=1;
 
@@ -310,8 +310,10 @@ int main(int argc, char* argv[])
                         << std::endl;
               first_frame = false;
               // STRF Create prefix
-              start.tv_sec = vrt_packet.integer_seconds_timestamp;
-              strftime(prefix,30,"%Y-%m-%dT%T",gmtime(&start.tv_sec));
+              start.seconds = vrt_packet.integer_seconds_timestamp;
+              start.frac_ps = 0;
+              time_t start_sec = (time_t)start.seconds;
+              strftime(prefix,30,"%Y-%m-%dT%T",gmtime(&start_sec));
 
               // File name
               if (not useoutput) {
@@ -327,15 +329,9 @@ int main(int argc, char* argv[])
 
               if (signal_pointer==0 and nint_counter==0) {
                 // gettimeofday(&start,0);
-                uint64_t seconds = vrt_packet.integer_seconds_timestamp;
-                uint64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
-                frac_seconds += (i+1)*1e12/vrt_context.sample_rate;
-                if (frac_seconds > 1e12) {
-                    frac_seconds -= 1e12;
-                    seconds++;
-                }
-                start.tv_sec = seconds;
-                start.tv_usec = frac_seconds/1e6;
+                const struct vrt_time_ps packet_time = {(int64_t)vrt_packet.integer_seconds_timestamp,
+                                                        vrt_packet.fractional_seconds_timestamp};
+                start = vrt_time_add_samples(packet_time, i+1, (double)vrt_context.sample_rate);
               }
 
               int16_t re;
@@ -389,27 +385,23 @@ int main(int argc, char* argv[])
                   if (nint_counter >= nint) {
                     // Log end time
                     // gettimeofday(&end,0);
-                    uint64_t seconds = vrt_packet.integer_seconds_timestamp;
-                    uint64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
-                    frac_seconds += (i+1)*1e12/vrt_context.sample_rate;
-                    if (frac_seconds > 1e12) {
-                        frac_seconds -= 1e12;
-                        seconds++;
-                    }
-                    end.tv_sec = seconds;
-                    end.tv_usec = frac_seconds/1e6;
+                    const struct vrt_time_ps packet_time = {(int64_t)vrt_packet.integer_seconds_timestamp,
+                                                            vrt_packet.fractional_seconds_timestamp};
+                    end = vrt_time_add_samples(packet_time, i+1, (double)vrt_context.sample_rate);
 
                     // Process nint block
                     // Time stats
-                    length=(end.tv_sec-start.tv_sec)+(end.tv_usec-start.tv_usec)*1e-6;
+                    length=(double)(end.seconds-start.seconds)
+                           +((double)end.frac_ps-(double)start.frac_ps)/1e12;
 
                     // Scale
                     for (i=0;i<nchan;i++)
                       z[i] *= (float)nuse/(float)nchan;
 
                     // Format start time
-                    strftime(tbuf,30,"%Y-%m-%dT%T",gmtime(&start.tv_sec));
-                    sprintf(nfd,"%s.%03ld",tbuf,start.tv_usec/1000);
+                    time_t block_sec = (time_t)start.seconds;
+                    strftime(tbuf,30,"%Y-%m-%dT%T",gmtime(&block_sec));
+                    sprintf(nfd,"%s.%03llu",tbuf,(unsigned long long)(start.frac_ps/1000000000ULL));
 
                     if (flag_x2)
                       fac=2;

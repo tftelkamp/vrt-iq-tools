@@ -657,17 +657,17 @@ int main(int argc, char** argv)
 	auto last_context = start_time;
 
 	while (!do_exit) {
-		struct timeval time_now;
+		struct vrt_time_ps time_now;
 
 		{
 			boost::shared_lock<boost::shared_mutex> lock(_access);
 			while (cb.size() > 2 * samps_per_buff) {
 
-				gettimeofday(&time_now, NULL);
+				time_now = vrt_time_now();
 
 				if (first_frame) {
-					fprintf(stderr, "First frame: %lu full secs, %.09f frac secs\n",
-						time_now.tv_sec, time_now.tv_usec / 1e6);
+					fprintf(stderr, "First frame: %lld full secs, %.09f frac secs\n",
+						(long long int)time_now.seconds, (double)time_now.frac_ps / 1e12);
 					first_frame = false;
 				}
 
@@ -678,8 +678,8 @@ int main(int argc, char** argv)
 
 				p.body = bodydata;
 				p.header.packet_count = (uint8_t)(frame_count % 16);
-				p.fields.integer_seconds_timestamp = time_now.tv_sec;
-				p.fields.fractional_seconds_timestamp = 1e6 * time_now.tv_usec;
+				p.fields.integer_seconds_timestamp = time_now.seconds;
+				p.fields.fractional_seconds_timestamp = time_now.frac_ps;
 
 				zmq_msg_t msg;
 				zmq_msg_init_size(&msg, SIZE * 4);
@@ -699,9 +699,9 @@ int main(int argc, char** argv)
 					vrt_init_packet(&pc);
 					vrt_init_context_packet(&pc);
 
-					gettimeofday(&time_now, NULL);
-					pc.fields.integer_seconds_timestamp = time_now.tv_sec;
-					pc.fields.fractional_seconds_timestamp = 1e3 * time_now.tv_usec;
+					time_now = vrt_time_now();
+					pc.fields.integer_seconds_timestamp = time_now.seconds;
+					pc.fields.fractional_seconds_timestamp = time_now.frac_ps;
 
 					pc.fields.stream_id = p.fields.stream_id;
 

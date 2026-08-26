@@ -5,12 +5,10 @@
 //
 
 #include <boost/format.hpp>
-#include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/circular_buffer.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
@@ -286,60 +284,46 @@ int main(int argc, char* argv[])
 
     std::complex<short> samples[VRT_SAMPLES_PER_PACKET];
 
-    timeval time_first_sample;
+    struct vrt_time_ps time_first_sample;
 
-    boost::posix_time::ptime t1;
+    struct vrt_time_ps t1 = {0, 0};
 
     if (read_stdin) {
         // now
-        t1 = boost::posix_time::microsec_clock::universal_time();
+        t1 = vrt_time_now();
         timed_tx = false;
     } else {
         // from SigMF
-        t1 = boost::posix_time::from_iso_extended_string(start_time_str);
+        if (not vrt_parse_iso_datetime_ns(start_time_str, &t1)) {
+            std::cerr << "Failed to parse core:datetime: " << start_time_str << std::endl;
+            exit(1);
+        }
     }
 
     if (tx_int > 0) {
         timed_tx = true;
-        t1 = boost::posix_time::microsec_clock::universal_time();
-        printf("    now: %li\n", boost::posix_time::to_time_t(t1));
-        t1 = t1 + boost::posix_time::milliseconds(200);
-        time_t integer_time_tx = tx_int*(boost::posix_time::to_time_t(t1) / tx_int) + tx_int;
+        t1 = vrt_time_now();
+        printf("    now: %li\n", (long int)t1.seconds);
+        t1.frac_ps += 200000000000ULL;  // 200 ms
+        vrt_time_normalize(&t1);
+        time_t integer_time_tx = tx_int*(t1.seconds / tx_int) + tx_int;
         printf("tx time: %li\n", integer_time_tx);
-        t1 = boost::posix_time::from_time_t(integer_time_tx);
+        t1.seconds = integer_time_tx;
+        t1.frac_ps = 0;
     }
 
     if (start_at_timestamp) {
 
-        boost::posix_time::ptime utc_time;
-        // Check for unix time
-        try {
-            boost::lexical_cast<double>(start_tx_str);
-            double unix_start = boost::lexical_cast<double>(start_tx_str);
-            utc_time = boost::posix_time::from_time_t(unix_start);
-            double fraction = unix_start - ((int64_t)unix_start);
-            utc_time += boost::posix_time::microseconds((int64_t)(fraction*1000000));
-        } catch (boost::bad_lexical_cast&) {
-            // not unix time
-
-            // Replace 'T' with space
-            size_t t_pos = start_tx_str.find('T');
-            if (t_pos != std::string::npos) {
-                start_tx_str[t_pos] = ' ';
-            }
-
-            // Remove 'Z' if present
-            size_t z_pos = start_tx_str.find('Z');
-            if (z_pos != std::string::npos) {
-                start_tx_str.erase(z_pos, 1);
-            }
-            
-            // Parse the string into a ptime object
-            utc_time = boost::posix_time::time_from_string(start_tx_str);
+        // Unix time or ISO 8601, kept to picosecond resolution
+        struct vrt_time_ps utc_time = {0, 0};
+        if (not vrt_parse_time_arg(start_tx_str, &utc_time)) {
+            std::cerr << "Failed to parse --start-time: " << start_tx_str << std::endl;
+            exit(1);
         }
         // Print parsed time
-        std::cout << "UTC start time: " << utc_time << std::endl;
-        if (boost::posix_time::second_clock::universal_time() > utc_time) {
+        std::cout << "UTC start time: " << vrt_iso_datetime_ns(utc_time.seconds, utc_time.frac_ps)
+                  << std::endl;
+        if (vrt_time_before(utc_time, vrt_time_now())) {
             printf("Start time in the past\n");
             exit(1);
         }
@@ -348,12 +332,7 @@ int main(int argc, char* argv[])
         timed_tx = true;
     }
 
-    time_t integer_time_first_sample = boost::posix_time::to_time_t(t1);
-    boost::posix_time::ptime t2(boost::posix_time::from_time_t(integer_time_first_sample));
-
-    boost::posix_time::time_duration fractional_sec = t1-t2;
-    time_first_sample.tv_sec = integer_time_first_sample;
-    time_first_sample.tv_usec = fractional_sec.total_microseconds();
+    time_first_sample = t1;
 
     auto vrt_time = time_first_sample;
 
@@ -366,10 +345,8 @@ int main(int argc, char* argv[])
     if (timed_tx) {
         tx_buffer_size = 0;
 
-        boost::posix_time::time_duration const time_since_epoch=t1-boost::posix_time::from_time_t(0);
-        std::chrono::time_point<std::chrono::system_clock> t_temp = std::chrono::system_clock::from_time_t(time_since_epoch.total_seconds());
-        long nsec=time_since_epoch.fractional_seconds()*(1000000000/time_since_epoch.ticks_per_second());
-        auto chrono_t1 = t_temp + std::chrono::nanoseconds(nsec);
+        std::chrono::time_point<std::chrono::system_clock> t_temp = std::chrono::system_clock::from_time_t((time_t)t1.seconds);
+        auto chrono_t1 = t_temp + std::chrono::nanoseconds((long)(t1.frac_ps / 1000));
 
         auto wait_time = chrono_t1 - std::chrono::system_clock::now() - std::chrono::milliseconds(350);
 
@@ -402,14 +379,9 @@ int main(int argc, char* argv[])
                 std::this_thread::sleep_for(wait_time);
         }
 
-        struct timeval interval_time;
-        int64_t first_sample = frame_count*samps_per_buff;
+        const uint64_t first_sample = frame_count*samps_per_buff;
 
-        double interval = (double)first_sample/(double)datarate;
-        interval_time.tv_sec = (time_t)interval;
-        interval_time.tv_usec = (interval-(time_t)interval)*1e6;
-
-        timeradd(&time_first_sample, &interval_time, &vrt_time);
+        vrt_time = vrt_time_add_samples(time_first_sample, first_sample, datarate);
 
         const auto time_since_last_context = now - last_context;
         if (last_frame or (send_context and time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL))) {
@@ -424,8 +396,8 @@ int main(int argc, char* argv[])
             /* VRT Configure. Note that context packets cannot have a trailer word. */
             vrt_init_context_packet(&pc);
 
-            pc.fields.integer_seconds_timestamp = vrt_time.tv_sec;
-            pc.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
+            pc.fields.integer_seconds_timestamp = vrt_time.seconds;
+            pc.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
 
             pc.fields.stream_id = 1;
 
@@ -499,8 +471,8 @@ int main(int argc, char* argv[])
             if (first_frame) {
                 std::cout << boost::format(
                                  "First frame: %u samples, %u full secs, %.09f frac secs")
-                                 % (num_words_read) % vrt_time.tv_sec
-                                 % (vrt_time.tv_usec/1e6)
+                                 % (num_words_read) % vrt_time.seconds
+                                 % ((double)vrt_time.frac_ps/1e12)
                           << std::endl;
                 first_frame = false;
             }
@@ -514,8 +486,8 @@ int main(int argc, char* argv[])
             p.fields.stream_id = 1;
             p.body = samples;
             p.header.packet_count = (uint8_t)frame_count%16;
-            p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
-            p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
+            p.fields.integer_seconds_timestamp = vrt_time.seconds;
+            p.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
 
             zmq_msg_t msg;
             int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
@@ -530,8 +502,8 @@ int main(int argc, char* argv[])
             //         p.fields.stream_id = 2;
             //         p.body = samples;
             //         p.header.packet_count = (uint8_t)frame_count%16;
-            //         p.fields.integer_seconds_timestamp = vrt_time.tv_sec;
-            //         p.fields.fractional_seconds_timestamp = 1e6*vrt_time.tv_usec;
+            //         p.fields.integer_seconds_timestamp = vrt_time.seconds;
+            //         p.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
 
             //         zmq_msg_t msg;
             //         int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
