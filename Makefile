@@ -7,7 +7,7 @@ CXX=g++
 
 # VRT IQ tools
 all: clients dt
-clients: vrt_version vrt_fftmax vrt_to_sigmf sigmf_to_vrt play_vrt vrt_forwarder vrt_spectrum vrt_to_void control_vrt vrt_to_rtl_tcp vrt_fftmax_quad vrt_to_filterbank vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_tuner vrt_correlate vrt_merge vrt_channelizer vrt_quantize vrt_buffer
+clients: vrt_version vrt_fftmax vrt_to_sigmf sigmf_to_vrt play_vrt vrt_forwarder vrt_spectrum vrt_to_void control_vrt vrt_to_rtl_tcp vrt_fftmax_quad vrt_to_filterbank vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_tuner vrt_correlate vrt_merge vrt_channelizer vrt_quantize vrt_buffer vrt_to_vdif
 sdr: usrp_to_vrt rfspace_to_vrt rtlsdr_to_vrt airspy_to_vrt iio_to_vrt hackrf_to_vrt
 gnuradio: vrt_to_gnuradio
 gpu: vrt_gpu_fftmax vrt_gpu_channelizer
@@ -59,6 +59,10 @@ vrt_to_stdout: src/vrt_to_stdout.cpp
 
 vrt_to_udp: src/vrt_to_udp.cpp
 		g++ -O3 $(INCLUDES) $(LIBS) $(CFLAGS) -o vrt_to_udp src/vrt_to_udp.cpp \
+		-lvrt -lzmq $(BOOSTLIBS)
+
+vrt_to_vdif: src/vrt_to_vdif.cpp
+		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) $(GIT_DEFINES) -o vrt_to_vdif src/vrt_to_vdif.cpp \
 		-lvrt -lzmq $(BOOSTLIBS)
 
 vrt_to_fifo: src/vrt_to_fifo.cpp
@@ -191,4 +195,4 @@ install: all
 		install -m 755 query_dt_console   $(DESTDIR)$(PREFIX)/bin/
 
 clean:
-		$(RM) vrt_version usrp_to_vrt vrt_fftmax vrt_to_gnuradio vrt_to_sigmf convenience.o rtlsdr_to_vrt rfspace_to_vrt vrt_forwarder vrt_to_void vrt_spectrum sigmf_to_vrt play_vrt vrt_gpu_fftmax control_vrt vrt_to_dada vrt_to_rtl_tcp vrt_to_vrt_quad vrt_fftmax_quad vrt_to_filterbank query_dt_console vrt_rffft vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_tuner airspy_to_vrt hackrf_to_vrt vrt_correlate vrt_merge vrt_channelizer vrt_gpu_channelizer vrt_quantize iio_to_vrt
+		$(RM) vrt_version usrp_to_vrt vrt_fftmax vrt_to_gnuradio vrt_to_sigmf convenience.o rtlsdr_to_vrt rfspace_to_vrt vrt_forwarder vrt_to_void vrt_spectrum sigmf_to_vrt play_vrt vrt_gpu_fftmax control_vrt vrt_to_dada vrt_to_rtl_tcp vrt_to_vrt_quad vrt_fftmax_quad vrt_to_filterbank query_dt_console vrt_rffft vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_tuner airspy_to_vrt hackrf_to_vrt vrt_correlate vrt_merge vrt_channelizer vrt_gpu_channelizer vrt_quantize iio_to_vrt vrt_to_vdif

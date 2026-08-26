@@ -72,6 +72,7 @@ Alternatively, the project can be built with the Makefile. To do that, edit the 
 * `vrt_to_fifo`: Write IQ to a fifo buffer.
 * `vrt_to_udp`: Stream IQ as fc32 UDP packets.
 * `vrt_to_dada`: Stream to a [psrdada](https://psrdada.sourceforge.net/) ring buffer, to be used with pulsar software such as [dspsr](https://dspsr.sourceforge.net/).
+* `vrt_to_vdif`: Write a single channel as [VDIF](https://vlbi.org/vlbi-standards/vdif/) data frames, for VLBI correlators such as [DiFX](https://www.atnf.csiro.au/vlbi/dokuwiki/doku.php/difx/start). Supports the 1- and 2-bit streams of `vrt_quantize` as well as 16-bit streams. VRT metadata that has no place in a VDIF header is written to a `.vdif-meta` file.
 * `vrt_soapy`: Make existing VRT instances (on localhost, on standard ports) available as [Soapy](https://github.com/pothosware/SoapySDR) devices.
 
 ### Miscellaneous:
