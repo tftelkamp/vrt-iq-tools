@@ -458,6 +458,10 @@ int main(int argc, char* argv[])
                 printf("#   - {channel: %u}\n", ch);
                 printf("#   - {sample_rate: %.1f}\n", (float)vrt_context[0].sample_rate);
                 printf("#   - {frequency: %.1f}\n", (double)vrt_context[0].rf_freq);
+                printf("#   - {frequency1: %.1f}\n", (double)vrt_context[0].rf_freq);
+                printf("#   - {frequency2: %.1f}\n", (double)vrt_context[1].rf_freq);
+                printf("#   - {frac_frequency1: %e}\n", (double)vrt_context[0].rf_frac_freq);
+                printf("#   - {frac_frequency2: %e}\n", (double)vrt_context[1].rf_frac_freq);
                 printf("#   - {bandwidth: %.1f}\n", (float)vrt_context[0].bandwidth);
                 printf("#   - {rx_gain_1: %.1f}\n", (float)vrt_context[0].gain);
                 printf("#   - {rx_gain_2: %.1f}\n", (float)vrt_context[1].gain);
