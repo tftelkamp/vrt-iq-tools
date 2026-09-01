@@ -110,11 +110,22 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                      double tx_gain,
                      double sample_rate,
                      bool enable_gpio,
-                     double gpio_delay)
+                     double gpio_delay,
+                     std::vector<size_t> tx_channel_nums,
+                     size_t active_tx_chan,
+                     size_t active_tx_index,
+                     bool priority)
    {
 
+    // the transmit stream should not be interrupted by the receive thread
+    if (priority)
+        uhd::set_thread_priority_safe();
+
     std::vector<std::complex<short>> buff(VRT_SAMPLES_PER_PACKET);
-    std::vector<std::complex<short>*> buffs(1, &buff.front());
+    // the AD9361 needs as many TX as RX channels, unused channels transmit zeros
+    std::vector<std::complex<short>> zero_buff(VRT_SAMPLES_PER_PACKET, std::complex<short>(0, 0));
+    std::vector<std::complex<short>*> buffs(tx_channel_nums.size(), &zero_buff.front());
+    buffs[active_tx_index] = &buff.front();
 
     size_t samps_per_buff = VRT_SAMPLES_PER_PACKET; // spb
     uint32_t tx_zmq_buffer[VRT_DATA_PACKET_SIZE];
@@ -245,9 +256,11 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                             uhd::tune_request_t tune_request(tx_freq, lo_offset);
                             // if (vm.count("int-n"))
                             //     tune_request.args = uhd::device_addr_t("mode_n=integer");
-                            usrp->set_tx_freq(tune_request);
+                            for (size_t ch = 0; ch < tx_channel_nums.size(); ch++) {
+                                usrp->set_tx_freq(tune_request, tx_channel_nums[ch]);
+                            }
                             std::cout << boost::format("    Actual TX Freq: %f MHz...")
-                                             % (usrp->get_tx_freq() / 1e6)
+                                             % (usrp->get_tx_freq(active_tx_chan) / 1e6)
                                       << std::endl;
                         }
                     }
@@ -255,9 +268,9 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                         if (tx_gain != c.gain.stage1) {
                             tx_gain = c.gain.stage1;
                             std::cout << boost::format("    Setting TX Gain: %f dB...") % tx_gain << std::endl;
-                            usrp->set_tx_gain(tx_gain);
+                            usrp->set_tx_gain(tx_gain, active_tx_chan);
                             std::cout << boost::format("    Actual TX Gain: %f dB...")
-                                             % usrp->get_tx_gain()
+                                             % usrp->get_tx_gain(active_tx_chan)
                                       << std::endl;
                         }
                     }
@@ -295,7 +308,7 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                     metadata.end_of_burst = true;
                     metadata.start_of_burst = false;
                     metadata.has_time_spec  = false;
-                    tx_streamer->send("", 0, metadata);
+                    tx_streamer->send(buffs, 0, metadata);
                     metadata.end_of_burst = false;
 
                     // GPIO
@@ -324,20 +337,111 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
     metadata.end_of_burst = true;
     metadata.start_of_burst = false;
     metadata.has_time_spec  = false;
-    tx_streamer->send("", 0, metadata);
+    tx_streamer->send(buffs, 0, metadata);
+}
+
+void cw_transmit_worker(uhd::tx_streamer::sptr tx_streamer,
+                        double cw_amplitude,
+                        double cw_tone,
+                        double sample_rate,
+                        std::vector<size_t> tx_channel_nums,
+                        size_t active_tx_index,
+                        bool priority)
+   {
+
+    // a continuous stream should not be interrupted by the receive thread
+    if (priority)
+        uhd::set_thread_priority_safe();
+
+    std::vector<std::complex<short>> buff(VRT_SAMPLES_PER_PACKET);
+    // the AD9361 needs as many TX as RX channels, unused channels transmit zeros
+    std::vector<std::complex<short>> zero_buff(VRT_SAMPLES_PER_PACKET, std::complex<short>(0, 0));
+    std::vector<std::complex<short>*> buffs(tx_channel_nums.size(), &zero_buff.front());
+    buffs[active_tx_index] = &buff.front();
+    // pointers into the remainder of a partial send
+    std::vector<std::complex<short>*> send_buffs(buffs);
+
+    const size_t samps_per_buff = VRT_SAMPLES_PER_PACKET; // spb
+    const double scale = cw_amplitude * 32767.0;
+
+    // Phase increment per sample, and the phasor that rotates the tone by that
+    // increment. Rotating is much cheaper than a sin/cos per sample, which at higher
+    // sample rates does not leave enough time to keep the transmit buffer filled.
+    const double phase_increment = 2.0 * M_PI * cw_tone / sample_rate;
+    const std::complex<double> rotation(cos(phase_increment), sin(phase_increment));
+    double phase = 0;
+
+    // If the tone completes a whole number of cycles in a buffer, that buffer can be
+    // filled once and sent forever. A zero tone (carrier at the LO) is that same case.
+    const double cycles_per_buff = (double)samps_per_buff * cw_tone / sample_rate;
+    const bool tone_periodic = fabs(cycles_per_buff - round(cycles_per_buff)) < 1e-9;
+
+    // fill the buffer with the tone, continuing the phase of the previous buffer
+    auto fill_buffer = [&]() {
+        std::complex<double> phasor(cos(phase), sin(phase));
+        for (size_t i = 0; i < samps_per_buff; i++) {
+            buff[i] = std::complex<short>((short)round(scale * phasor.real()),
+                                          (short)round(scale * phasor.imag()));
+            phasor *= rotation;
+        }
+        // the accumulated phase is kept exact, the rotated phasor is not
+        phase = fmod(phase + phase_increment * (double)samps_per_buff, 2.0 * M_PI);
+    };
+
+    fill_buffer();
+
+    uhd::tx_metadata_t metadata;
+    metadata.start_of_burst = true;
+    metadata.end_of_burst   = false;
+    metadata.has_time_spec  = false;
+
+    // send data until the signal handler gets called
+    while (not stop_signal_called) {
+
+        if (not tone_periodic)
+            fill_buffer();
+
+        // send blocks until there is room in the device buffer, which paces this loop
+        size_t num_tx_samps = tx_streamer->send(buffs, samps_per_buff, metadata, 1.0);
+
+        metadata.start_of_burst = false;
+
+        // A send that timed out has to be finished, dropping the remainder would
+        // leave a gap in the stream and underflow the device.
+        while (num_tx_samps < samps_per_buff and not stop_signal_called) {
+            fprintf(stderr, "Timeout on transmit: %lu of %lu samples sent.\n",
+                    (unsigned long)num_tx_samps, (unsigned long)samps_per_buff);
+            for (size_t i = 0; i < buffs.size(); i++) {
+                send_buffs[i] = buffs[i] + num_tx_samps;
+            }
+            num_tx_samps += tx_streamer->send(send_buffs, samps_per_buff - num_tx_samps,
+                                              metadata, 1.0);
+        }
+    }
+
+    // send a mini EOB packet
+    metadata.end_of_burst = true;
+    metadata.start_of_burst = false;
+    metadata.has_time_spec  = false;
+    tx_streamer->send(buffs, 0, metadata);
 }
 
 
 int UHD_SAFE_MAIN(int argc, char* argv[])
 {
     // variables to be set by po
-    std::string file, type, ant_list, subdev, ref, channel_list, gain_list, freq_list, udp_forward, merge_address_list, merge_port_list;
+    std::string file, type, ant_list, subdev, tx_subdev, tx_ant, ref, channel_list, gain_list, freq_list, udp_forward, merge_address_list, merge_port_list;
+    std::string mixer_sideband;
     size_t total_num_samps, spb;
     uint16_t instance, port;
     uint16_t tx_gain;
+    size_t active_tx_chan;
+    size_t mixer_rx_channel = 0;
     int hwm, io_threads;
     uint32_t stream_id;
-    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, if_freq, pps_offset, gpio_delay, master_clock_rate;
+    double rate, freq, bw, tx_bw, total_time, setup_time, lo_offset, tx_freq, tx_lo_offset, if_freq, pps_offset, gpio_delay, master_clock_rate;
+    double cw_amplitude, cw_tone;
+    double mixer_freq, mixer_rf = 0;
     uint32_t timestamp_calibration_time = 0;
     std::string actual_clock_source, actual_time_source;
 
@@ -371,9 +475,27 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("zmq-split", "create a ZeroMQ stream per VRT channel, increasing port number for additional streams")
         ("bw", po::value<double>(&bw), "analog frontend filter bandwidth in Hz")
         ("ref", po::value<std::string>(&ref), "reference source (internal, external, mimo, gpsdo)")
-        ("tx", "enable tx")
+        ("tx", "enable tx (VRT stream in over ZMQ)")
+        ("cw", "enable tx of a continuous wave, without VRT stream in")
+        ("cw-amplitude", po::value<double>(&cw_amplitude)->default_value(1.0), "CW amplitude, relative to full scale (0-1)")
+        ("cw-tone", po::value<double>(&cw_tone)->default_value(0.0), "CW tone offset from the TX center frequency in Hz")
+        ("mixer-freq", po::value<double>(&mixer_freq),
+            "use the CW as LO for an external mixer, at the given RF frequency in Hz. Implies --cw. "
+            "The mixer is on the TX/RX pair selected with --tx-channel, where the RX frequency "
+            "(--freq) is the IF and the LO is calculated from it. Other channels receive normally")
+        ("mixer-sideband", po::value<std::string>(&mixer_sideband)->default_value("usb"),
+            "sideband of the external mixer: usb (LO = |RF-IF|, not inverted) or "
+            "lsb (LO = RF+IF, inverted spectrum)")
+        ("mixer-deinvert", "de-invert the spectrum of the mixer channel by conjugating the "
+            "samples, so that an lsb mixer results in a non-inverted VRT stream")
         ("tx-freq", po::value<double>(&tx_freq)->default_value(0.0), "TX RF center frequency in Hz")
+        ("tx-lo-offset", po::value<double>(&tx_lo_offset)->default_value(0.0),
+            "Offset for TX frontend LO in Hz (optional)")
         ("tx-gain", po::value<uint16_t>(&tx_gain)->default_value(0), "gain for the TX RF chain")
+        ("tx-bw", po::value<double>(&tx_bw), "TX analog frontend filter bandwidth in Hz")
+        ("tx-channel", po::value<size_t>(&active_tx_chan)->default_value(0), "which usrp channel to transmit on (specify \"0\" or \"1\"), other TX channels are muted")
+        ("tx-subdev", po::value<std::string>(&tx_subdev), "TX subdevice specification")
+        ("tx-ant", po::value<std::string>(&tx_ant), "TX antenna selection")
         ("gpio", "enable GPIO (TX)")
         ("gpio-delay", po::value<double>(&gpio_delay)->default_value(50), "GPIO advance/delay (ms)")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
@@ -419,11 +541,76 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool enable_udp             = vm.count("udp") > 0;
     bool enable_temp            = vm.count("temp") > 0;
-    bool enable_tx              = vm.count("tx") > 0;
+    bool enable_mixer           = vm.count("mixer-freq") > 0;
+    bool enable_cw              = vm.count("cw") > 0 or enable_mixer;
+    bool enable_tx              = vm.count("tx") > 0 or enable_cw;
     bool enable_gpio            = vm.count("gpio") > 0;
     bool split                  = vm.count("zmq-split") > 0;
     bool set_master_clock       = vm.count("master-clock-rate") > 0;
     bool priority               = vm.count("priority") > 0;
+    bool deinvert_mixer         = vm.count("mixer-deinvert") > 0;
+    bool mixer_lsb              = false;
+    bool mixer_sum              = false;
+
+    if (enable_cw and vm.count("tx") > 0) {
+        std::cerr << "Please specify either --tx or --cw, not both" << std::endl;
+        return ~0;
+    }
+
+    if (enable_cw and (cw_amplitude <= 0 or cw_amplitude > 1.0)) {
+        std::cerr << "CW amplitude should be in the range (0,1]" << std::endl;
+        return ~0;
+    }
+
+    if (enable_mixer) {
+        boost::to_lower(mixer_sideband);
+        if (mixer_sideband == "lsb") {
+            mixer_lsb = true;
+        } else if (mixer_sideband != "usb") {
+            std::cerr << "Mixer sideband should be either usb or lsb" << std::endl;
+            return ~0;
+        }
+
+        // --if-freq describes a fixed external downconverter and would be counted twice
+        if (if_freq != 0.0) {
+            std::cerr << "--if-freq cannot be combined with --mixer-freq" << std::endl;
+            return ~0;
+        }
+
+        if (not vm["tx-freq"].defaulted()) {
+            std::cout << "Warning: --tx-freq is ignored in mixer mode, "
+                         "the LO is calculated from --mixer-freq and --freq." << std::endl;
+        }
+
+        // the LO leakage of an offset TX LO would act as a second LO for the mixer
+        if (tx_lo_offset != 0.0) {
+            std::cout << "Warning: a TX LO offset gives the external mixer a second LO "
+                         "at the leakage frequency." << std::endl;
+        }
+
+        if (cw_tone != 0.0) {
+            std::cout << "Warning: a CW tone offset gives the external mixer a second LO "
+                         "at the TX LO leakage frequency." << std::endl;
+        }
+
+        if (deinvert_mixer and not mixer_lsb) {
+            std::cout << "Warning: --mixer-deinvert only applies to an lsb mixer, ignoring."
+                      << std::endl;
+        }
+    }
+
+    if (deinvert_mixer and not enable_mixer) {
+        std::cout << "Warning: --mixer-deinvert requires --mixer-freq, ignoring." << std::endl;
+    }
+
+    // a transmit buffer is only needed when transmitting
+    if (enable_tx)
+        stdargs += ",num_send_frames=1024";
+
+    if (enable_cw and enable_gpio) {
+        std::cout << "Warning: GPIO is not supported in CW mode, ignoring --gpio." << std::endl;
+        enable_gpio = false;
+    }
 
     struct vrt_packet p;
     vrt_init_packet(&p);
@@ -446,7 +633,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // ZMQ
     void *zmq_server[MAX_CHANNELS];
     void *zmq_control;
-    void *zmq_transmit;
+    void *zmq_transmit = nullptr;
 
     void *context = zmq_ctx_new();
     void *responder;
@@ -489,7 +676,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     zmq_control = responder;
     zmq_setsockopt(zmq_control, ZMQ_SUBSCRIBE, "", 0);
 
-    if (enable_tx) {
+    if (enable_tx and not enable_cw) {
         responder = zmq_socket(context, ZMQ_SUB);
         std::string tx_string = "tcp://*:" + std::to_string(main_port+400);
         rc = zmq_bind(responder, tx_string.c_str());
@@ -592,6 +779,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     if (vm.count("subdev"))
         usrp->set_rx_subdev_spec(subdev);
 
+    if (vm.count("tx-subdev"))
+        usrp->set_tx_subdev_spec(tx_subdev);
+
     std::cout << boost::format("Using Device: %s") % usrp->get_pp_string() << std::endl;
 
     // detect which channels to use
@@ -601,6 +791,38 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             throw std::runtime_error("Invalid channel(s) specified.");
         } else
             channel_nums.push_back(std::stoi(channel_strings[ch]));
+    }
+
+    // the AD9361 does not support 1TX2RX, so transmit on as many channels as
+    // are received on. Only one channel carries the signal, the others are muted.
+    std::vector<size_t> tx_channel_nums;
+    size_t active_tx_index = 0;  // position of the transmitting channel in tx_channel_nums
+    if (enable_tx) {
+        if (channel_nums.size() > usrp->get_tx_num_channels()) {
+            throw std::runtime_error("Not enough TX channels available for the number of RX "
+                                     "channels used. Specify a TX subdevice with --tx-subdev.");
+        }
+        if (active_tx_chan >= usrp->get_tx_num_channels()) {
+            throw std::runtime_error("Invalid TX channel specified.");
+        }
+        if (channel_nums.size() == 1) {
+            // a single channel can be transmitted on any of the TX channels
+            tx_channel_nums.push_back(active_tx_chan);
+        } else {
+            // more than one channel has to start at TX channel 0, one of them transmits
+            if (active_tx_chan >= channel_nums.size()) {
+                throw std::runtime_error("TX channel " + std::to_string(active_tx_chan) +
+                                         " is not available when receiving on " +
+                                         std::to_string(channel_nums.size()) + " channels.");
+            }
+            for (size_t ch = 0; ch < channel_nums.size(); ch++) {
+                tx_channel_nums.push_back(ch);
+            }
+            active_tx_index = active_tx_chan;
+        }
+        // the external mixer is fed by the TX of the transmitting channel, and its
+        // output goes into the RX of that same channel
+        mixer_rx_channel = channel_nums[active_tx_index];
     }
 
     // create a receive streamer
@@ -722,39 +944,108 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     if (enable_tx) {
 
+        if (enable_mixer) {
+            // The CW is the LO of an external mixer and the USRP RX is the IF of that mixer.
+            // Calculate the LO from the actual RX frequency, so that the mixer product
+            // lands on the RX center frequency. Three LO's put the RF on the IF:
+            //   rf = lo + if  (difference product, lo below the RF, not inverted)
+            //   rf = if - lo  (sum product, lo below the IF, not inverted)
+            //   rf = lo - if  (difference product, lo above the RF, inverted spectrum)
+            // The first two are mutually exclusive and both give lo = |rf - if|.
+            double if_freq_actual = usrp->get_rx_freq(mixer_rx_channel);
+            mixer_sum = (not mixer_lsb) and (if_freq_actual > mixer_freq);
+            tx_freq = mixer_lsb ? mixer_freq + if_freq_actual : fabs(mixer_freq - if_freq_actual);
+
+            std::cout << boost::format("Mixer on channel %u. RF: %f MHz, IF: %f MHz, %s%s")
+                             % (uint32_t)mixer_rx_channel % (mixer_freq / 1e6)
+                             % (if_freq_actual / 1e6) % (mixer_lsb ? "LSB" : "USB")
+                             % (mixer_sum ? " (sum product)" : "")
+                      << std::endl;
+
+            uhd::freq_range_t tx_range = usrp->get_tx_freq_range(active_tx_chan);
+            if (tx_freq < tx_range.start() or tx_freq > tx_range.stop()) {
+                throw std::runtime_error(
+                    str(boost::format("Calculated mixer LO of %f MHz is outside of the TX range "
+                                      "of %f - %f MHz.")
+                        % (tx_freq / 1e6) % (tx_range.start() / 1e6) % (tx_range.stop() / 1e6)));
+            }
+        }
+
         // Freq
-        if (freq < 5e6) {
+        if (tx_freq < 5e6) {
             throw std::runtime_error("TX frequency should be given in Hz.\n" +
                                      std::to_string(tx_freq) + "Hz is probably not what you meant!");
         }
-        std::cout << boost::format("Setting TX Freq: %f MHz...") % (tx_freq / 1e6)
-                  << std::endl;
-        std::cout << boost::format("Setting TX LO Offset: %f MHz...") % (lo_offset / 1e6)
-                  << std::endl;
-        uhd::tune_request_t tune_request(tx_freq, lo_offset);
+
+        uhd::tune_request_t tune_request(tx_freq, tx_lo_offset);
         if (vm.count("int-n"))
             tune_request.args = uhd::device_addr_t("mode_n=integer");
-        usrp->set_tx_freq(tune_request);
-        std::cout << boost::format("Actual TX Freq: %f MHz...")
-                         % (usrp->get_tx_freq() / 1e6)
-                  << std::endl
-                  << std::endl;
 
-        // Gain
-        std::cout << boost::format("Setting TX Gain: %f dB...") % tx_gain << std::endl;
-        usrp->set_tx_gain(tx_gain);
-        std::cout << boost::format("Actual TX Gain: %f dB...")
-                         % usrp->get_tx_gain()
-                  << std::endl
-                  << std::endl;
+        for (size_t ch = 0; ch < tx_channel_nums.size(); ch++) {
+            size_t tx_channel = tx_channel_nums[ch];
+            bool muted = (tx_channel != active_tx_chan);
 
-        // std::cout << boost::format("Setting TX Bandwidth: %f MHz...") % (tx_bw / 1e6)
-        //           << std::endl;
-        // tx_usrp->set_tx_bandwidth(tx_bw);
-        std::cout << boost::format("Actual TX Bandwidth: %f MHz...")
-                         % (usrp->get_tx_bandwidth() / 1e6)
-                  << std::endl
-                  << std::endl;
+            if (tx_channel_nums.size() > 1) {
+                std::cout << "Configuring TX Channel " << tx_channel
+                          << (muted ? " (muted)" : "") << std::endl;
+            }
+
+            // Freq. Note that on the AD9361 the TX LO is shared between channels.
+            std::cout << boost::format("Setting TX Freq: %f MHz...") % (tx_freq / 1e6)
+                      << std::endl;
+            std::cout << boost::format("Setting TX LO Offset: %f MHz...") % (tx_lo_offset / 1e6)
+                      << std::endl;
+            usrp->set_tx_freq(tune_request, tx_channel);
+            std::cout << boost::format("Actual TX Freq: %f MHz...")
+                             % (usrp->get_tx_freq(tx_channel) / 1e6)
+                      << std::endl
+                      << std::endl;
+
+            // Gain. Muted channels transmit zeros at the lowest gain available.
+            double gain = muted ? usrp->get_tx_gain_range(tx_channel).start() : (double)tx_gain;
+            std::cout << boost::format("Setting TX Gain: %f dB...") % gain << std::endl;
+            usrp->set_tx_gain(gain, tx_channel);
+            std::cout << boost::format("Actual TX Gain: %f dB...")
+                             % usrp->get_tx_gain(tx_channel)
+                      << std::endl
+                      << std::endl;
+
+            // Antenna
+            if (vm.count("tx-ant")) {
+                std::cout << boost::format("Setting TX Antenna: %s") % tx_ant << std::endl;
+                usrp->set_tx_antenna(tx_ant, tx_channel);
+                std::cout << boost::format("Actual TX Antenna: %s")
+                                 % usrp->get_tx_antenna(tx_channel)
+                          << std::endl
+                          << std::endl;
+            }
+
+            // Bandwidth. Note that the AD9361 shares the analog filter between TX channels.
+            if (vm.count("tx-bw")) {
+                std::cout << boost::format("Setting TX Bandwidth: %f MHz...") % (tx_bw / 1e6)
+                          << std::endl;
+                usrp->set_tx_bandwidth(tx_bw, tx_channel);
+            }
+            std::cout << boost::format("Actual TX Bandwidth: %f MHz...")
+                             % (usrp->get_tx_bandwidth(tx_channel) / 1e6)
+                      << std::endl
+                      << std::endl;
+        }
+
+        if (enable_mixer) {
+            // the RF frequency that the coerced LO and RX frequency actually result in
+            double if_freq_actual = usrp->get_rx_freq(mixer_rx_channel);
+            double lo_actual = usrp->get_tx_freq(active_tx_chan);
+            if (mixer_lsb)
+                mixer_rf = lo_actual - if_freq_actual;
+            else if (mixer_sum)
+                mixer_rf = if_freq_actual - lo_actual;
+            else
+                mixer_rf = lo_actual + if_freq_actual;
+            std::cout << boost::format("Actual Mixer RF: %f MHz...") % (mixer_rf / 1e6)
+                      << std::endl
+                      << std::endl;
+        }
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
@@ -881,16 +1172,26 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     uhd::tx_streamer::sptr tx_stream;
 
     if (enable_tx) {
-        std::vector<size_t> tx_channel_nums;
-        tx_channel_nums.push_back(0);
         uhd::stream_args_t tx_stream_args("sc16", "sc16");
         tx_stream_args.channels = tx_channel_nums;
         tx_stream = usrp->get_tx_stream(tx_stream_args);
 
         // start thread
-        transmit_thread = std::thread([&]() {
-            transmit_worker(usrp, tx_stream, zmq_transmit, tx_freq, lo_offset, tx_gain, rate, enable_gpio, gpio_delay);
-        });
+        if (enable_cw) {
+            std::cout << boost::format("Transmitting CW, amplitude %.3f, tone offset %f Hz...")
+                             % cw_amplitude % cw_tone
+                      << std::endl;
+            transmit_thread = std::thread([&]() {
+                cw_transmit_worker(tx_stream, cw_amplitude, cw_tone, rate, tx_channel_nums,
+                                   active_tx_index, priority);
+            });
+        } else {
+            transmit_thread = std::thread([&]() {
+                transmit_worker(usrp, tx_stream, zmq_transmit, tx_freq, tx_lo_offset, tx_gain, rate,
+                                enable_gpio, gpio_delay, tx_channel_nums, active_tx_chan,
+                                active_tx_index, priority);
+            });
+        }
     }
 
     if (priority)
@@ -920,6 +1221,11 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         buff_ptrs.push_back(&buffs[i].front());
     }
     UHD_ASSERT_THROW(buffs.size() == channel_nums.size());
+
+    // De-inversion of the mixer channel, if requested. Both are loop invariant, so
+    // without a mixer this costs a single not-taken branch per received buffer.
+    const bool deinvert = enable_mixer and mixer_lsb and deinvert_mixer;
+    std::complex<short>* const deinvert_buff = deinvert ? buff_ptrs[active_tx_index] : nullptr;
 
     bool overflow_message = true;
     bool first_frame = true;
@@ -1005,6 +1311,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 throw std::runtime_error(error);
         }
 
+        if (deinvert) {
+            // Mirror the spectrum of the mixer channel by conjugating the samples.
+            // Q is clamped, so that the most negative value does not overflow.
+            for (size_t i = 0; i < num_rx_samps; i++) {
+                deinvert_buff[i] = std::complex<short>(
+                    deinvert_buff[i].real(), -std::max(deinvert_buff[i].imag(), (short)-32767));
+            }
+        }
+
         if (first_frame) {
             std::cout << boost::format(
                              "First frame: %u samples, %u full secs, %.09f frac secs")
@@ -1067,9 +1382,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                     pc.fields.stream_id = 1<<ch;
                 pc.if_context.bandwidth                         = usrp->get_rx_bandwidth(channel); // 0.8*usrp->get_rx_rate(); // bandwith is set to 80% of sample rate
                 pc.if_context.sample_rate                       = usrp->get_rx_rate(channel);
-                pc.if_context.rf_reference_frequency            = usrp->get_rx_freq(channel)+if_freq;
+                if (enable_mixer and channel == mixer_rx_channel) {
+                    // the USRP is the IF of the external mixer, report the RF frequency
+                    pc.if_context.rf_reference_frequency        = mixer_rf;
+                    pc.if_context.if_reference_frequency        = usrp->get_rx_freq(channel);
+                } else {
+                    pc.if_context.rf_reference_frequency        = usrp->get_rx_freq(channel)+if_freq;
+                    pc.if_context.if_reference_frequency        = if_freq; // 0 for Zero-IF
+                }
                 pc.if_context.rf_reference_frequency_offset     = 0;
-                pc.if_context.if_reference_frequency            = if_freq; // 0 for Zero-IF
                 pc.if_context.if_band_offset                    = lo_offset;  //todo
                 pc.if_context.gain.stage1                       = usrp->get_rx_gain(channel);
                 pc.if_context.gain.stage2                       = 0;
@@ -1079,6 +1400,12 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
                 pc.if_context.state_and_event_indicators.has.calibrated_time = true;
                 pc.if_context.state_and_event_indicators.calibrated_time = ((actual_time_source=="external") or (actual_clock_source=="gpsdo"));
+
+                if (enable_mixer and channel == mixer_rx_channel) {
+                    // high-side LO injection mirrors the spectrum, unless it is undone on RX
+                    pc.if_context.state_and_event_indicators.has.spectral_inversion = true;
+                    pc.if_context.state_and_event_indicators.spectral_inversion = mixer_lsb and not deinvert;
+                }
 
                 // timestamp_adjustment
                 if (actual_time_source=="external") {
@@ -1227,11 +1554,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
                 printf("    Channel: %u\n", control_channel);
 
-                if (c.has.if_band_offset) {
+                bool mixed_channel = enable_mixer and (control_channel == mixer_rx_channel);
+
+                if (c.has.if_band_offset and not mixed_channel) {
                     lo_offset = c.if_band_offset;
                 }
 
-                if (c.has.rf_reference_frequency || c.has.if_band_offset) {
+                if ((c.has.rf_reference_frequency || c.has.if_band_offset) and mixed_channel) {
+                    printf("    Ignoring frequency change on the mixer channel.\n");
+                } else if (c.has.rf_reference_frequency || c.has.if_band_offset) {
                     if (c.has.rf_reference_frequency)
                         freq = (double)round(c.rf_reference_frequency);
                     std::cout << boost::format("    Setting RX Freq: %f MHz...") % (freq / 1e6)
