@@ -199,6 +199,22 @@ inline bool vrt_time_before(const struct vrt_time_ps& a, const struct vrt_time_p
     return a.frac_ps < b.frac_ps;
 }
 
+/* Signed difference a - b in picoseconds, for comparing two streams that are
+ * meant to carry the same instant. Do not compute such a difference from
+ * timestamps converted to a double holding seconds since the epoch: at
+ * present-day epochs a double resolves about 240 ns, which is coarser than a
+ * sample period above ~4 Msps.
+ *
+ * Differences of more than a second are clamped to +/- 2 seconds rather than
+ * overflowing the multiply, so the result is only exact for nearby times. The
+ * clamp keeps the sign, and its magnitude stays safe to negate. */
+inline int64_t vrt_time_diff_ps(const struct vrt_time_ps& a, const struct vrt_time_ps& b) {
+    const int64_t ds = a.seconds - b.seconds;
+    if (ds > 1 or ds < -1)
+        return ds > 0 ? 2 * (int64_t)VRT_PS_PER_SECOND : -2 * (int64_t)VRT_PS_PER_SECOND;
+    return ds * (int64_t)VRT_PS_PER_SECOND + ((int64_t)a.frac_ps - (int64_t)b.frac_ps);
+}
+
 /* Time of an absolute sample index, given the time of sample 0.
  *
  * Integer arithmetic, so an exact sample rate gives an exact answer however

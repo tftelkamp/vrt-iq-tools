@@ -70,6 +70,7 @@ int main(int argc, char* argv[])
 
     size_t num_requested_samples;
     double total_time;
+    double tolerance_samples;
 
     // setup the program options
     po::options_description desc("Allowed options");
@@ -95,6 +96,7 @@ int main(int argc, char* argv[])
         ("pub-port", po::value<uint16_t>(&pub_port), "VRT ZMQ PUB port")
         ("pub-instance", po::value<uint16_t>(&pub_instance)->default_value(1), "VRT ZMQ instance")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
+        ("tolerance", po::value<double>(&tolerance_samples)->default_value(0.0), "maximum allowed timestamp skew between the two streams, in sample periods (0 requires equal timestamps)")
     ;
     // clang-format on
     po::variables_map vm;
@@ -105,7 +107,7 @@ int main(int argc, char* argv[])
     if (vm.count("help")) {
         std::cout << boost::format("VRT merge. %s") % desc << std::endl;
         std::cout << std::endl
-                  << "This application merges two VRT streams into a single synchronzed stream with two channels. It requires equal timestsamps in the streams.\n"
+                  << "This application merges two VRT streams into a single synchronzed stream with two channels. By default it requires equal timestamps in the streams; --tolerance accepts a skew of up to that many sample periods, so --tolerance 1 merges streams that are aligned to within one sample. The sample period is taken from the stream context, so merging only starts once both contexts have been received.\n"
                   << std::endl;
         return ~0;
     }
@@ -116,6 +118,11 @@ int main(int argc, char* argv[])
     bool continue_on_bad_packet = vm.count("continue") > 0;
     bool int_second             = vm.count("int-second");
     bool zmq_split              = vm.count("zmq-split") > 0;
+
+    if (tolerance_samples < 0.0) {
+        std::cerr << "Error: --tolerance must not be negative." << std::endl;
+        return ~0;
+    }
 
     context_type vrt_context1;
     context_type vrt_context2;
@@ -218,9 +225,30 @@ int main(int argc, char* argv[])
     double t1 = 0;
     double t2 = 0;
 
+    uint64_t tolerance_ps = 0;
+    double sample_period_ps = 0;
+    uint32_t tolerance_sample_rate = 0;
+    bool rate_mismatch_reported = false;
+
+    int64_t locked_skew_ps = 0;
+    bool skew_locked = false;
+
+    /* Signed skew of the two stored data timestamps, t1 - t2, in picoseconds.
+     * The timestamps are compared as integers rather than through t1 and t2:
+     * those hold seconds since the epoch in a double, which resolves only about
+     * 240 ns and so cannot tell apart times less than a sample period apart at
+     * the rates this tool is used at. */
+    auto skew_ps = [&]() -> int64_t {
+        const struct vrt_time_ps a = {(int64_t)t1_integer_seconds_timestamp, t1_fractional_seconds_timestamp};
+        const struct vrt_time_ps b = {(int64_t)t2_integer_seconds_timestamp, t2_fractional_seconds_timestamp};
+        return vrt_time_diff_ps(a, b);
+    };
+
     int len1, len2;
 
     uint32_t frame_count = 0;
+
+    std::signal(SIGINT, &sig_int_handler);
 
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0)
@@ -231,12 +259,19 @@ int main(int argc, char* argv[])
         len1 = 0;
         len2 = 0;
 
-        if (t1 <= t2 or t1 == 0) {
+        /* Read the stream that is behind in time, or both when the stored
+         * packets already pair up. The ordering is taken from the integer skew
+         * too, so that two timestamps which are within a tolerance of each
+         * other, but not equal, cannot end up on neither branch. */
+        int64_t skew = skew_ps();
+        bool aligned = (uint64_t)std::llabs(skew) <= tolerance_ps;
+
+        if (aligned or skew < 0 or t1 == 0) {
             len1 = zmq_recv(subscriber1, rx_buffer[0], ZMQ_BUFFER_SIZE, ZMQ_NOBLOCK);
             // printf("wait 1\n");
         }
 
-        if (t1 >= t2 or t2 == 0) {
+        if (aligned or skew > 0 or t2 == 0) {
             len2 = zmq_recv(subscriber2, rx_buffer[1], ZMQ_BUFFER_SIZE, ZMQ_NOBLOCK);
             // printf("wait 2\n");
         }
@@ -314,12 +349,53 @@ int main(int argc, char* argv[])
                 );
         }
 
-        if ((len1 >0 or len2>0) and !forwarded and t1 == t2 and t1 >0 and t2 >0){
+        /* The sample period, and with it the tolerance, come from the stream
+         * context. Streams at different rates cannot be merged sensibly; take
+         * the shortest sample period of the two, which is the stricter bound. */
+        {
+            const uint32_t sr1 = vrt_context1.sample_rate;
+            const uint32_t sr2 = vrt_context2.sample_rate;
+            const uint32_t sr = sr1 > sr2 ? sr1 : sr2;
+            if (sr1 > 0 and sr2 > 0 and sr != tolerance_sample_rate) {
+                if (sr1 != sr2 and not rate_mismatch_reported) {
+                    fprintf(stderr, "# WARNING: sample rates differ (%u and %u samples per second), using %u\n",
+                            sr1, sr2, sr);
+                    rate_mismatch_reported = true;
+                }
+                tolerance_sample_rate = sr;
+                sample_period_ps      = (double)VRT_PS_PER_SECOND / (double)sr;
+                tolerance_ps          = (uint64_t)std::llround(tolerance_samples * sample_period_ps);
+                /* Keep the tolerance well inside the one second the skew
+                 * arithmetic is bounded to. */
+                if (tolerance_ps >= VRT_PS_PER_SECOND)
+                    tolerance_ps = VRT_PS_PER_SECOND - 1;
+                if (tolerance_samples > 0.0)
+                    printf("# Timestamp tolerance: %g samples = %.3f ns (at %u samples per second)\n",
+                           tolerance_samples, (double)tolerance_ps/1e3, sr);
+            }
+        }
+
+        skew    = skew_ps();
+        aligned = (uint64_t)std::llabs(skew) <= tolerance_ps;
+
+        if ((len1 >0 or len2>0) and !forwarded and aligned and t1 >0 and t2 >0){
 
             forwarded = true;
             if (first_frame) {
                 printf("# Start forwarding at %llu full secs, %.09f frac secs\n", t1_integer_seconds_timestamp, (double)t1_fractional_seconds_timestamp/1e12);
+                if (tolerance_ps > 0)
+                    printf("# Timestamp skew (stream 1 - stream 2): %+.3f ns (%+.4f samples)\n",
+                           (double)skew/1e3, (double)skew/sample_period_ps);
                 first_frame = false;
+            }
+
+            if (not skew_locked) {
+                locked_skew_ps = skew;
+                skew_locked    = true;
+            } else if (sample_period_ps > 0 and std::llabs(skew - locked_skew_ps) > (int64_t)(sample_period_ps/2)) {
+                fprintf(stderr, "# WARNING: timestamp skew changed by more than half a sample, from %+.3f to %+.3f ns; a packet may have been lost, or the two clocks are drifting apart\n",
+                        (double)locked_skew_ps/1e3, (double)skew/1e3);
+                locked_skew_ps = skew;
             }
 
             // channel 0

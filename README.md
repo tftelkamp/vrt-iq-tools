@@ -56,7 +56,7 @@ Alternatively, the project can be built with the Makefile. To do that, edit the 
 * `vrt_pulsar`: Channelize, dedisperse and fold pulsar data.
 * `vrt_tuner`: Extract a sub-band from a VRT stream.
 * `vrt_channelizer`: Polyphase Channelizer, extracts all sub-bands from a VRT stream.
-* `vrt_merge`: Merges two VRT streams into a single synchronized stream with two channels. Requires equal timestamps in the streams.
+* `vrt_merge`: Merges two VRT streams into a single synchronized stream with two channels. Requires equal timestamps in the streams, or, with `--tolerance <samples>`, timestamps that agree to within that many sample periods (`--tolerance 1` merges streams aligned to within one sample).
 * `vrt_quantize`: 1-bit quantization of a VRT stream.
 * `vrt_correlate`: Create cross-spectrum of two channels.
 
