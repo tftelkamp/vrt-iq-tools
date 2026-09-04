@@ -443,6 +443,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     double cw_amplitude, cw_tone;
     double mixer_freq, mixer_rf = 0;
     uint32_t timestamp_calibration_time = 0;
+    std::string actual_clock_source, actual_time_source;
 
     bool context_changed = true;
     bool merge;
@@ -473,7 +474,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("usrp-channel", po::value<std::string>(&channel_list)->default_value("0"), "which usrp channel(s) to use (specify \"0\", \"1\", \"0,1\", etc)")
         ("zmq-split", "create a ZeroMQ stream per VRT channel, increasing port number for additional streams")
         ("bw", po::value<double>(&bw), "analog frontend filter bandwidth in Hz")
-        ("ref", po::value<std::string>(&ref)->default_value("internal"), "reference source (internal, external, mimo, gpsdo)")
+        ("ref", po::value<std::string>(&ref), "reference source (internal, external, mimo, gpsdo)")
         ("tx", "enable tx (VRT stream in over ZMQ)")
         ("cw", "enable tx of a continuous wave, without VRT stream in")
         ("cw-amplitude", po::value<double>(&cw_amplitude)->default_value(1.0), "CW amplitude, relative to full scale (0-1)")
@@ -760,18 +761,19 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     // Lock mboard clocks
     if (vm.count("ref")) {
         usrp->set_clock_source(ref);
+        if (ref == "gpsdo") {
+            usrp->set_time_source(ref);
+        }
     }
 
-    if (ref == "gpsdo") {
-        usrp->set_time_source(ref);
-    }
-
-   if (vm.count("pps")) {
+    if (vm.count("pps")) {
         usrp->set_time_source("external");
     }
 
-    std::cout << "Clock source is " << usrp->get_clock_source(0) << std::endl;
-    std::cout << "Time source is " << usrp->get_time_source(0) << std::endl;
+    actual_clock_source = usrp->get_clock_source(0);
+    actual_time_source = usrp->get_time_source(0);
+    std::cout << "Clock source is " << actual_clock_source << std::endl;
+    std::cout << "Time source is " << actual_time_source << std::endl;
 
     // always select the subdevice first, the channel mapping affects the other settings
     if (vm.count("subdev"))
@@ -1058,7 +1060,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 return usrp->get_rx_sensor(sensor_name, channel);
             },
             setup_time);
-        if (ref == "mimo") {
+        if (actual_clock_source == "mimo") {
             check_locked_sensor(usrp->get_mboard_sensor_names(0),
                 "mimo_locked",
                 [usrp](const std::string& sensor_name) {
@@ -1066,7 +1068,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 },
                 setup_time);
         }
-        if (ref == "external") {
+        if (actual_clock_source == "external") {
             check_locked_sensor(usrp->get_mboard_sensor_names(0),
                 "ref_locked",
                 [usrp](const std::string& sensor_name) {
@@ -1074,7 +1076,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 },
                 setup_time);
         }
-        if (ref == "gpsdo") {
+        if (actual_clock_source == "gpsdo") {
             check_locked_sensor(usrp->get_mboard_sensor_names(0),
                 "ref_locked",
                 [usrp](const std::string& sensor_name) {
@@ -1113,7 +1115,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         std::cout << boost::format("Done...") << std::endl;
     }
 
-    if (ref=="gpsdo") {
+    if (actual_clock_source=="gpsdo") {
         // Check PPS and compare UHD device time to GPS time
         uhd::sensor_value_t gps_time   = usrp->get_mboard_sensor("gps_time");
         uhd::time_spec_t last_pps_time = usrp->get_time_last_pps();
@@ -1349,7 +1351,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             for (size_t ch = 0; ch < channel_nums.size(); ch++) {
                 size_t channel = channel_nums[ch];
 
-                if (ref == "external") {
+                if (actual_clock_source == "external") {
                     ref_locked = usrp->get_mboard_sensor("ref_locked").to_bool();
                     if (ref_locked_state != ref_locked) {
                         context_changed = true;
@@ -1394,10 +1396,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 pc.if_context.gain.stage2                       = 0;
 
                 pc.if_context.state_and_event_indicators.has.reference_lock = true;
-                pc.if_context.state_and_event_indicators.reference_lock = (((ref == "external") or (ref=="gpsdo")) and ref_locked);
+                pc.if_context.state_and_event_indicators.reference_lock = (((actual_clock_source == "external") or (actual_clock_source=="gpsdo")) and ref_locked);
 
                 pc.if_context.state_and_event_indicators.has.calibrated_time = true;
-                pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (ref=="gpsdo"));
+                pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (actual_clock_source=="gpsdo"));
 
                 if (enable_mixer and channel == mixer_rx_channel) {
                     // high-side LO injection mirrors the spectrum, unless it is undone on RX
