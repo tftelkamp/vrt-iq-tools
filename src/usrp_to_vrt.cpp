@@ -810,7 +810,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     usrp->set_time_now(uhd::time_spec_t(time_now.tv_sec, (double)time_now.tv_usec / 1e6));
 
     // PPS
-    if (vm.count("pps")) {
+    if (actual_time_source == "external") {
         uint32_t usrp_seconds;
         do {
             gettimeofday(&time_now, nullptr);
@@ -1081,10 +1081,10 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 pc.if_context.state_and_event_indicators.reference_lock = (((actual_clock_source == "external") or (actual_clock_source=="gpsdo")) and ref_locked);
 
                 pc.if_context.state_and_event_indicators.has.calibrated_time = true;
-                pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (actual_clock_source=="gpsdo"));
+                pc.if_context.state_and_event_indicators.calibrated_time = ((actual_time_source=="external") or (actual_clock_source=="gpsdo"));
 
                 // timestamp_adjustment
-                if (vm.count("pps")) {
+                if (actual_time_source=="external") {
                     double pps_frac_time = usrp->get_time_last_pps().get_frac_secs();
                     int64_t pps_integer_seconds = usrp->get_time_last_pps().get_full_secs();
 
