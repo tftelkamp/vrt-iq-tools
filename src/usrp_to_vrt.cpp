@@ -1098,7 +1098,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     usrp->set_time_now(uhd::time_spec_t((int64_t)time_now.seconds, (double)time_now.frac_ps / 1e12));
 
     // PPS
-    if (vm.count("pps")) {
+    if (actual_time_source == "external") {
         uint32_t usrp_seconds;
         do {
             time_now = vrt_time_now();
@@ -1399,7 +1399,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 pc.if_context.state_and_event_indicators.reference_lock = (((actual_clock_source == "external") or (actual_clock_source=="gpsdo")) and ref_locked);
 
                 pc.if_context.state_and_event_indicators.has.calibrated_time = true;
-                pc.if_context.state_and_event_indicators.calibrated_time = ((vm.count("pps")) or (actual_clock_source=="gpsdo"));
+                pc.if_context.state_and_event_indicators.calibrated_time = ((actual_time_source=="external") or (actual_clock_source=="gpsdo"));
 
                 if (enable_mixer and channel == mixer_rx_channel) {
                     // high-side LO injection mirrors the spectrum, unless it is undone on RX
@@ -1408,7 +1408,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                 }
 
                 // timestamp_adjustment
-                if (vm.count("pps")) {
+                if (actual_time_source=="external") {
                     double pps_frac_time = usrp->get_time_last_pps().get_frac_secs();
                     int64_t pps_integer_seconds = usrp->get_time_last_pps().get_full_secs();
 
