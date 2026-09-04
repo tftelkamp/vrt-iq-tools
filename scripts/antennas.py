@@ -19,5 +19,5 @@ ANTENNA_TABLE = {
     'delft': EarthLocation(lat=51.999153, lon=4.373352, height=92, ellipsoid="WGS84"),  # estimation
     'ata_1a': EarthLocation.from_geocentric(-2524036.0307912203*u.m, -4123528.101172219*u.m, 4147706.408318585*u.m),
     'ata_4j': EarthLocation.from_geocentric(-2523898.1150373477*u.m, -4123456.314794732*u.m, 4147860.3045849088*u.m),
-    'wsrt_rt2': EarthLocation.from_geocentri(3828730.02*u.m, 442734.88*u.m, 5064923.01*u.m)
+    'wsrt_rt2': EarthLocation.from_geocentric(3828730.02*u.m, 442734.88*u.m, 5064923.01*u.m)
 }
