@@ -524,6 +524,11 @@ int main(int argc, char* argv[])
                 }
             }
 
+            if (frame_counter == 0 && next_integer_seconds_timestamp == 0) {
+                next_integer_seconds_timestamp    = vrt_packet.integer_seconds_timestamp;
+                next_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
+            }
+
             // Assumes ci16_le
             for (uint32_t i = 0; i < vrt_packet.num_rx_samps; i++) {
                 int16_t re;
@@ -591,11 +596,6 @@ int main(int argc, char* argv[])
                 memcpy(&shift_reg[block_samples_in], shift_reg, noverlap * sizeof(std::complex<float>));
 
                 iq_counter += samples_per_channel_out;
-
-                if (next_integer_seconds_timestamp == 0) {
-                    next_integer_seconds_timestamp = vrt_packet.integer_seconds_timestamp;
-                    next_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
-                }
 
                 frame_counter = 0;
 
