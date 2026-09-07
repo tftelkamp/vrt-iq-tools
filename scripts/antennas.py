@@ -13,6 +13,7 @@ ANTENNA_TABLE = {
     'stockert_2m': EarthLocation(lat=50.5695061056416, lon=6.723182992220438, height=480, ellipsoid="WGS84"),
     'stockert_1m': EarthLocation(lat=50.56933956889883, lon=6.723980412727782, height=480, ellipsoid="WGS84"),
     'stockert_gps': EarthLocation(lat=50.5694894300997, lon=6.723360789125483, height=480, ellipsoid="WGS84"),
+    'stockert_mb_gps': EarthLocation(lat=50.569497116740614, lon=6.723225334840987, height=480, ellipsoid="WGS84"),
     'bochum': EarthLocation(lat=51.426990, lon=7.192566, height=205, ellipsoid="WGS84"),
     'debilt': EarthLocation(lat=52.1018688270963, lon=5.17973411317635, height=51, ellipsoid="WGS84"),
     'debilt_gps': EarthLocation(lat=52.102008951201654, lon=5.1796902174021175, height=51, ellipsoid="WGS84"),
