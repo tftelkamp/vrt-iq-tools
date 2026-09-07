@@ -563,6 +563,10 @@ int main(int argc, char* argv[])
                     break;
 
             if (int_second) {
+                // packets from both channels are interleaved on one stream and
+                // share a timestamp, so only track the wrap on the first channel
+                if (ch != 0)
+                    continue;
                 // check if fractional second has wrapped
                 if (vrt_packet.fractional_seconds_timestamp > last_fractional_seconds_timestamp ) {
                         last_fractional_seconds_timestamp = vrt_packet.fractional_seconds_timestamp;
