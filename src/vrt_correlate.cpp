@@ -31,6 +31,7 @@
 #include <vrt/vrt_types.h>
 #include <vrt/vrt_util.h>
 
+#include <cmath>
 #include <complex.h>
 #include <fftw3.h>
 
@@ -284,6 +285,13 @@ int main(int argc, char* argv[])
 
     bool first_block = true;
     uint32_t integration_counter = 0;
+    int64_t integration_start_seconds = 0;
+    int64_t integration_start_frac_seconds = 0;
+
+    // timestamp of the most recent station 1 (channel 0) data packet: time tags
+    // refer to station 1, and the two streams do not have to share a timestamp
+    int64_t ch0_integer_seconds_timestamp = 0;
+    int64_t ch0_fractional_seconds_timestamp = 0;
 
     while (not stop_signal_called
            and (num_requested_samples > num_total_samps or num_requested_samples == 0) ) {
@@ -481,6 +489,7 @@ int main(int argc, char* argv[])
                 printf("#   - {object: %s}\n", object.c_str());
                 printf("#   - {site_1: %s}\n", site1.c_str());
                 printf("#   - {site_2: %s}\n", site2.c_str());
+                printf("#   - {time_reference: %s}\n", "site_1");
                 printf("#   - {clock_offset: %.6e}\n", clock_offset);
                 printf("#   - {clock_offset_1: %.6e}\n", clock_offset_1);
                 printf("#   - {clock_offset_2: %.6e}\n", clock_offset_2);
@@ -598,6 +607,11 @@ int main(int argc, char* argv[])
                 write_head[ch] = (write_head[ch] + vrt_packet.num_rx_samps) & buf_mask;
             }
 
+            if (ch == 0) {
+                ch0_integer_seconds_timestamp    = (int64_t)vrt_packet.integer_seconds_timestamp;
+                ch0_fractional_seconds_timestamp = (int64_t)vrt_packet.fractional_seconds_timestamp;
+            }
+
             if (ch==1) {
                 // both channels received (we assume they are in order)
 
@@ -628,18 +642,38 @@ int main(int argc, char* argv[])
 
                     if (signal_pointer == num_bins) {
 
-                        int64_t seconds = vrt_packet.integer_seconds_timestamp;
-                        int64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
-                        frac_seconds += (k-num_bins/2)*1e12/vrt_context[0].sample_rate;
-                        if (frac_seconds > 1e12) {
-                            frac_seconds -= 1e12;
-                            seconds++;
-                        } else if (frac_seconds < 0) {
-                            frac_seconds += 1e12;
-                            seconds--;
-                        }
+                        // Sample k is the last sample of this FFT block. All times
+                        // refer to station 1, so offsets are counted from that
+                        // station's packet timestamp and undo its delay shift.
+                        const int64_t ps_per_second = 1000000000000LL;
+                        const double  ps_per_sample = 1e12/(double)vrt_context[0].sample_rate;
+                        const int64_t station1_sample = (int64_t)k - (int64_t)ch0_shift;
+
+                        // centre of this FFT block, epoch for the delay/fringe model
+                        int64_t seconds = ch0_integer_seconds_timestamp;
+                        int64_t frac_seconds = ch0_fractional_seconds_timestamp +
+                            llround(((double)station1_sample - (double)num_bins/2.0)*ps_per_sample);
+                        int64_t carry = frac_seconds/ps_per_second;
+                        if (frac_seconds%ps_per_second < 0)
+                            carry--;
+                        seconds += carry;
+                        frac_seconds -= carry*ps_per_second;
 
                         double t = (double)seconds + (double)frac_seconds/1e12;
+
+                        // start of the integration interval, i.e. first sample of the
+                        // first FFT block that goes into this accumulation: the time
+                        // tag reported on the output row
+                        if (integration_counter == 0) {
+                            integration_start_seconds = ch0_integer_seconds_timestamp;
+                            integration_start_frac_seconds = ch0_fractional_seconds_timestamp +
+                                llround(((double)station1_sample + 1.0 - (double)num_bins)*ps_per_sample);
+                            int64_t start_carry = integration_start_frac_seconds/ps_per_second;
+                            if (integration_start_frac_seconds%ps_per_second < 0)
+                                start_carry--;
+                            integration_start_seconds += start_carry;
+                            integration_start_frac_seconds -= start_carry*ps_per_second;
+                        }
 
                         signal_pointer = 0;
 
@@ -697,7 +731,7 @@ int main(int argc, char* argv[])
                                 }
                             }
 
-                            printf("%llu.%09lli", (long long unsigned int)seconds, (long long int)(frac_seconds/1e3));
+                            printf("%llu.%09lli", (long long unsigned int)integration_start_seconds, (long long int)(integration_start_frac_seconds/1000));
                             printf(",%s", "xy"); // no space(s)
                             printf(", %.12e, %.12e, %.12e", range_u, range_v, current_delta_range);
 
@@ -715,14 +749,14 @@ int main(int argc, char* argv[])
                                 }
                                 printf("\n");
                                 if (all_hands) {
-                                    printf("%llu.%09lli", (long long unsigned int)seconds, (long long int)(frac_seconds/1e3));
+                                    printf("%llu.%09lli", (long long unsigned int)integration_start_seconds, (long long int)(integration_start_frac_seconds/1000));
                                     printf(",%s", "xx"); // no space(s)
                                     printf(", %.12e, %.12e, %.12e", range_u, range_v, current_delta_range);
                                     for (uint32_t i = 0; i < num_bins; i++) {
                                         printf(", (%.6e%s%.6ej)", fft_x_integrated[i].real(), (fft_x_integrated[i].imag() > 0) ? "+" : "-", abs(fft_x_integrated[i].imag()) );
                                     }
                                     printf("\n");
-                                    printf("%llu.%09lli", (long long unsigned int)seconds, (long long int)(frac_seconds/1e3));
+                                    printf("%llu.%09lli", (long long unsigned int)integration_start_seconds, (long long int)(integration_start_frac_seconds/1000));
                                     printf(",%s", "yy"); // no space(s)
                                     printf(", %.12e, %.12e, %.12e", range_u, range_v, current_delta_range);
                                     for (uint32_t i = 0; i < num_bins; i++) {
