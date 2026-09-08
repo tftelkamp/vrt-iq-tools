@@ -96,7 +96,7 @@ int main(int argc, char* argv[])
         ("pub-port", po::value<uint16_t>(&pub_port), "VRT ZMQ PUB port")
         ("pub-instance", po::value<uint16_t>(&pub_instance)->default_value(1), "VRT ZMQ instance")
         ("hwm", po::value<int>(&hwm)->default_value(10000), "VRT ZMQ HWM")
-        ("tolerance", po::value<double>(&tolerance_samples)->default_value(0.0), "maximum allowed timestamp skew between the two streams, in sample periods (0 requires equal timestamps)")
+        ("tolerance", po::value<double>(&tolerance_samples)->default_value(1.0), "maximum allowed timestamp skew between the two streams, in sample periods (0 requires equal timestamps)")
     ;
     // clang-format on
     po::variables_map vm;
@@ -220,12 +220,21 @@ int main(int argc, char* argv[])
     uint64_t t2_integer_seconds_timestamp = 0;
     uint64_t t2_fractional_seconds_timestamp = 0;
 
-    bool forwarded = false;
+    /* A frame is forwarded only once BOTH streams have delivered a data packet
+     * that has not been forwarded yet. */
+    bool have1 = false;
+    bool have2 = false;
+
+    /* Packets thrown away to re-align the two streams. Before forwarding
+     * starts this is the normal catch-up from an arbitrary relative offset;
+     * afterwards it means data is being lost out of the merged stream. */
+    uint64_t discarded1 = 0, discarded2 = 0;
+    bool discard_reported = false;
 
     double t1 = 0;
     double t2 = 0;
 
-    uint64_t tolerance_ps = 0;
+    uint64_t tolerance_ps = 10; //default to 10ps to prevent timestamp rounding causing a mismatch
     double sample_period_ps = 0;
     uint32_t tolerance_sample_rate = 0;
     bool rate_mismatch_reported = false;
@@ -259,19 +268,24 @@ int main(int argc, char* argv[])
         len1 = 0;
         len2 = 0;
 
-        /* Read the stream that is behind in time, or both when the stored
-         * packets already pair up. The ordering is taken from the integer skew
-         * too, so that two timestamps which are within a tolerance of each
-         * other, but not equal, cannot end up on neither branch. */
+        /* While the stored packets pair up, read only a stream that is not
+         * already holding an unforwarded packet: reading it again would
+         * overwrite that packet and drop it from the output, leaving a hole in
+         * one channel only. While they do not pair up, read the stream that is
+         * behind in time, deliberately discarding its stored packet, which is
+         * how the two streams catch up with each other. The ordering is taken
+         * from the integer skew too, so that two timestamps which are within a
+         * tolerance of each other, but not equal, cannot end up on neither
+         * branch. */
         int64_t skew = skew_ps();
         bool aligned = (uint64_t)std::llabs(skew) <= tolerance_ps;
 
-        if (aligned or skew < 0 or t1 == 0) {
+        if (t1 == 0 or (aligned ? not have1 : skew < 0)) {
             len1 = zmq_recv(subscriber1, rx_buffer[0], ZMQ_BUFFER_SIZE, ZMQ_NOBLOCK);
             // printf("wait 1\n");
         }
 
-        if (aligned or skew > 0 or t2 == 0) {
+        if (t2 == 0 or (aligned ? not have2 : skew > 0)) {
             len2 = zmq_recv(subscriber2, rx_buffer[1], ZMQ_BUFFER_SIZE, ZMQ_NOBLOCK);
             // printf("wait 2\n");
         }
@@ -287,7 +301,18 @@ int main(int argc, char* argv[])
                 t1_integer_seconds_timestamp = vrt_packet1.integer_seconds_timestamp;
                 t1_fractional_seconds_timestamp = vrt_packet1.fractional_seconds_timestamp;
                 t1 = (double)vrt_packet1.integer_seconds_timestamp + (double)vrt_packet1.fractional_seconds_timestamp/1e12;
-                forwarded = false;
+                if (have1 and not first_frame) {
+                    discarded1++;
+                    if (not discard_reported) {
+                        fprintf(stderr, "# WARNING: discarding packets to re-align the two streams, "
+                                        "the merged stream will have gaps and any downstream integration "
+                                        "will span more time than its own length. The timestamps differ by "
+                                        "more than the tolerance of %g sample periods; try a larger "
+                                        "--tolerance.\n", tolerance_samples);
+                        discard_reported = true;
+                    }
+                }
+                have1 = true;
                 memcpy((char*)rx_stored[0], (char*)rx_buffer[0], len1);
                 rx_stored_len[0] = len1;
             } else if (vrt_packet1.context) {
@@ -324,7 +349,18 @@ int main(int argc, char* argv[])
                 t2_integer_seconds_timestamp = vrt_packet2.integer_seconds_timestamp;
                 t2_fractional_seconds_timestamp = vrt_packet2.fractional_seconds_timestamp;
                 t2 = (double)vrt_packet2.integer_seconds_timestamp + (double)vrt_packet2.fractional_seconds_timestamp/1e12;
-                forwarded = false;
+                if (have2 and not first_frame) {
+                    discarded2++;
+                    if (not discard_reported) {
+                        fprintf(stderr, "# WARNING: discarding packets to re-align the two streams, "
+                                        "the merged stream will have gaps and any downstream integration "
+                                        "will span more time than its own length. The timestamps differ by "
+                                        "more than the tolerance of %g sample periods; try a larger "
+                                        "--tolerance.\n", tolerance_samples);
+                        discard_reported = true;
+                    }
+                }
+                have2 = true;
                 memcpy((char*)rx_stored[1], (char*)rx_buffer[1], len2);
                 rx_stored_len[1] = len2;
             } else if (vrt_packet2.context) {
@@ -378,9 +414,10 @@ int main(int argc, char* argv[])
         skew    = skew_ps();
         aligned = (uint64_t)std::llabs(skew) <= tolerance_ps;
 
-        if ((len1 >0 or len2>0) and !forwarded and aligned and t1 >0 and t2 >0){
+        if (have1 and have2 and aligned and t1 >0 and t2 >0){
 
-            forwarded = true;
+            have1 = false;
+            have2 = false;
             if (first_frame) {
                 printf("# Start forwarding at %llu full secs, %.09f frac secs\n", t1_integer_seconds_timestamp, (double)t1_fractional_seconds_timestamp/1e12);
                 if (tolerance_ps > 0)
@@ -430,6 +467,11 @@ int main(int argc, char* argv[])
         usleep(5);
 
     }
+
+    if (discarded1 > 0 or discarded2 > 0)
+        fprintf(stderr, "# %llu packets discarded from stream 1 and %llu from stream 2 "
+                        "after forwarding started: the merged stream has gaps\n",
+                (long long unsigned int)discarded1, (long long unsigned int)discarded2);
 
     zmq_close(subscriber1);
     zmq_close(subscriber2);
