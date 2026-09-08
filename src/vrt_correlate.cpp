@@ -287,6 +287,9 @@ int main(int argc, char* argv[])
     uint32_t integration_counter = 0;
     int64_t integration_start_seconds = 0;
     int64_t integration_start_frac_seconds = 0;
+    double integration_start_u = 0;
+    double integration_start_v = 0;
+    double integration_start_delta_range = 0;
 
     // timestamp of the most recent station 1 (channel 0) data packet: time tags
     // refer to station 1, and the two streams do not have to share a timestamp
@@ -366,6 +369,17 @@ int main(int argc, char* argv[])
         }
 
         if (not start_rx and (contexts_received == 0x3)) {
+
+            // The correlator reads payloads as ci16.
+            for (size_t c = 0; c < channel_nums.size(); c++) {
+                if (vrt_context[c].data_item_size != 16) {
+                    fprintf(stderr, "# Error: channel %zu carries %u-bit samples, "
+                                    "vrt_correlate requires 16-bit. Insert "
+                                    "'vrt_quantize --unpack' ahead of it.\n",
+                            channel_nums[c], vrt_context[c].data_item_size);
+                    exit(1);
+                }
+            }
 
             if (!ecsv) {
                 vrt_print_context(&vrt_context[0]);
@@ -643,16 +657,23 @@ int main(int argc, char* argv[])
                     if (signal_pointer == num_bins) {
 
                         // Sample k is the last sample of this FFT block. All times
-                        // refer to station 1, so offsets are counted from that
-                        // station's packet timestamp and undo its delay shift.
+                        // refer to station 1 and are counted from that station's
+                        // packet timestamp. 
+                        // ch0_shift is deliberately NOT applied here. It is how far
+                        // the delay model reaches back into the ring buffer to align
+                        // the two streams, not a property of the data timeline: the
+                        // correlator always consumes integrations*num_bins samples
+                        // per output row, so the time axis has to advance by exactly
+                        // that much. Folding the model-driven shift into the time tag
+                        // makes the axis non-uniform, drifting it against the
+                        // integration interval as the delay changes.
                         const int64_t ps_per_second = 1000000000000LL;
                         const double  ps_per_sample = 1e12/(double)vrt_context[0].sample_rate;
-                        const int64_t station1_sample = (int64_t)k - (int64_t)ch0_shift;
 
                         // centre of this FFT block, epoch for the delay/fringe model
                         int64_t seconds = ch0_integer_seconds_timestamp;
                         int64_t frac_seconds = ch0_fractional_seconds_timestamp +
-                            llround(((double)station1_sample - (double)num_bins/2.0)*ps_per_sample);
+                            llround(((double)k - (double)num_bins/2.0)*ps_per_sample);
                         int64_t carry = frac_seconds/ps_per_second;
                         if (frac_seconds%ps_per_second < 0)
                             carry--;
@@ -667,7 +688,7 @@ int main(int argc, char* argv[])
                         if (integration_counter == 0) {
                             integration_start_seconds = ch0_integer_seconds_timestamp;
                             integration_start_frac_seconds = ch0_fractional_seconds_timestamp +
-                                llround(((double)station1_sample + 1.0 - (double)num_bins)*ps_per_sample);
+                                llround(((double)k + 1.0 - (double)num_bins)*ps_per_sample);
                             int64_t start_carry = integration_start_frac_seconds/ps_per_second;
                             if (integration_start_frac_seconds%ps_per_second < 0)
                                 start_carry--;
@@ -690,6 +711,16 @@ int main(int argc, char* argv[])
                         current_delay_samples = (double)vrt_context[0].sample_rate*(current_delay);
                         current_sample_delay = (int32_t)floor(current_delay_samples+0.5);
                         fractional_delay = current_delay_samples - (double)current_sample_delay;
+
+                        // first block of this accumulation: latch the geometry so the
+                        // reported u/v/w share the epoch of the reported time tag.
+                        // Without this the row carries the model from the *last* block,
+                        // a full integration interval after the timestamp.
+                        if (integration_counter == 1) {
+                            integration_start_u = range_u;
+                            integration_start_v = range_v;
+                            integration_start_delta_range = current_delta_range;
+                        }
 
                         std::complex<double> phase_correction = std::exp(complexi*-2.0*pi*( (double)vrt_context[0].rf_freq*current_delay + (double)phase_offset/360.0));
 
@@ -733,7 +764,7 @@ int main(int argc, char* argv[])
 
                             printf("%llu.%09lli", (long long unsigned int)integration_start_seconds, (long long int)(integration_start_frac_seconds/1000));
                             printf(",%s", "xy"); // no space(s)
-                            printf(", %.12e, %.12e, %.12e", range_u, range_v, current_delta_range);
+                            printf(", %.12e, %.12e, %.12e", integration_start_u, integration_start_v, integration_start_delta_range);
 
                             if (correlation) {
                                 // inverse FFT
@@ -751,14 +782,14 @@ int main(int argc, char* argv[])
                                 if (all_hands) {
                                     printf("%llu.%09lli", (long long unsigned int)integration_start_seconds, (long long int)(integration_start_frac_seconds/1000));
                                     printf(",%s", "xx"); // no space(s)
-                                    printf(", %.12e, %.12e, %.12e", range_u, range_v, current_delta_range);
+                                    printf(", %.12e, %.12e, %.12e", integration_start_u, integration_start_v, integration_start_delta_range);
                                     for (uint32_t i = 0; i < num_bins; i++) {
                                         printf(", (%.6e%s%.6ej)", fft_x_integrated[i].real(), (fft_x_integrated[i].imag() > 0) ? "+" : "-", abs(fft_x_integrated[i].imag()) );
                                     }
                                     printf("\n");
                                     printf("%llu.%09lli", (long long unsigned int)integration_start_seconds, (long long int)(integration_start_frac_seconds/1000));
                                     printf(",%s", "yy"); // no space(s)
-                                    printf(", %.12e, %.12e, %.12e", range_u, range_v, current_delta_range);
+                                    printf(", %.12e, %.12e, %.12e", integration_start_u, integration_start_v, integration_start_delta_range);
                                     for (uint32_t i = 0; i < num_bins; i++) {
                                         printf(", (%.6e%s%.6ej)", fft_y_integrated[i].real(), (fft_y_integrated[i].imag() > 0) ? "+" : "-", abs(fft_y_integrated[i].imag()) );
                                     }
