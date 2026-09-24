@@ -553,6 +553,7 @@ void vrt_init_context_packet(struct vrt_packet* pc) {
 
 }
 
+__attribute__((optimize("O0")))
 void show_progress_stats(
     std::chrono::time_point<std::chrono::steady_clock> now,
     std::chrono::time_point<std::chrono::steady_clock> *last_update,
