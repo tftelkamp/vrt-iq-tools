@@ -22,6 +22,7 @@
 #include <csignal>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <thread>
 
 #include <zmq.h>
@@ -102,13 +103,24 @@ bool check_locked_sensor(std::vector<std::string> sensor_names,
     return true;
 }
 
+
+// A command time applies to every command that follows it, from any thread, and
+// a timed command holds up the commands queued behind it. Commands that must not
+// pick up the command time of the transmit thread are issued under this lock.
+static std::mutex usrp_cmd_mutex;
+
+static std::string format_time(const uhd::time_spec_t& t)
+{
+    return str(boost::format("%d.%06d") % t.get_full_secs()
+               % (int64_t)std::floor(t.get_frac_secs() * 1e6));
+}
+
 void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
                      uhd::tx_streamer::sptr tx_streamer,
                      void *zmq_transmit,
                      double tx_freq,
                      double tx_lo_offset,
                      double tx_gain,
-                     double sample_rate,
                      bool enable_gpio,
                      double gpio_delay,
                      std::vector<size_t> tx_channel_nums,
@@ -121,17 +133,23 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
     if (priority)
         uhd::set_thread_priority_safe();
 
+    // the rate the device actually transmits at, which sets the burst duration
+    const double sample_rate = usrp->get_tx_rate(active_tx_chan);
+
     std::vector<std::complex<short>> buff(VRT_SAMPLES_PER_PACKET);
     // the AD9361 needs as many TX as RX channels, unused channels transmit zeros
     std::vector<std::complex<short>> zero_buff(VRT_SAMPLES_PER_PACKET, std::complex<short>(0, 0));
     std::vector<std::complex<short>*> buffs(tx_channel_nums.size(), &zero_buff.front());
     buffs[active_tx_index] = &buff.front();
+    // all channels zero, to fill the samples of lost packets
+    const std::vector<std::complex<short>*> zero_buffs(tx_channel_nums.size(), &zero_buff.front());
+    // pointers into the remainder of a partial send
+    std::vector<std::complex<short>*> send_buffs(buffs);
 
-    size_t samps_per_buff = VRT_SAMPLES_PER_PACKET; // spb
     uint32_t tx_zmq_buffer[VRT_DATA_PACKET_SIZE];
 
     uhd::tx_metadata_t metadata;
-    metadata.start_of_burst = true;
+    metadata.start_of_burst = false;
     metadata.end_of_burst   = false;
     metadata.has_time_spec  = false;
 
@@ -143,10 +161,17 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
     size_t num_bits = 6;
     boost::uint32_t mask = (1 << num_bits) - 1;
 
-    float gpio_start_delay = gpio_delay/1000.0;
-    float gpio_stop_delay = gpio_delay/1000.0;
+    const uhd::time_spec_t gpio_advance(enable_gpio ? gpio_delay / 1000.0 : 0.0);
+
+    // time for the first samples of an untimed burst to reach the device
+    const uhd::time_spec_t start_margin(0.05);
+
+    // gaps up to this long are filled with zeros, longer jumps restart the timeline
+    const int64_t max_gap_ps = VRT_PS_PER_SECOND;
 
     if (enable_gpio) {
+        std::lock_guard<std::mutex> lock(usrp_cmd_mutex);
+
         //set data direction register (DDR)
         usrp->set_gpio_attr(gpio, "DDR", (GPIO_BIT(gpio_bit)|GPIO_BIT(duplex_bit)), mask);
 
@@ -160,185 +185,353 @@ void transmit_worker(uhd::usrp::multi_usrp::sptr usrp,
         usrp->set_gpio_attr(gpio, "ATR_XX", GPIO_BIT(duplex_bit), mask);
     }
 
+    // Switch the GPIO at the given device time, the command time is cleared again
+    // so later commands are not timed
+    auto set_gpio_at = [&](bool on, const uhd::time_spec_t& at) {
+        std::lock_guard<std::mutex> lock(usrp_cmd_mutex);
+        usrp->set_command_time(at);
+        usrp->set_gpio_attr(gpio, "OUT", on ? GPIO_BIT(gpio_bit) : 0, GPIO_BIT(gpio_bit));
+        usrp->clear_command_time();
+    };
+
+    // Burst state. The burst timeline follows the stream timestamps: the samples
+    // at stream time ref_ts + n transmit at burst_start + n, lost packets are
+    // filled with zeros to keep it that way.
+    bool in_burst = false;
+    bool drop_reported = false;
+    uhd::time_spec_t burst_start;
+    struct vrt_time_ps ref_ts = {0, 0};
+    uint64_t ref_samples = 0;
+    uint64_t burst_samples = 0;     // handed to the device, zero fill included
+    uint64_t fill_samples = 0;
+    uint64_t dropped_packets = 0;
+    // the rate of the stream timestamps, from the start of transmission context
+    double stream_rate = sample_rate;
+
+    // async events, reported when the device acknowledges the end of the burst
+    uint64_t underflows = 0, late = 0, seq_errors = 0;
+
+    // Send all samples. A timeout only means the device has no room yet, for
+    // instance while it waits for the start time, so the send is retried.
+    auto send_all = [&](const std::vector<std::complex<short>*>& b, size_t n) {
+        size_t sent = 0;
+        while (sent < n and not stop_signal_called) {
+            for (size_t i = 0; i < b.size(); i++) {
+                send_buffs[i] = b[i] + sent;
+            }
+            const size_t num_tx_samps = tx_streamer->send(send_buffs, n - sent, metadata, 1.0);
+            if (num_tx_samps > 0) {
+                metadata.start_of_burst = false;
+                metadata.has_time_spec  = false;
+            }
+            sent += num_tx_samps;
+        }
+        burst_samples += sent;
+    };
+
+    auto send_zeros = [&](uint64_t n) {
+        while (n > 0 and not stop_signal_called) {
+            const size_t chunk = std::min<uint64_t>(n, VRT_SAMPLES_PER_PACKET);
+            send_all(zero_buffs, chunk);
+            n -= chunk;
+        }
+    };
+
+    // Compare a stream timestamp with the burst timeline. Fills a gap with zeros
+    // and returns true when the samples at ts continue the burst, false when they
+    // lie before what was sent already.
+    auto align_to = [&](const struct vrt_time_ps& ts) {
+        const struct vrt_time_ps expected =
+            vrt_time_add_samples(ref_ts, burst_samples - ref_samples, stream_rate);
+        const int64_t diff_ps = vrt_time_diff_ps(ts, expected);
+        const int64_t gap = std::llround((double)diff_ps * 1e-12 * stream_rate);
+
+        if (diff_ps >= max_gap_ps or diff_ps <= -max_gap_ps) {
+            printf("Warning: timestamp jump of %.3f s, restarting the burst timeline.\n",
+                   (double)diff_ps * 1e-12);
+            ref_ts = ts;
+            ref_samples = burst_samples;
+            return true;
+        }
+        if (gap > 0) {
+            printf("Warning: %lld samples lost, filled with zeros.\n", (long long)gap);
+            send_zeros(gap);
+            fill_samples += gap;
+        } else if (gap < 0) {
+            printf("Warning: packet %lld samples before the burst timeline, dropped.\n",
+                   (long long)-gap);
+            return false;
+        }
+        return true;
+    };
+
+    auto end_burst = [&]() {
+        if (burst_samples > 0) {
+            metadata.start_of_burst = false;
+            metadata.end_of_burst   = true;
+            metadata.has_time_spec  = false;
+            tx_streamer->send(zero_buffs, 0, metadata);
+            metadata.end_of_burst   = false;
+        }
+
+        const uhd::time_spec_t stop_time =
+            burst_start + uhd::time_spec_t::from_ticks((long long)burst_samples, sample_rate);
+
+        if (enable_gpio) {
+            set_gpio_at(false, stop_time + gpio_advance);
+        }
+
+        printf("End transmit: %llu samples (%llu zero filled), stop at %s",
+               (unsigned long long)burst_samples, (unsigned long long)fill_samples,
+               format_time(stop_time).c_str());
+        if (enable_gpio)
+            printf(", GPIO off at %s", format_time(stop_time + gpio_advance).c_str());
+        printf(".\n");
+
+        in_burst = false;
+    };
+
     // send data until the signal handler gets called
     while (not stop_signal_called) {
 
-        // Receive data
-        int len = zmq_recv(zmq_transmit, tx_zmq_buffer, 100000, ZMQ_NOBLOCK);
+        // Device events of the transmission
+        uhd::async_metadata_t async_md;
+        while (tx_streamer->recv_async_msg(async_md, 0.0)) {
+            switch (async_md.event_code) {
+                case uhd::async_metadata_t::EVENT_CODE_BURST_ACK:
+                    if (late) {
+                        printf("Warning: burst started late, the device dropped its samples.\n");
+                    }
+                    if (underflows or seq_errors) {
+                        printf("Warning: burst had %llu underflows and %llu sequence errors, "
+                               "it no longer matches its timestamps and the GPIO.\n",
+                               (unsigned long long)underflows, (unsigned long long)seq_errors);
+                    }
+                    if (not (late or underflows or seq_errors)) {
+                        printf("Burst acknowledged, no errors.\n");
+                    }
+                    break;
+                case uhd::async_metadata_t::EVENT_CODE_UNDERFLOW:
+                case uhd::async_metadata_t::EVENT_CODE_UNDERFLOW_IN_PACKET:
+                    underflows++;
+                    break;
+                case uhd::async_metadata_t::EVENT_CODE_TIME_ERROR:
+                    late++;
+                    break;
+                case uhd::async_metadata_t::EVENT_CODE_SEQ_ERROR:
+                case uhd::async_metadata_t::EVENT_CODE_SEQ_ERROR_IN_BURST:
+                    seq_errors++;
+                    break;
+                default:
+                    break;
+            }
+        }
 
-        if (len > 0) {
+        // Receive data, times out so the stop signal is seen
+        int len = zmq_recv(zmq_transmit, tx_zmq_buffer, sizeof(tx_zmq_buffer), 0);
 
-            // metadata.time_spec = uhd::time_spec_t(usrp->get_time_now() + uhd::time_spec_t(0.5));
+        if (len < 0)
+            continue;
 
-            struct vrt_header h;
-            struct vrt_fields f;
+        if (len > (int)sizeof(tx_zmq_buffer) or len % 4 != 0) {
+            fprintf(stderr, "Dropping transmit message of %i bytes.\n", len);
+            continue;
+        }
 
-            int32_t offset = 0;
-            int32_t size = ZMQ_BUFFER_SIZE;
-            int32_t rv = vrt_read_header(tx_zmq_buffer + offset, size - offset, &h, true);
+        struct vrt_header h;
+        struct vrt_fields f;
 
-            /* Parse header */
+        int32_t offset = 0;
+        int32_t size = len / 4;
+        int32_t rv = vrt_read_header(tx_zmq_buffer + offset, size - offset, &h, true);
+
+        /* Parse header */
+        if (rv < 0) {
+            fprintf(stderr, "Failed to parse header: %s\n", vrt_string_error(rv));
+            continue;
+        }
+        offset += rv;
+
+        if (h.packet_size > size) {
+            fprintf(stderr, "Dropping truncated transmit packet.\n");
+            continue;
+        }
+
+        /* Parse fields */
+        rv = vrt_read_fields(&h, tx_zmq_buffer + offset, size - offset, &f, true);
+        if (rv < 0) {
+            fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
+            continue;
+        }
+        offset += rv;
+
+        const struct vrt_time_ps packet_ts = {(int64_t)f.integer_seconds_timestamp,
+                                              f.fractional_seconds_timestamp};
+
+        if (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID) {
+
+            if (not in_burst) {
+                if (not drop_reported) {
+                    printf("Dropping data until the start of a transmission.\n");
+                    drop_reported = true;
+                }
+                dropped_packets++;
+                continue;
+            }
+
+            const uint32_t num_rx_samps = h.packet_size - offset - (h.has.trailer ? 1 : 0);
+
+            if (num_rx_samps > VRT_SAMPLES_PER_PACKET)
+                continue;
+
+            if (not align_to(packet_ts))
+                continue;
+
+            // the samples are 16 bit I/Q pairs in host order, as the device takes them
+            memcpy(buff.data(), &tx_zmq_buffer[offset], num_rx_samps * sizeof(uint32_t));
+
+            send_all(buffs, num_rx_samps);
+
+        } else if (h.packet_type == VRT_PT_IF_CONTEXT) {
+            // Context
+
+            struct vrt_if_context c;
+            rv = vrt_read_if_context(tx_zmq_buffer + offset, size - offset, &c, true);
             if (rv < 0) {
-                fprintf(stderr, "Failed to parse header: %s\n", vrt_string_error(rv));
-                break;
+                fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
+                continue;
             }
-            offset += rv;
 
-            if (h.packet_type == VRT_PT_IF_DATA_WITH_STREAM_ID) {
+            if (c.context_field_change_indicator) {
+                std::lock_guard<std::mutex> lock(usrp_cmd_mutex);
 
-                /* Parse fields */
-                rv = vrt_read_fields(&h, tx_zmq_buffer + offset, size - offset, &f, true);
-                if (rv < 0) {
-                    fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
-                    break;
-                }
-                offset += rv;
-
-                // Add check for missing packets
-
-                uint32_t num_rx_samps = (h.packet_size-offset);
-
-                uint32_t stream_id = f.stream_id;
-
-                if (num_rx_samps <= VRT_SAMPLES_PER_PACKET) {
-
-                    for (uint32_t i = 0; i < num_rx_samps; i++) {
-                        int16_t re;
-                        memcpy(&re, (char*)&tx_zmq_buffer[offset+i], 2);
-                        int16_t img;
-                        memcpy(&img, (char*)&tx_zmq_buffer[offset+i]+2, 2);
-
-                        buff[i] = std::complex<short>(re, img);
-                    }
-
-                    // send the entire contents of the ZMQ buffer
-                    tx_streamer->send(buffs, num_rx_samps, metadata);
-
-                    metadata.start_of_burst = false;
-                    metadata.has_time_spec  = false;
-                    metadata.end_of_burst   = false;
+                double lo_offset;
+                if (c.has.if_band_offset) {
+                    lo_offset = c.if_band_offset;
+                } else {
+                    lo_offset = tx_lo_offset;
                 }
 
-            } else if (h.packet_type == VRT_PT_IF_CONTEXT) {
-                // Context
-
-                /* Parse fields */
-                rv = vrt_read_fields(&h, tx_zmq_buffer + offset, size - offset, &f, true);
-                if (rv < 0) {
-                    fprintf(stderr, "Failed to parse fields section: %s\n", vrt_string_error(rv));
-                    break;
-                }
-                offset += rv;
-
-                struct vrt_if_context c;
-                rv = vrt_read_if_context(tx_zmq_buffer + offset, ZMQ_BUFFER_SIZE - offset, &c, true);
-                if (rv < 0) {
-                    fprintf(stderr, "Failed to parse IF context section: %s\n", vrt_string_error(rv));
-                    break;
-                }
-
-                if (c.context_field_change_indicator) {
-
-                    double lo_offset;
-                    if (c.has.if_band_offset) {
-                        lo_offset = c.if_band_offset;
-                    } else {
-                        lo_offset = tx_lo_offset;
-                    }
-
-                    if (c.has.rf_reference_frequency) {
-                        if (tx_freq != (double)round(c.rf_reference_frequency)) {
-                            tx_freq = (double)round(c.rf_reference_frequency);
-                            std::cout << boost::format("    Setting TX Freq: %f MHz...") % (tx_freq / 1e6)
-                                      << std::endl;
-                            std::cout << boost::format("    Setting TX LO Offset: %f MHz...") % (lo_offset / 1e6)
-                                      << std::endl;
-                            uhd::tune_request_t tune_request(tx_freq, lo_offset);
-                            // if (vm.count("int-n"))
-                            //     tune_request.args = uhd::device_addr_t("mode_n=integer");
-                            for (size_t ch = 0; ch < tx_channel_nums.size(); ch++) {
-                                usrp->set_tx_freq(tune_request, tx_channel_nums[ch]);
-                            }
-                            std::cout << boost::format("    Actual TX Freq: %f MHz...")
-                                             % (usrp->get_tx_freq(active_tx_chan) / 1e6)
-                                      << std::endl;
+                if (c.has.rf_reference_frequency) {
+                    if (tx_freq != (double)round(c.rf_reference_frequency)) {
+                        tx_freq = (double)round(c.rf_reference_frequency);
+                        std::cout << boost::format("    Setting TX Freq: %f MHz...") % (tx_freq / 1e6)
+                                  << std::endl;
+                        std::cout << boost::format("    Setting TX LO Offset: %f MHz...") % (lo_offset / 1e6)
+                                  << std::endl;
+                        uhd::tune_request_t tune_request(tx_freq, lo_offset);
+                        // if (vm.count("int-n"))
+                        //     tune_request.args = uhd::device_addr_t("mode_n=integer");
+                        for (size_t ch = 0; ch < tx_channel_nums.size(); ch++) {
+                            usrp->set_tx_freq(tune_request, tx_channel_nums[ch]);
                         }
-                    }
-                    if (c.has.gain) {
-                        if (tx_gain != c.gain.stage1) {
-                            tx_gain = c.gain.stage1;
-                            std::cout << boost::format("    Setting TX Gain: %f dB...") % tx_gain << std::endl;
-                            usrp->set_tx_gain(tx_gain, active_tx_chan);
-                            std::cout << boost::format("    Actual TX Gain: %f dB...")
-                                             % usrp->get_tx_gain(active_tx_chan)
-                                      << std::endl;
-                        }
+                        std::cout << boost::format("    Actual TX Freq: %f MHz...")
+                                         % (usrp->get_tx_freq(active_tx_chan) / 1e6)
+                                  << std::endl;
                     }
                 }
-
-                if (c.state_and_event_indicators.user_defined == 0x1) {
-                    if (c.state_and_event_indicators.has.calibrated_time && c.state_and_event_indicators.calibrated_time) {
-
-                        uhd::time_spec_t start_time((int64_t)f.integer_seconds_timestamp,
-                                                    (double)f.fractional_seconds_timestamp / 1e12);
-
-                        metadata.has_time_spec = true;
-                        metadata.time_spec = start_time;
-
-                        printf("Timed transmit queued (%lld frac %.09f).\n",
-                               (long long int)f.integer_seconds_timestamp,
-                               (double)f.fractional_seconds_timestamp / 1e12);
-
-                        // GPIO
-                        if (enable_gpio) {
-                            usrp->set_command_time(start_time - uhd::time_spec_t(gpio_start_delay));
-                            usrp->set_gpio_attr(gpio, "OUT", GPIO_BIT(gpio_bit), GPIO_BIT(gpio_bit));
-                        }
-                    } else {
-                        if (enable_gpio) {
-                            usrp->set_gpio_attr(gpio, "OUT", GPIO_BIT(gpio_bit), GPIO_BIT(gpio_bit));
-                            boost::this_thread::sleep_for(boost::chrono::milliseconds((uint32_t)(gpio_start_delay*1000)));
-                        }
-                        printf("Start transmit.\n");
+                if (c.has.gain) {
+                    if (tx_gain != c.gain.stage1) {
+                        tx_gain = c.gain.stage1;
+                        std::cout << boost::format("    Setting TX Gain: %f dB...") % tx_gain << std::endl;
+                        usrp->set_tx_gain(tx_gain, active_tx_chan);
+                        std::cout << boost::format("    Actual TX Gain: %f dB...")
+                                         % usrp->get_tx_gain(active_tx_chan)
+                                  << std::endl;
                     }
-
-
-                } else if (c.state_and_event_indicators.user_defined == 0x2) {
-                    printf("End transmit.\n");
-                    metadata.end_of_burst = true;
-                    metadata.start_of_burst = false;
-                    metadata.has_time_spec  = false;
-                    tx_streamer->send(buffs, 0, metadata);
-                    metadata.end_of_burst = false;
-
-                    // GPIO
-                    if (enable_gpio) {
-                        if (c.state_and_event_indicators.has.calibrated_time && c.state_and_event_indicators.calibrated_time) {
-                            uhd::time_spec_t stop_time((int64_t)f.integer_seconds_timestamp,
-                                                       (double)f.fractional_seconds_timestamp / 1e12);
-                            usrp->set_command_time(stop_time + uhd::time_spec_t(gpio_stop_delay));
-                            usrp->set_gpio_attr(gpio, "OUT", 0, GPIO_BIT(gpio_bit));
-                        } else {
-                            // the '5' is a guess of the usrp buffer depth
-                            usrp->set_command_time(usrp->get_time_now() + uhd::time_spec_t(5*(float)VRT_SAMPLES_PER_PACKET/sample_rate) + uhd::time_spec_t(gpio_stop_delay));
-                            usrp->set_gpio_attr(gpio, "OUT", 0, GPIO_BIT(gpio_bit));
-                        }
-                    }
-
                 }
-
             }
-        } else {
-            boost::this_thread::sleep_for(boost::chrono::microseconds(10));
+
+            if (c.state_and_event_indicators.user_defined == 0x1) {
+
+                // a start without an end, finish the previous burst first
+                if (in_burst) {
+                    printf("Warning: start of transmission without end of the previous one.\n");
+                    end_burst();
+                }
+
+                if (c.has.sample_rate and std::fabs(c.sample_rate - sample_rate) > 0.5) {
+                    printf("Warning: stream sample rate %f differs from the TX rate %f.\n",
+                           c.sample_rate, sample_rate);
+                }
+
+                uhd::time_spec_t now;
+                {
+                    std::lock_guard<std::mutex> lock(usrp_cmd_mutex);
+                    now = usrp->get_time_now();
+                }
+
+                const bool timed = c.state_and_event_indicators.has.calibrated_time
+                                   and c.state_and_event_indicators.calibrated_time;
+
+                if (timed) {
+                    burst_start = uhd::time_spec_t((int64_t)packet_ts.seconds,
+                                                   (double)packet_ts.frac_ps / 1e12);
+                    if (burst_start - gpio_advance < now) {
+                        printf("Warning: start time %s is too close, device time is %s.\n",
+                               format_time(burst_start).c_str(), format_time(now).c_str());
+                    }
+                } else {
+                    // untimed, start as soon as the GPIO is ready
+                    burst_start = now + gpio_advance + start_margin;
+                }
+
+                if (enable_gpio) {
+                    set_gpio_at(true, burst_start - gpio_advance);
+                }
+
+                metadata.start_of_burst = true;
+                metadata.end_of_burst   = false;
+                metadata.has_time_spec  = true;
+                metadata.time_spec      = burst_start;
+
+                in_burst = true;
+                drop_reported = false;
+                stream_rate = (c.has.sample_rate and c.sample_rate > 0) ? c.sample_rate : sample_rate;
+                ref_ts = packet_ts;
+                ref_samples = 0;
+                burst_samples = 0;
+                fill_samples = 0;
+                underflows = late = seq_errors = 0;
+
+                printf("%s transmit at %s (device time %s)",
+                       timed ? "Timed" : "Untimed", format_time(burst_start).c_str(),
+                       format_time(now).c_str());
+                if (enable_gpio)
+                    printf(", GPIO on at %s", format_time(burst_start - gpio_advance).c_str());
+                printf(".\n");
+
+                if (dropped_packets > 0) {
+                    printf("Dropped %llu packets before the start of the transmission.\n",
+                           (unsigned long long)dropped_packets);
+                    dropped_packets = 0;
+                }
+
+            } else if (c.state_and_event_indicators.user_defined == 0x2) {
+
+                if (in_burst) {
+                    // the end is timestamped with the end of the last sample, packets
+                    // lost just before it are filled as well
+                    align_to(packet_ts);
+                    end_burst();
+                }
+            }
         }
     }
 
-    // send a mini EOB packet
-    metadata.end_of_burst = true;
-    metadata.start_of_burst = false;
-    metadata.has_time_spec  = false;
-    tx_streamer->send(buffs, 0, metadata);
+    // Stopped, end a burst in progress and leave the GPIO off
+    if (in_burst) {
+        printf("Stopped during a transmission.\n");
+        end_burst();
+    }
+
+    if (enable_gpio) {
+        std::lock_guard<std::mutex> lock(usrp_cmd_mutex);
+        usrp->clear_command_time();
+        usrp->set_gpio_attr(gpio, "OUT", 0, GPIO_BIT(gpio_bit));
+    }
 }
+
 
 void cw_transmit_worker(uhd::tx_streamer::sptr tx_streamer,
                         double cw_amplitude,
@@ -510,6 +703,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         ("priority", "enable realtime scheduling")
         ("continue", "don't abort on a bad packet")
         ("skip-lo", "skip checking LO lock status")
+        ("no-dc-offset", "disable automatic RX DC offset correction")
         ("int-n", "tune USRP with integer-N tuning")
         ("port", po::value<uint16_t>(&port), "VRT ZMQ port")
         ("instance", po::value<uint16_t>(&instance)->default_value(0), "VRT ZMQ instance")
@@ -678,6 +872,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     if (enable_tx and not enable_cw) {
         responder = zmq_socket(context, ZMQ_SUB);
+        // room for the lead the transmit stream runs ahead
+        rc = zmq_setsockopt (responder, ZMQ_RCVHWM, &hwm, sizeof hwm);
+        assert(rc == 0);
+        // a blocking receive that still sees the stop signal
+        int rcvtimeo = 100;
+        rc = zmq_setsockopt (responder, ZMQ_RCVTIMEO, &rcvtimeo, sizeof rcvtimeo);
+        assert(rc == 0);
         std::string tx_string = "tcp://*:" + std::to_string(main_port+400);
         rc = zmq_bind(responder, tx_string.c_str());
         assert (rc == 0);
@@ -839,16 +1040,16 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
     }
     std::cout << boost::format("Setting RX Rate: %f Msps...") % (rate / 1e6) << std::endl;
     usrp->set_rx_rate(rate);
-    std::cout << boost::format("Actual RX Rate: %f Msps...")
-                     % (usrp->get_rx_rate() / 1e6)
+    std::cout << boost::format("Actual RX Rate: %.9f sps...")
+                     % (usrp->get_rx_rate())
               << std::endl
               << std::endl;
 
     if (enable_tx) {
         std::cout << boost::format("Setting TX Rate: %f Msps...") % (rate / 1e6) << std::endl;
         usrp->set_tx_rate(rate);
-        std::cout << boost::format("Actual TX Rate: %f Msps...")
-                         % (usrp->get_tx_rate() / 1e6)
+        std::cout << boost::format("Actual TX Rate: %.9f sps...")
+                         % (usrp->get_tx_rate())
                   << std::endl
                   << std::endl;
     }
@@ -885,6 +1086,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         if (channel_nums.size() > 1) {
             std::cout << "Configuring RX Channel " << channel << std::endl;
         }
+
+        if (vm.count("no-dc-offset"))
+            usrp->set_rx_dc_offset(false, channel);
 
         // set the center frequency
         if (vm.count("freq")) {
@@ -1187,7 +1391,7 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             });
         } else {
             transmit_thread = std::thread([&]() {
-                transmit_worker(usrp, tx_stream, zmq_transmit, tx_freq, tx_lo_offset, tx_gain, rate,
+                transmit_worker(usrp, tx_stream, zmq_transmit, tx_freq, tx_lo_offset, tx_gain,
                                 enable_gpio, gpio_delay, tx_channel_nums, active_tx_chan,
                                 active_tx_index, priority);
             });
@@ -1556,6 +1760,9 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
                 bool mixed_channel = enable_mixer and (control_channel == mixer_rx_channel);
 
+                // not timed by a GPIO command of the transmit thread
+                std::lock_guard<std::mutex> cmd_lock(usrp_cmd_mutex);
+
                 if (c.has.if_band_offset and not mixed_channel) {
                     lo_offset = c.if_band_offset;
                 }
@@ -1611,6 +1818,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                     size_t channel = channel_nums[j];
 
                     double max_iq = 0;
+                    double avg_i = 0;
+                    double avg_q = 0;
                     uint32_t clip_iq = 0;
 
                     double datatype_max = 32767.;
@@ -1620,6 +1829,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                         max_iq = fmax(max_iq, fmax(fabs(sample.real()), fabs(sample.imag())));
                         if (fabs(sample.real()) > datatype_max*0.99 || fabs(sample.imag()) > datatype_max*0.99)
                             clip_iq++;
+                        avg_i += sample.real()/32767.0;
+                        avg_q += sample.imag()/32767.0;
                     }
 
                     std::cout << "CH" << boost::format("%u") % channel << ": ";
@@ -1627,6 +1838,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
                     std::cout << boost::format("%2.0f") % ceil(log2(max_iq)+1) << "/";
                     std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
                     std::cout << "" << boost::format("%2.0f") % (100.0*clip_iq/num_rx_samps) << "% clip. ";
+                    if (vm.count("no-dc-offset"))
+                        std::cout << "" << boost::format("%3.1f/%3.1f") % (100.0*avg_i/num_rx_samps) % (100.0*avg_q/num_rx_samps) << "% DC. ";
                 }
                 std::cout << std::endl;
 

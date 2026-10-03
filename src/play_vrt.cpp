@@ -59,25 +59,37 @@ unsigned long long num_total_samps = 0;
 namespace po = boost::program_options;
 
 static bool stop_signal_called = false;
-static bool last_frame = false;
 
 void sig_int_handler(int)
 {
     stop_signal_called = true;
-    last_frame = true;
+}
+
+// Sleep until tp in short slices, so Ctrl+C is not held up by a long wait for
+// the start time. Returns false when stopped.
+static bool wait_until(std::chrono::steady_clock::time_point tp)
+{
+    while (not stop_signal_called) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= tp)
+            return true;
+        std::this_thread::sleep_for(
+            std::min<std::chrono::steady_clock::duration>(tp - now, std::chrono::milliseconds(100)));
+    }
+    return false;
 }
 
 int main(int argc, char* argv[])
 {
     // variables to be set by po
     std::string ref, file, time_cal, type, start_time_str, zmq_address, start_tx_str;
-    size_t total_num_samps, tx_int;
-    uint16_t port, tx_buffer_size;
-    uint32_t stream_id;
+    size_t tx_int;
+    uint16_t port;
+    uint32_t stream_id = 0;
     int hwm;
-    uint16_t gain, tx_gain;
-    double datarate;
-    double rate, freq, bw, total_time, setup_time, lo_offset, tx_freq, tx_lo_offset;
+    uint16_t gain = 0, tx_gain;
+    double datarate, tx_lead;
+    double rate = 0, freq = 0, bw = 0, setup_time, tx_freq, tx_lo_offset;
 
     FILE *read_ptr;
     FILE *read_ptr_2;
@@ -95,7 +107,7 @@ int main(int argc, char* argv[])
         ("file", po::value<std::string>(&file)->default_value("samples.sigmf-meta"), "name of the SigMF meta file")
         ("setup", po::value<double>(&setup_time)->default_value(1.0), "seconds of setup time")
         ("datarate", po::value<double>(&datarate), "rate of outgoing samples")
-        ("tx-buffer", po::value<uint16_t>(&tx_buffer_size)->default_value(10), "VRT ZMQ transmit buffer size")
+        ("tx-lead", po::value<double>(&tx_lead)->default_value(200), "time the stream runs ahead of transmission (ms), must exceed the usrp_to_vrt GPIO delay")
         ("tx-freq", po::value<double>(&tx_freq), "TX RF center frequency in Hz")
         ("tx-gain", po::value<uint16_t>(&tx_gain), "gain for the TX RF chain")
         ("tx-lo-offset", po::value<double>(&tx_lo_offset), "offset for frontend TX LO in Hz")
@@ -143,7 +155,10 @@ int main(int argc, char* argv[])
     bool start_at_timestamp     = vm.count("start-time") > 0;
     bool send_context           = true;
 
-    size_t filesize = 0;
+    if (tx_lead <= 0) {
+        printf("--tx-lead needs to be positive.\n");
+        exit(1);
+    }
 
     struct timeval time_now{};
     gettimeofday(&time_now, nullptr);
@@ -188,9 +203,6 @@ int main(int argc, char* argv[])
             exit(1);
         }
 
-        if (datarate == 0)
-            datarate = rate;
-
         // Open data file
 
         std::string data_filename;
@@ -199,11 +211,10 @@ int main(int argc, char* argv[])
 
         printf("SigMF Data Filename: %s\n", data_filename.c_str());
 
-        if (data_filename.c_str()) {
-            read_ptr = fopen(data_filename.c_str(),"rb");  // r for read, b for binary
-            fseek(read_ptr, 0L, SEEK_END);    // seek to the EOF
-            filesize = ftell(read_ptr);       // get the current position
-            rewind(read_ptr);                 // rewind to the beginning of file
+        read_ptr = fopen(data_filename.c_str(),"rb");  // r for read, b for binary
+        if (read_ptr == nullptr) {
+            perror(data_filename.c_str());
+            exit(1);
         }
     } else {
         read_ptr = stdin;
@@ -217,6 +228,8 @@ int main(int argc, char* argv[])
 
     if (vm.count("datarate"))
         rate = datarate;
+    else
+        datarate = rate;
 
     if (rate == 0 || freq == 0) {
             printf("Frequency and sample rate need to be specified.\n");
@@ -230,15 +243,12 @@ int main(int argc, char* argv[])
     //     read_ptr_2 = fopen(data_filename_2.c_str(),"rb");  // r for read, b for binary
     // }
 
-    size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
+    const size_t samps_per_buff = VRT_SAMPLES_PER_PACKET;
 
-    unsigned long long num_requested_samples = total_num_samps;
-    double time_requested = total_time;
+    // header, stream ID, class ID and timestamp words in front of the samples
+    const uint32_t packet_overhead = VRT_DATA_PACKET_SIZE - VRT_SAMPLES_PER_PACKET;
 
     uint32_t buffer[VRT_DATA_PACKET_SIZE];
-
-    bool first_frame = true;
-    bool context_changed = true;
 
     struct vrt_packet p;
     vrt_init_packet(&p);
@@ -253,11 +263,25 @@ int main(int argc, char* argv[])
 
     // p.fields.stream_id = stream_id;
 
+    // The lead is queued in ZMQ while the transmitter waits for its start time,
+    // a PUB socket drops what does not fit
+    const double lead_packets = tx_lead / 1000.0 * datarate / samps_per_buff;
+    printf("TX lead: %.0f ms (%.0f packets)\n", tx_lead, lead_packets);
+    if (lead_packets > hwm) {
+        printf("Warning: TX lead exceeds the ZMQ HWM of %i packets, samples will be dropped.\n", hwm);
+    }
+
     // ZMQ
     void *context = zmq_ctx_new();
-    void *subscriber = zmq_socket(context, ZMQ_PUB);
+    void *publisher = zmq_socket(context, ZMQ_PUB);
+    int rc = zmq_setsockopt(publisher, ZMQ_SNDHWM, &hwm, sizeof hwm);
+    assert(rc == 0);
+    // deliver what is still queued on exit, including the end of transmit
+    int linger = 2000;
+    rc = zmq_setsockopt(publisher, ZMQ_LINGER, &linger, sizeof linger);
+    assert(rc == 0);
     std::string connect_string = "tcp://" + zmq_address + ":" + std::to_string(port);
-    int rc = zmq_connect(subscriber, connect_string.c_str());
+    rc = zmq_connect(publisher, connect_string.c_str());
     assert(rc == 0);
 
     // stdin binary
@@ -265,26 +289,14 @@ int main(int argc, char* argv[])
         freopen(NULL, "rb", stdin);
     // _setmode(_fileno(stdin), _O_BINARY);
 
+    std::signal(SIGINT, &sig_int_handler);
+
     // Sleep setup time
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
 
-    total_num_samps = 0;
-
-    if (total_num_samps == 0) {
-        std::signal(SIGINT, &sig_int_handler);
-        std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
-    }
-
-    // Run this loop until either time expired (if a duration was given), until
-    // the requested number of samples were collected (if such a number was
-    // given), or until Ctrl-C was pressed.
-
-    uint32_t frame_count = 0;
-    uint32_t num_words_read = 0;
+    std::cout << "Press Ctrl + C to stop streaming..." << std::endl;
 
     std::complex<short> samples[VRT_SAMPLES_PER_PACKET];
-
-    struct vrt_time_ps time_first_sample;
 
     struct vrt_time_ps t1 = {0, 0};
 
@@ -304,7 +316,8 @@ int main(int argc, char* argv[])
         timed_tx = true;
         t1 = vrt_time_now();
         printf("    now: %li\n", (long int)t1.seconds);
-        t1.frac_ps += 200000000000ULL;  // 200 ms
+        // leave room for the full lead
+        t1.frac_ps += (uint64_t)((tx_lead + 100) * 1e9);
         vrt_time_normalize(&t1);
         time_t integer_time_tx = tx_int*(t1.seconds / tx_int) + tx_int;
         printf("tx time: %li\n", integer_time_tx);
@@ -323,256 +336,296 @@ int main(int argc, char* argv[])
         // Print parsed time
         std::cout << "UTC start time: " << vrt_iso_datetime_ns(utc_time.seconds, utc_time.frac_ps)
                   << std::endl;
-        if (vrt_time_before(utc_time, vrt_time_now())) {
-            printf("Start time in the past\n");
-            exit(1);
-        }
 
         t1 = utc_time;
         timed_tx = true;
     }
 
-    time_first_sample = t1;
+    const struct vrt_time_ps time_first_sample = t1;
 
-    auto vrt_time = time_first_sample;
-
-    int update_interval = 1e6*samps_per_buff/datarate;
-
-    printf("Update interval: %i\n", update_interval);
-
-    unsigned long long last_update_samps = 0;
+    // Pacing: the samples at stream time s are sent at anchor + s. In a timed
+    // transmission the anchor is the lead before the start time. Otherwise the
+    // transmission starts when the first samples arrive, and the lead is sent
+    // right away: the anchor is set at the first read, stdin may be slow to start.
+    const auto lead = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        std::chrono::duration<double>(tx_lead / 1000.0));
+    std::chrono::steady_clock::time_point anchor;
 
     if (timed_tx) {
-        tx_buffer_size = 0;
-
-        std::chrono::time_point<std::chrono::system_clock> t_temp = std::chrono::system_clock::from_time_t((time_t)t1.seconds);
-        auto chrono_t1 = t_temp + std::chrono::nanoseconds((long)(t1.frac_ps / 1000));
-
-        auto wait_time = chrono_t1 - std::chrono::system_clock::now() - std::chrono::milliseconds(350);
-
-        if (wait_time > std::chrono::microseconds(0))
-            std::this_thread::sleep_for(wait_time);
+        const struct vrt_time_ps now_ps = vrt_time_now();
+        const double time_to_start = (double)(t1.seconds - now_ps.seconds)
+                                     + ((double)t1.frac_ps - (double)now_ps.frac_ps) / 1e12;
+        if (time_to_start <= 0) {
+            printf("Start time in the past\n");
+            exit(1);
+        }
+        if (time_to_start < tx_lead / 1000.0) {
+            printf("Warning: start time is only %.0f ms away, less than the TX lead.\n",
+                   time_to_start * 1000.0);
+        }
+        anchor = std::chrono::steady_clock::now()
+                 + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                     std::chrono::duration<double>(time_to_start))
+                 - lead;
     }
 
     // time keeping
     auto start_time = std::chrono::steady_clock::now();
 
     // Track time and samps between updating the BW summary
-    auto last_update                     = start_time;
-    auto last_context                    = start_time;
+    auto last_update  = start_time;
+    auto last_context = start_time;
 
-    // trigger context update
-    last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
+    unsigned long long last_update_samps = 0;
 
+    uint32_t frame_count = 0;
+    uint64_t samples_sent = 0;
+    uint64_t late_packets = 0;
+    bool first_frame = true;
+    bool context_changed = true;
+    bool read_since_rewind = false;
 
-    while (not stop_signal_called or last_frame) {
+    // VITA 49.2 context, timestamped with the time of the next sample
+    auto send_context_packet = [&](uint8_t user_defined) {
+        const struct vrt_time_ps vrt_time =
+            vrt_time_add_samples(time_first_sample, samples_sent, datarate);
+
+        /* Initialize to reasonable values */
+        struct vrt_packet pc;
+        vrt_init_packet(&pc);
+
+        /* VRT Configure. Note that context packets cannot have a trailer word. */
+        vrt_init_context_packet(&pc);
+
+        pc.fields.integer_seconds_timestamp = vrt_time.seconds;
+        pc.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
+
+        pc.fields.stream_id = 1;
+
+        if (freq != 0) {
+            pc.if_context.has.rf_reference_frequency = true;
+            pc.if_context.rf_reference_frequency            = freq;
+            pc.if_context.rf_reference_frequency_offset     = 0;
+            pc.if_context.if_reference_frequency            = 0; // Zero-IF
+            if (vm.count("tx-lo-offset")) {
+                pc.if_context.has.if_band_offset = true;
+                pc.if_context.if_band_offset = tx_lo_offset;
+            } else {
+                pc.if_context.has.if_band_offset = false;
+            }
+        } else {
+            pc.if_context.has.rf_reference_frequency = false;
+            pc.if_context.has.if_band_offset = false;
+        }
+
+        pc.if_context.has.gain = true;
+        pc.if_context.gain.stage1                       = gain;
+        pc.if_context.gain.stage2                       = 0;
+
+        pc.if_context.bandwidth                         = bw;
+        pc.if_context.sample_rate                       = rate;
+
+        if (not context_changed)
+            pc.if_context.context_field_change_indicator = false;
+        else {
+            pc.if_context.context_field_change_indicator = true;
+            context_changed = false;
+        }
+
+        if (timed_tx) {
+            pc.if_context.state_and_event_indicators.has.calibrated_time = true;
+            pc.if_context.state_and_event_indicators.calibrated_time = true;
+        }
+
+        // 0x1 start of transmission, 0x2 end of transmission
+        pc.if_context.state_and_event_indicators.user_defined = user_defined;
+
+        int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
+        if (rv < 0) {
+            fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
+            return;
+        }
+        zmq_send (publisher, buffer, rv*4, 0);
+
+        // if (dual_chan) {
+        //     // duplicate context of channel 0 on channel 1
+        //     pc.fields.stream_id = 2;
+        //     rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
+        //     if (rv < 0) {
+        //         fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
+        //     }
+        //     zmq_send (publisher, buffer, rv*4, 0);
+        // }
+    };
+
+    // Run this loop until the input ends or Ctrl-C was pressed. Every way out
+    // of the loop is followed by the end of transmission context.
+    while (not stop_signal_called) {
+
+        // Data, a short read is the tail of the input
+        size_t num_words_read = fread(samples, sizeof(samples[0]), samps_per_buff, read_ptr);
+
+        if (num_words_read == 0) {
+            if (ferror(read_ptr)) {
+                perror("Failed to read samples");
+                break;
+            }
+            printf("no more samples in data file\n");
+            if (not read_stdin and repeat and read_since_rewind) {
+                rewind(read_ptr);
+                read_since_rewind = false;
+                continue;
+            }
+            break;
+        }
+        read_since_rewind = true;
+
+        if (first_frame and not timed_tx)
+            anchor = std::chrono::steady_clock::now() - lead;
+
+        // wait for the send time of these samples
+        const auto send_time = anchor
+                               + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                   std::chrono::duration<double>((double)samples_sent / datarate));
+        if (not wait_until(send_time))
+            break;
 
         const auto now = std::chrono::steady_clock::now();
 
-        if (frame_count < tx_buffer_size) {
-            // don't wait
+        // after the lead has passed, these samples are due for transmission already
+        if (not first_frame and now > send_time + lead) {
+            if (late_packets == 0) {
+                printf("Warning: stream is behind by %.1f ms, transmitter may underflow.\n",
+                       std::chrono::duration<double, std::milli>(now - send_time - lead).count());
+            }
+            late_packets++;
+        }
+
+        if (first_frame) {
             start_time = now;
-        } else if (frame_count > 0) {
-            // wait
-            auto wait_time = start_time + std::chrono::milliseconds(200) + std::chrono::microseconds((frame_count-tx_buffer_size)*update_interval) - now;
-            if (wait_time > std::chrono::microseconds(0))
-                std::this_thread::sleep_for(wait_time);
-        }
-
-        const uint64_t first_sample = frame_count*samps_per_buff;
-
-        vrt_time = vrt_time_add_samples(time_first_sample, first_sample, datarate);
-
-        const auto time_since_last_context = now - last_context;
-        if (last_frame or (send_context and time_since_last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL))) {
-
+            last_update = now;
             last_context = now;
-
-            // VITA 49.2
-            /* Initialize to reasonable values */
-            struct vrt_packet pc;
-            vrt_init_packet(&pc);
-
-            /* VRT Configure. Note that context packets cannot have a trailer word. */
-            vrt_init_context_packet(&pc);
-
-            pc.fields.integer_seconds_timestamp = vrt_time.seconds;
-            pc.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
-
-            pc.fields.stream_id = 1;
-
-            if (freq != 0) {
-                pc.if_context.has.rf_reference_frequency = true;
-                pc.if_context.rf_reference_frequency            = freq;
-                pc.if_context.rf_reference_frequency_offset     = 0;
-                pc.if_context.if_reference_frequency            = 0; // Zero-IF
-                if (vm.count("tx-lo-offset")) {
-                    pc.if_context.has.if_band_offset = true;
-                    pc.if_context.if_band_offset = tx_lo_offset;
-                } else {
-                    pc.if_context.has.if_band_offset = false;
-                }
-            } else {
-                pc.if_context.has.rf_reference_frequency = false;
-                pc.if_context.has.if_band_offset = false;
-            }
-
-            pc.if_context.has.gain = true;
-            pc.if_context.gain.stage1                       = gain;
-            pc.if_context.gain.stage2                       = 0;
-       
-            pc.if_context.bandwidth                         = bw;
-            pc.if_context.sample_rate                       = rate;
-
-            if (not context_changed)
-                pc.if_context.context_field_change_indicator = false;
-            else {
-                pc.if_context.context_field_change_indicator = true;
-                context_changed = false;
-            }
-
-            if (timed_tx) {
-                pc.if_context.state_and_event_indicators.has.calibrated_time = true;
-                pc.if_context.state_and_event_indicators.calibrated_time = true;
-            }
-
-            if (first_frame) {
-                pc.if_context.state_and_event_indicators.user_defined = 0x1;
-            } else if (last_frame) {
-                pc.if_context.state_and_event_indicators.user_defined = 0x2;
-            } else {
-                pc.if_context.state_and_event_indicators.user_defined = 0x0;
-            }
-
-            int32_t rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
-            if (rv < 0) {
-                fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
-            }
-            zmq_send (subscriber, buffer, rv*4, 0);
-
-            // if (dual_chan) {
-            //     // duplicate context of channel 0 on channel 1
-            //     pc.fields.stream_id = 2;
-            //     rv = vrt_write_packet(&pc, buffer, VRT_DATA_PACKET_SIZE, true);
-            //     if (rv < 0) {
-            //         fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
-            //     }
-            //     zmq_send (subscriber, buffer, rv*4, 0);
-            // }
-            last_frame = false;
-
+            send_context_packet(0x1);
+        } else if (send_context and now - last_context > std::chrono::milliseconds(VRT_CONTEXT_INTERVAL)) {
+            last_context = now;
+            send_context_packet(0x0);
         }
 
-        // Data
-        if (fread(samples, sizeof(samples), 1, read_ptr) == 1) {
+        const struct vrt_time_ps vrt_time =
+            vrt_time_add_samples(time_first_sample, samples_sent, datarate);
 
-            num_words_read = samps_per_buff;
+        if (first_frame) {
+            std::cout << boost::format(
+                             "First frame: %u samples, %u full secs, %.09f frac secs")
+                             % (num_words_read) % vrt_time.seconds
+                             % ((double)vrt_time.frac_ps/1e12)
+                      << std::endl;
+            first_frame = false;
+        }
 
-            if (first_frame) {
-                std::cout << boost::format(
-                                 "First frame: %u samples, %u full secs, %.09f frac secs")
-                                 % (num_words_read) % vrt_time.seconds
-                                 % ((double)vrt_time.frac_ps/1e12)
-                          << std::endl;
-                first_frame = false;
-            }
+        p.fields.stream_id = 1;
+        p.body = samples;
+        p.words_body = num_words_read;
+        p.header.packet_size = num_words_read + packet_overhead;
+        p.header.packet_count = (uint8_t)frame_count%16;
+        p.fields.integer_seconds_timestamp = vrt_time.seconds;
+        p.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
 
-            if (not repeat && filesize > 0 && ftell(read_ptr) > filesize-sizeof(samples)) {
-                last_frame = true;
-                // trigger context
-                last_context -= std::chrono::seconds(4*VRT_CONTEXT_INTERVAL);
-            }
+        zmq_msg_t msg;
+        zmq_msg_init_size (&msg, p.header.packet_size*4);
 
-            p.fields.stream_id = 1;
-            p.body = samples;
-            p.header.packet_count = (uint8_t)frame_count%16;
-            p.fields.integer_seconds_timestamp = vrt_time.seconds;
-            p.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
-
-            zmq_msg_t msg;
-            int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
-
-            int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE, true);
-
-            zmq_msg_send(&msg, subscriber, 0);
+        int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), p.header.packet_size, true);
+        if (rv < 0) {
+            fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
             zmq_msg_close(&msg);
-
-            // if (dual_chan) {
-            //     if (fread(samples, sizeof(samples), 1, read_ptr_2) == 1) {
-            //         p.fields.stream_id = 2;
-            //         p.body = samples;
-            //         p.header.packet_count = (uint8_t)frame_count%16;
-            //         p.fields.integer_seconds_timestamp = vrt_time.seconds;
-            //         p.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
-
-            //         zmq_msg_t msg;
-            //         int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
-
-            //         int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE, true);
-
-            //         zmq_msg_send(&msg, zmq_server, 0);
-            //         zmq_msg_close(&msg);
-            //     } else {
-            //         if (repeat)
-            //             rewind(read_ptr_2);
-            //         else
-            //             break;
-            //     }
-            // }
-
-            frame_count++;
-
-            if (bw_summary) {
-                last_update_samps += num_words_read;
-                const auto time_since_last_update = now - last_update;
-                if (time_since_last_update > std::chrono::seconds(1)) {
-
-                    const double time_since_last_update_s =
-                        std::chrono::duration<double>(time_since_last_update).count();
-                    const double rate = double(last_update_samps) / time_since_last_update_s;
-                    std::cout << "\t" << (rate / 1e6) << " Msps, ";
-
-                    last_update_samps = 0;
-                    last_update       = now;
-
-                    float sum_i = 0;
-                    uint32_t clip_i = 0;
-
-                    double datatype_max = 32768.;
-
-                    for (int i=0; i<samps_per_buff; i++ ) {
-                        auto sample_i = get_abs_val(samples[i]);
-                        sum_i += sample_i;
-                        if (sample_i > datatype_max*0.99)
-                            clip_i++;
-                    }
-                    sum_i = sum_i/10000;
-                    std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
-                    std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
-                    std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-                    std::cout << "" << boost::format("%.0f") % (100.0*clip_i/10000) << "% I clip.";
-                    std::cout << std::endl;
-
-                }
-            }
-        } else {
-            printf("no more samples in data file\n");
-            if (not read_stdin and repeat)
-                rewind(read_ptr);
-            else
-                break;
+            break;
         }
 
+        zmq_msg_send(&msg, publisher, 0);
+        zmq_msg_close(&msg);
+
+        // if (dual_chan) {
+        //     if (fread(samples, sizeof(samples), 1, read_ptr_2) == 1) {
+        //         p.fields.stream_id = 2;
+        //         p.body = samples;
+        //         p.header.packet_count = (uint8_t)frame_count%16;
+        //         p.fields.integer_seconds_timestamp = vrt_time.seconds;
+        //         p.fields.fractional_seconds_timestamp = vrt_time.frac_ps;
+
+        //         zmq_msg_t msg;
+        //         int rc = zmq_msg_init_size (&msg, VRT_DATA_PACKET_SIZE*4);
+
+        //         int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), VRT_DATA_PACKET_SIZE, true);
+
+        //         zmq_msg_send(&msg, zmq_server, 0);
+        //         zmq_msg_close(&msg);
+        //     } else {
+        //         if (repeat)
+        //             rewind(read_ptr_2);
+        //         else
+        //             break;
+        //     }
+        // }
+
+        frame_count++;
+        samples_sent += num_words_read;
+        num_total_samps += num_words_read;
+
+        if (bw_summary) {
+            last_update_samps += num_words_read;
+            const auto time_since_last_update = now - last_update;
+            if (time_since_last_update > std::chrono::seconds(1)) {
+
+                const double time_since_last_update_s =
+                    std::chrono::duration<double>(time_since_last_update).count();
+                const double rate = double(last_update_samps) / time_since_last_update_s;
+                std::cout << "\t" << (rate / 1e6) << " Msps, ";
+
+                last_update_samps = 0;
+                last_update       = now;
+
+                float sum_i = 0;
+                uint32_t clip_i = 0;
+
+                double datatype_max = 32768.;
+
+                for (size_t i=0; i<num_words_read; i++ ) {
+                    auto sample_i = get_abs_val(samples[i]);
+                    sum_i += sample_i;
+                    if (sample_i > datatype_max*0.99)
+                        clip_i++;
+                }
+                sum_i = sum_i/num_words_read;
+                std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
+                std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
+                std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
+                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/num_words_read) << "% I clip.";
+                std::cout << std::endl;
+
+            }
+        }
+    }
+
+    // End of transmission, timestamped with the end of the last sample sent.
+    // Nothing is sent after it. Without any samples sent there is nothing to end.
+    if (not first_frame) {
+        send_context_packet(0x2);
+        printf("End of transmission after %llu samples.\n", (unsigned long long)samples_sent);
     }
 
     const auto actual_stop_time = std::chrono::steady_clock::now();
+
+    if (late_packets > 0) {
+        printf("Warning: %llu packets were sent later than the TX lead allows.\n",
+               (unsigned long long)late_packets);
+    }
 
     if (stats) {
         std::cout << std::endl;
         const double actual_duration_seconds =
             std::chrono::duration<float>(actual_stop_time - start_time).count();
 
-        std::cout << boost::format("Received %d samples in %f seconds.") % num_total_samps
+        std::cout << boost::format("Sent %d samples in %f seconds.") % num_total_samps
                          % actual_duration_seconds
                   << std::endl;
         const double rate = (double)num_total_samps / actual_duration_seconds;
@@ -582,8 +635,9 @@ int main(int argc, char* argv[])
     /* clean up */
     fclose(read_ptr);
 
-    // Sleep setup time
-    std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(1000 * setup_time)));
+    // blocks until the queue is delivered, or the linger time expired
+    zmq_close(publisher);
+    zmq_ctx_term(context);
 
     // finished
     std::cout << std::endl << "Done!" << std::endl << std::endl;
