@@ -93,6 +93,25 @@ float bearing(float dec1, float dec2, float ra1, float ra2) {
     return b;
 }
 
+// --pub-port helpers: append a JSON number (null for NaN/inf) or a sanitized string
+static void json_num(std::string& s, const char* key, double v, const char* fmt = "%.10g") {
+    char buf[64];
+    s += "\""; s += key; s += "\":";
+    if (std::isfinite(v)) { snprintf(buf, sizeof(buf), fmt, v); s += buf; }
+    else s += "null";
+    s += ",";
+}
+
+static void json_str(std::string& s, const char* key, const char* v, size_t maxlen) {
+    s += "\""; s += key; s += "\":\"";
+    for (size_t i = 0; i < maxlen && v[i]; i++) {
+        char c = v[i];
+        if (c == '"' || c == '\\') { s += '\\'; s += c; }
+        else if ((unsigned char)c >= 0x20) s += c;
+    }
+    s += "\",";
+}
+
 int main(int argc, char* argv[])
 {
 
@@ -101,8 +120,14 @@ int main(int argc, char* argv[])
     fftw_plan plan;
     double *magnitudes, *phases_r, *phases_i, *filter_out;
 
-    std::complex<float> *wola_buffer;
+    std::complex<float> *wola_buffer;  // sample history, used for --wola and/or --overlap > 1
     float *wola_taps;
+    uint32_t overlap, hop = 0, buf_len = 0;
+    bool use_buffer = false;
+    uint16_t pub_port;
+    void *publisher = NULL;
+    std::vector<double> pub_corr;
+    std::vector<float> pub_avg, pub_inst;
 
     uint32_t num_points = 0;
     uint32_t num_bins = 0;
@@ -166,6 +191,8 @@ int main(int argc, char* argv[])
         ("four", "square-square signal before processing (to detect QPSK signals")
         ("wola", "apply Weighted OverLap Add method")
         ("wola-partitions", po::value<uint32_t>(&wola_partitions)->default_value(4), "number of WOLA partitions")
+        ("overlap", po::value<uint32_t>(&overlap)->default_value(1), "FFT overlap factor: advance num-bins/overlap samples per FFT")
+        ("pub-port", po::value<uint16_t>(&pub_port), "also publish every integration on this ZMQ PUB port (JSON header, float32 average, float32 instantaneous)")
         ("min-offset", po::value<double>(&min_offset), "min. freq. offset to track (Hz)")
         ("max-offset", po::value<double>(&max_offset), "max. freq. offset to track (Hz)")
         ("gnuplot-commands", po::value<std::string>(&gnuplot_commands)->default_value(""), "Extra gnuplot commands like \"set yr [ymin:ymax];\"")
@@ -233,6 +260,10 @@ int main(int argc, char* argv[])
 
     if (int_interval && int(integration_time) == 0) {
         throw(std::runtime_error("--int-interval requires --integration_time > 1"));
+    }
+
+    if (overlap < 1) {
+        throw(std::runtime_error("--overlap must be >= 1"));
     }
 
     double freq_div;
@@ -327,8 +358,17 @@ int main(int argc, char* argv[])
                 }
             }
 
+            hop = num_bins / overlap;
+            if (hop < 1)
+                throw(std::runtime_error("--overlap larger than number of bins"));
+            use_buffer = wola || overlap > 1;
+
             if (not vm.count("integrations")) {
-                integrations = (uint32_t)round((double)integration_time/((double)num_bins/(double)vrt_context.sample_rate));
+                integrations = (uint32_t)round((double)integration_time/((double)hop/(double)vrt_context.sample_rate));
+                if (integrations == 0) {
+                    integrations = 1;
+                    fprintf(stderr, "# Warning: integration time shorter than one FFT step, using 1 FFT per integration\n");
+                }
             }
 
             if (total_time > 0)
@@ -365,13 +405,39 @@ int main(int argc, char* argv[])
             filter_out = (double*)malloc(num_bins * sizeof(double));
             memset(filter_out, 0, num_bins*sizeof(double));
 
+            if (use_buffer) {
+                buf_len = (wola ? wola_partitions : 1)*num_bins;
+                wola_buffer = (std::complex<float>*)malloc(sizeof(std::complex<float>) * buf_len);
+                for (uint32_t i = 0; i < buf_len; i++)
+                    wola_buffer[i] = std::complex<float>(0,0);
+            }
+
+            if (vm.count("pub-port")) {
+                // linear bandpass correction per bin, as in the stdout modes
+                pub_corr.assign(num_bins, 1.0);
+                if (poly_calib) {
+                    for (uint32_t i = 0; i < num_bins; i++) {
+                        double offset = i*binsize - vrt_context.sample_rate/2;
+                        double c = 0;
+                        for (int32_t p = 0; p < (int32_t)poly.size(); p++)
+                            c += poly[p] * pow(offset, int(poly.size()-p-1));
+                        pub_corr[i] = c;
+                    }
+                }
+                pub_avg.resize(num_bins);
+                pub_inst.resize(num_bins);
+                publisher = zmq_socket(context, ZMQ_PUB);
+                int pub_hwm = 10;
+                zmq_setsockopt(publisher, ZMQ_SNDHWM, &pub_hwm, sizeof pub_hwm);
+                std::string bind_string = "tcp://*:" + std::to_string(pub_port);
+                if (zmq_bind(publisher, bind_string.c_str()) != 0)
+                    throw(std::runtime_error("cannot bind --pub-port " + bind_string));
+                fprintf(stderr, "# Publishing spectra on %s\n", bind_string.c_str());
+            }
+
             if (wola) {
                 int wola_len = wola_partitions*num_bins;
-                wola_buffer = (std::complex<float>*)malloc(sizeof(std::complex<float>) * wola_len);
                 wola_taps = (float*)malloc(sizeof(float) * wola_len);
-
-                for (uint32_t i = 0; i < wola_len; i++)
-                    wola_buffer[i] = std::complex<float>(0,0);
 
                 // Blackman-Harris window
                 double a0 = 0.35875;
@@ -399,7 +465,7 @@ int main(int argc, char* argv[])
                 printf("#    Bins: %u\n", num_bins);
                 printf("#    Bin size [Hz]: %.2f\n", binsize);
                 printf("#    Integrations: %u\n", integrations);
-                printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
+                printf("#    Integration Time [sec]: %.2f\n", (double)integrations*(double)hop/(double)vrt_context.sample_rate);
             } else {
                 uint32_t first_col = 1;
                 if (log_freq) first_col++;
@@ -434,7 +500,7 @@ int main(int argc, char* argv[])
                 printf("#   - {col_first_bin: %u}\n", first_col);
                 printf("#   - {bin_size: %.2f}\n", ((double)vrt_context.sample_rate)/((double)num_bins));
                 printf("#   - {integrations: %u}\n", integrations);
-                printf("#   - {integration_time: %.2f}\n", (double)integrations*(double)num_bins/(double)vrt_context.sample_rate);
+                printf("#   - {integration_time: %.2f}\n", (double)integrations*(double)hop/(double)vrt_context.sample_rate);
                 if (has_source) {
                     printf("# - description: !!omap\n");
                     printf("#   - {source: %s}\n", source.c_str());
@@ -530,8 +596,9 @@ int main(int argc, char* argv[])
                 int16_t img;
                 memcpy(&img, (char*)&buffer[vrt_packet.offset+i]+2, 2);
 
-                if (wola) {
-                    wola_buffer[signal_pointer+((wola_partitions-1)*num_bins)] = std::complex<float>(mult*re,mult*img);
+                if (use_buffer) {
+                    // newest hop samples go at the end of the history buffer
+                    wola_buffer[signal_pointer+(buf_len-hop)] = std::complex<float>(mult*re,mult*img);
                     mult *= -1;
                 } else {
                     signal[signal_pointer][REAL] = mult*re;
@@ -541,9 +608,17 @@ int main(int argc, char* argv[])
 
                 signal_pointer++;
 
-                if (signal_pointer >= num_bins) {
+                if (signal_pointer >= hop) {
 
                     signal_pointer = 0;
+
+                    if (use_buffer && !wola) {
+                        // plain (overlapped) FFT: take the last num_bins samples
+                        for (uint32_t j = 0; j < num_bins; j++) {
+                            signal[j][REAL] = wola_buffer[j].real();
+                            signal[j][IMAG] = wola_buffer[j].imag();
+                        }
+                    }
 
                     uint64_t seconds = vrt_packet.integer_seconds_timestamp;
                     uint64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
@@ -589,9 +664,6 @@ int main(int argc, char* argv[])
                             }
                             fftw_execute(plan);
 
-                            // shift wola buffer
-                            memcpy(&wola_buffer[0], &wola_buffer[num_bins], (wola_partitions-1)*num_bins*sizeof(std::complex<float>));
-
                         } else {
                             fftw_execute(plan);
                         }
@@ -607,6 +679,11 @@ int main(int argc, char* argv[])
                     } else {
                         magnitudes[0] += (signal[0][REAL] * signal[0][REAL] +
                                       signal[0][IMAG] * signal[0][IMAG]);
+                    }
+
+                    if (use_buffer) {
+                        // shift history buffer by one hop
+                        memmove(&wola_buffer[0], &wola_buffer[hop], (buf_len-hop)*sizeof(std::complex<float>));
                     }
 
                     if (dc) {
@@ -828,6 +905,59 @@ int main(int argc, char* argv[])
                             }
                         }
 
+                        if (publisher) {
+                            // magnitudes[] has been normalized and filter_out[] updated by the output code above
+                            for (uint32_t i = 0; i < num_bins; ++i) {
+                                pub_avg[i]  = (float)(filter_out[i] / pub_corr[i]);
+                                pub_inst[i] = (float)(magnitudes[i] / pub_corr[i]);
+                            }
+                            double rf = (double)vrt_context.rf_freq + vrt_context.rf_frac_freq;
+                            std::string h = "{";
+                            json_num(h, "seq", output_counter, "%.0f");
+                            json_num(h, "t", (double)seconds + (double)frac_seconds/1e12, "%.6f");
+                            json_num(h, "rf_freq", rf, "%.6f");
+                            json_num(h, "f0", rf - (vrt_context.sample_rate/2)/freq_div, "%.6f");
+                            json_num(h, "df", binsize/freq_div, "%.9g");
+                            json_num(h, "num_bins", num_bins, "%.0f");
+                            json_num(h, "sample_rate", vrt_context.sample_rate, "%.3f");
+                            json_num(h, "integration_time", (double)integrations*(double)hop/(double)vrt_context.sample_rate);
+                            json_num(h, "tau", iir ? tau : NAN);
+                            json_num(h, "overlap", overlap, "%.0f");
+                            h += wola ? "\"wola\":true," : "\"wola\":false,";
+                            if (has_source)
+                                json_str(h, "source", source.c_str(), source.size());
+                            else if (tracker_ext_context.tracker_ext_context_received)
+                                json_str(h, "source", tracker_ext_context.object_name, sizeof(tracker_ext_context.object_name));
+                            if (tracker_ext_context.tracker_ext_context_received) {
+                                h += "\"tracker\":{";
+                                json_str(h, "tracking_source", tracker_ext_context.tracking_source, sizeof(tracker_ext_context.tracking_source));
+                                json_num(h, "azimuth", tracker_ext_context.azimuth);
+                                json_num(h, "elevation", tracker_ext_context.elevation);
+                                json_num(h, "ra", tracker_ext_context.ra);
+                                json_num(h, "dec", tracker_ext_context.dec);
+                                json_num(h, "distance", tracker_ext_context.distance);
+                                json_num(h, "speed", tracker_ext_context.speed);
+                                json_num(h, "frequency", tracker_ext_context.frequency, "%.6f");
+                                json_num(h, "doppler", tracker_ext_context.doppler);
+                                json_num(h, "doppler_rate", tracker_ext_context.doppler_rate);
+                                h.back() = '}'; h += ",";
+                            }
+                            if (dt_ext_context.dt_ext_context_received) {
+                                h += "\"dt\":{";
+                                json_num(h, "az_deg", (180.0/M_PI)*dt_ext_context.azimuth);
+                                json_num(h, "el_deg", (180.0/M_PI)*dt_ext_context.elevation);
+                                json_num(h, "ra_h", (12.0/M_PI)*dt_ext_context.ra_current);
+                                json_num(h, "dec_deg", (180.0/M_PI)*dt_ext_context.dec_current);
+                                json_num(h, "offset_deg", (180.0/M_PI)*haversine(dt_ext_context.dec_setpoint, dt_ext_context.dec_current, dt_ext_context.ra_setpoint, dt_ext_context.ra_current));
+                                h.back() = '}'; h += ",";
+                            }
+                            h.back() = '}';
+                            // drop (rather than block) if no subscriber keeps up
+                            zmq_send(publisher, h.data(), h.size(), ZMQ_SNDMORE | ZMQ_DONTWAIT);
+                            zmq_send(publisher, pub_avg.data(), num_bins*sizeof(float), ZMQ_SNDMORE | ZMQ_DONTWAIT);
+                            zmq_send(publisher, pub_inst.data(), num_bins*sizeof(float), ZMQ_DONTWAIT);
+                        }
+
                         integration_counter = 0;
                         memset(magnitudes, 0, num_bins*sizeof(double));
                         if (fftmax_phase) {
@@ -895,6 +1025,8 @@ int main(int argc, char* argv[])
     if (binary)
         fclose(outfile);
 
+    if (publisher)
+        zmq_close(publisher);
     zmq_close(subscriber);
     zmq_ctx_destroy(context);
 
