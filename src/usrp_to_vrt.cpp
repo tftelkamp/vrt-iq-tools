@@ -835,6 +835,13 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
 
     zmq_ctx_set (context, ZMQ_IO_THREADS, io_threads);
 
+    // Checked explicitly: assert() is compiled out in release builds (NDEBUG),
+    // so a failed bind (e.g. port already in use) would go unnoticed.
+    auto zmq_fail = [](const char* what, const std::string& endpoint) {
+        fprintf(stderr, "Error: unable to %s %s: %s\n", what, endpoint.c_str(), zmq_strerror(errno));
+        return ~0;
+    };
+
     uint16_t main_port;
 
     if (vm.count("port") > 0) {
@@ -849,8 +856,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
             assert(rc == 0);
             std::string connect_string = "tcp://*:" + std::to_string(main_port+ch);
-            rc = zmq_bind(responder, connect_string.c_str());
-            assert (rc == 0);
+            if (zmq_bind(responder, connect_string.c_str()) != 0)
+                return zmq_fail("bind", connect_string);
             zmq_server[ch] = responder;
         }
     } else {
@@ -858,15 +865,15 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         rc = zmq_setsockopt (responder, ZMQ_SNDHWM, &hwm, sizeof hwm);
         assert(rc == 0);
         std::string connect_string = "tcp://*:" + std::to_string(main_port);
-        rc = zmq_bind(responder, connect_string.c_str());
-        assert (rc == 0);
+        if (zmq_bind(responder, connect_string.c_str()) != 0)
+            return zmq_fail("bind", connect_string);
         zmq_server[0] = responder;
     }
 
     responder = zmq_socket(context, ZMQ_SUB);
     std::string control_string = "tcp://*:" + std::to_string(main_port+200);
-    rc = zmq_bind(responder, control_string.c_str());
-    assert (rc == 0);
+    if (zmq_bind(responder, control_string.c_str()) != 0)
+        return zmq_fail("bind", control_string);
     zmq_control = responder;
     zmq_setsockopt(zmq_control, ZMQ_SUBSCRIBE, "", 0);
 
@@ -880,8 +887,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
         rc = zmq_setsockopt (responder, ZMQ_RCVTIMEO, &rcvtimeo, sizeof rcvtimeo);
         assert(rc == 0);
         std::string tx_string = "tcp://*:" + std::to_string(main_port+400);
-        rc = zmq_bind(responder, tx_string.c_str());
-        assert (rc == 0);
+        if (zmq_bind(responder, tx_string.c_str()) != 0)
+            return zmq_fail("bind", tx_string);
         zmq_transmit = responder;
         zmq_setsockopt(zmq_transmit, ZMQ_SUBSCRIBE, "", 0);
     }
@@ -914,8 +921,8 @@ int UHD_SAFE_MAIN(int argc, char* argv[])
             merge_zmq.push_back(zmq_socket(context, ZMQ_SUB));
 
             std::string connect_string = "tcp://" + merge_address + ":" + std::to_string(merge_port);
-            rc = zmq_connect(merge_zmq[i], connect_string.c_str());
-            assert(rc == 0);
+            if (zmq_connect(merge_zmq[i], connect_string.c_str()) != 0)
+                return zmq_fail("connect to", connect_string);
             zmq_setsockopt(merge_zmq[i], ZMQ_SUBSCRIBE, "", 0);
         }
     }
