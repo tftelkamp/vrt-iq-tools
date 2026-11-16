@@ -657,8 +657,8 @@ int main(int argc, char* argv[])
             if (type == 1)
                 frame_count++;
             fseek(read_ptr, -sizeof(uint32_t), SEEK_CUR );
-            if (fread(samples, words*sizeof(uint32_t), 1, read_ptr) == 1)
-                zmq_send (zmq_server, samples, words*sizeof(uint32_t), 0);
+            if (words <= VRT_DATA_PACKET_SIZE && fread(buffer, words*sizeof(uint32_t), 1, read_ptr) == 1)
+                zmq_send (zmq_server, buffer, words*sizeof(uint32_t), 0);
         } else {
             printf("no more samples in data file\n");
             if (repeat) {
