@@ -548,8 +548,8 @@ int main(int argc, char* argv[])
                     uint64_t seconds = vrt_packet.integer_seconds_timestamp;
                     uint64_t frac_seconds = vrt_packet.fractional_seconds_timestamp;
                     frac_seconds += (i+1)*1e12/vrt_context.sample_rate;
-                    if (frac_seconds > 1e12) {
-                        frac_seconds -= 1e12;
+                    while (frac_seconds >= 1000000000000ULL) {
+                        frac_seconds -= 1000000000000ULL;
                         seconds++;
                     }
 
