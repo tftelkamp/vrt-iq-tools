@@ -233,8 +233,11 @@ int main(int argc, char* argv[])
             if (not meta_only) {
                 const std::string data_filename = generate_out_filename(file, channel_nums.size(), channel_nums[i], vrt);
                 data_filenames.push_back(data_filename);
-                datafiles.push_back(std::shared_ptr<std::ofstream>(
-                    new std::ofstream(data_filename.c_str(), std::ofstream::binary)));
+
+                auto datafile = std::make_shared<std::ofstream>();
+                datafile->exceptions(std::ofstream::failbit | std::ofstream::badbit);
+                datafile->open(data_filename.c_str(), std::ofstream::binary);
+                datafiles.push_back(datafile);
             }
     }
 
