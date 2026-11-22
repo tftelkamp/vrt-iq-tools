@@ -695,6 +695,7 @@ int main(int argc, char* argv[])
     uint64_t dropped_partial = 0;     // samples of packets cut short by a gap
     uint64_t dropped_reported = 0;
     auto last_drop_report = start_time;
+    bool stream_failed = false;
 
     // flush merge queue
     if (merge)
@@ -708,6 +709,13 @@ int main(int argc, char* argv[])
     while (not stop_signal_called) {
 
         const auto now = std::chrono::steady_clock::now();
+
+        // libairspy stops for good on the first failed USB transfer.
+        if (airspy_is_streaming(device) != AIRSPY_TRUE) {
+            fprintf(stderr, "Error: Airspy stopped streaming (USB transfer failed).\n");
+            stream_failed = true;
+            break;
+        }
 
         sample_block block;
         bool have_block = false;
@@ -935,5 +943,5 @@ int main(int argc, char* argv[])
     // finished
     std::cout << std::endl << "Done!" << std::endl << std::endl;
 
-    return EXIT_SUCCESS;
+    return stream_failed ? EXIT_FAILURE : EXIT_SUCCESS;
 }
