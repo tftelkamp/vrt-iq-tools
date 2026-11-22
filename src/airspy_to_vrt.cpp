@@ -10,17 +10,13 @@
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
 
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <complex>
-#include <condition_variable>
 #include <csignal>
 #include <cstring>
-#include <deque>
 #include <fstream>
 #include <iostream>
-#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -41,6 +37,7 @@
 
 // VRT tools functions
 #include "vrt-tools.h"
+#include "vrt-rx-queue.h"
 
 #define DEFAULT_VGA_IF_GAIN (5)
 #define DEFAULT_LNA_GAIN (1)
@@ -99,41 +96,6 @@ static double r820t_gain_db(uint32_t vga, uint32_t mixer, uint32_t lna)
 }
 
 namespace po = boost::program_options;
-
-// Samples travel from the libairspy callback thread to the main loop in whole
-// transfer blocks. Every block carries the index of its first sample on the
-// stream timeline. That index also counts the samples that were lost on the
-// way, so packet timestamps follow the sample clock across a gap.
-#define RX_QUEUE_MAX_BLOCKS 64
-
-struct sample_block {
-    std::vector<int16_t> data; // interleaved I/Q
-    uint64_t first_sample = 0;
-};
-
-struct rx_state {
-    double rate     = 0;
-    bool int_second = false;
-
-    // Blocks are discarded until the main loop sets this.
-    std::atomic<bool> enabled{false};
-
-    // Used by the callback thread only.
-    bool started         = false;
-    uint64_t next_sample = 0;
-
-    // Protected by mutex.
-    std::mutex mutex;
-    std::condition_variable cv;
-    std::deque<sample_block> queue;
-    std::vector<std::vector<int16_t>> pool;
-    struct vrt_time_ps time_first_sample = {0, 0};
-
-    // Samples lost before libairspy called us, and samples we had to throw
-    // away because the main loop did not keep up.
-    std::atomic<uint64_t> dropped_driver{0};
-    std::atomic<uint64_t> dropped_queue{0};
-};
 
 static bool stop_signal_called = false;
 void sig_int_handler(int)
@@ -253,87 +215,13 @@ int parse_u64(const char* s, uint64_t* const value) {
     }
 }
 
-// Time of the sample that lies `samples` before t.
-static struct vrt_time_ps time_before_samples(struct vrt_time_ps t, uint64_t samples, double rate)
-{
-    uint64_t back_ps = (uint64_t)std::llround((double)samples * (double)VRT_PS_PER_SECOND / rate);
-
-    t.seconds -= (int64_t)(back_ps / VRT_PS_PER_SECOND);
-    back_ps %= VRT_PS_PER_SECOND;
-    if (t.frac_ps < back_ps) {
-        t.seconds -= 1;
-        t.frac_ps += VRT_PS_PER_SECOND;
-    }
-    t.frac_ps -= back_ps;
-    return t;
-}
-
 int rx_callback(airspy_transfer_t* transfer)
 {
-    rx_state* rx = (rx_state*)transfer->ctx;
-
     const struct vrt_time_ps arrival = vrt_time_now();
-    const int16_t* samples           = (const int16_t*)transfer->samples;
 
-    if (not rx->enabled.load() or samples == nullptr or transfer->sample_count <= 0)
-        return 0;
-
-    const uint64_t count = (uint64_t)transfer->sample_count;
-    uint64_t skip        = 0;
-    struct vrt_time_ps time_first_sample = {0, 0};
-
-    if (not rx->started) {
-        // The wall clock is read once, for the first block: the block has just
-        // arrived, so its first sample was taken one block length ago. All
-        // later timestamps are counted in samples from here.
-        time_first_sample = time_before_samples(arrival, count, rx->rate);
-
-        if (rx->int_second) {
-            // Start at the sample that falls on the next integer second.
-            const struct vrt_time_ps boundary = {
-                time_first_sample.seconds + (time_first_sample.frac_ps > 0 ? 1 : 0), 0};
-            skip = (uint64_t)std::llround(
-                (double)vrt_time_diff_ps(boundary, time_first_sample) * 1e-12 * rx->rate);
-            if (skip >= count)
-                return 0; // the second does not start in this block
-            time_first_sample = boundary;
-        }
-    } else if (transfer->dropped_samples > 0) {
-        // libairspy dropped whole transfers ahead of this one.
-        rx->next_sample += transfer->dropped_samples;
-        rx->dropped_driver += transfer->dropped_samples;
-    }
-
-    const uint64_t num_samps = count - skip;
-    const int16_t* first     = samples + 2 * skip;
-    bool queued              = false;
-
-    {
-        std::lock_guard<std::mutex> lock(rx->mutex);
-
-        if (not rx->started)
-            rx->time_first_sample = time_first_sample;
-
-        if (rx->queue.size() < RX_QUEUE_MAX_BLOCKS) {
-            sample_block block;
-            if (not rx->pool.empty()) {
-                block.data = std::move(rx->pool.back());
-                rx->pool.pop_back();
-            }
-            block.data.assign(first, first + 2 * num_samps);
-            block.first_sample = rx->next_sample;
-            rx->queue.push_back(std::move(block));
-            queued = true;
-        }
-    }
-
-    if (queued)
-        rx->cv.notify_one();
-    else
-        rx->dropped_queue += num_samps;
-
-    rx->started = true;
-    rx->next_sample += num_samps;
+    if (transfer->sample_count > 0)
+        vrt_rx_push((vrt_rx_queue*)transfer->ctx, arrival, (const int16_t*)transfer->samples,
+            (uint64_t)transfer->sample_count, transfer->dropped_samples);
 
     return 0;
 }
@@ -719,7 +607,7 @@ int main(int argc, char* argv[])
 
     // Samples received during setup are discarded: the callback only queues
     // blocks once rx.enabled is set, just before the main loop.
-    rx_state rx;
+    vrt_rx_queue rx;
     rx.rate = rate;
 
     fprintf(stderr, "Gain: %.1f dB (approximate)\n", gain);
@@ -788,14 +676,11 @@ int main(int argc, char* argv[])
 
     uint32_t num_words_read=0;
 
-    std::vector<int16_t> bodydata(2*samps_per_buff);
+    vrt_rx_packetizer packetizer(samps_per_buff);
+    std::vector<int16_t>& bodydata = packetizer.body;
 
-    size_t fill = 0;                  // complex samples collected for the next packet
-    uint64_t packet_first_sample = 0; // timeline index of the first of them
-    uint64_t expected_sample = 0;     // timeline index that continues the stream
     struct vrt_time_ps time_first_sample = {0, 0};
 
-    uint64_t dropped_partial = 0;     // samples of packets cut short by a gap
     uint64_t dropped_reported = 0;
     auto last_drop_report = start_time;
     bool stream_failed = false;
@@ -820,49 +705,16 @@ int main(int argc, char* argv[])
             break;
         }
 
-        sample_block block;
-        bool have_block = false;
+        vrt_rx_block block;
 
-        {
-            std::unique_lock<std::mutex> lock(rx.mutex);
-            rx.cv.wait_for(lock, std::chrono::milliseconds(1), [&rx] { return not rx.queue.empty(); });
-            if (not rx.queue.empty()) {
-                block = std::move(rx.queue.front());
-                rx.queue.pop_front();
-                have_block = true;
-                time_first_sample = rx.time_first_sample;
-            }
-        }
+        if (vrt_rx_pop(&rx, &block, &time_first_sample, std::chrono::milliseconds(1))) {
 
-        if (have_block) {
+            packetizer.feed(block, [&](uint64_t packet_first_sample, bool after_gap) {
 
-            const size_t block_samps = block.data.size()/2;
-
-            if (block.first_sample != expected_sample) {
-                // Samples were lost ahead of this block. A packet never spans
-                // the gap: drop what was collected, and skip a packet count so
-                // that consumers see a lost frame.
-                dropped_partial += fill;
-                fill = 0;
-                frame_count++;
-            }
-
-            size_t pos = 0;
-
-            while (pos < block_samps) {
-
-                if (fill == 0)
-                    packet_first_sample = block.first_sample + pos;
-
-                const size_t take = std::min(samps_per_buff - fill, block_samps - pos);
-                std::memcpy(&bodydata[2*fill], &block.data[2*pos], take*2*sizeof(int16_t));
-                fill += take;
-                pos += take;
-
-                if (fill < samps_per_buff)
-                    break;
-
-                fill = 0;
+                // Samples were lost ahead of this packet: skip a packet count
+                // so that consumers see a lost frame.
+                if (after_gap)
+                    frame_count++;
 
                 // Timestamp of the first sample in the packet, counted in
                 // samples from the start of the stream.
@@ -951,44 +803,20 @@ int main(int argc, char* argv[])
                         const double time_since_last_update_s =
                             std::chrono::duration<double>(time_since_last_update).count();
                         const double rate = double(last_update_samps) / time_since_last_update_s;
-                        std::cout << "\t" << (rate / 1e6) << " Msps, ";
-
                         last_update_samps = 0;
                         last_update       = now;
 
-                        float sum_i = 0;
-                        uint32_t clip_i = 0;
-
-                        double datatype_max = 32767.;
-
-                        for (int i=0; i<10000; i++ ) {
-                            auto sample_i = get_abs_val(bodydata[2*i]);
-                            sum_i += sample_i;
-                            if (sample_i > datatype_max*0.99)
-                                clip_i++;
-                        }
-                        sum_i = sum_i/10000;
-                        std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
-                        std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
-                        std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-                        std::cout << "" << boost::format("%.0f") % (100.0*clip_i/10000) << "% I clip.";
-                        std::cout << std::endl;
+                        vrt_rx_print_progress(rate, 0, bodydata.data(), samps_per_buff);
 
                     }
                 }
-            }
+            });
 
-            expected_sample = block.first_sample + block_samps;
-
-            // Hand the buffer back for reuse.
-            {
-                std::lock_guard<std::mutex> lock(rx.mutex);
-                rx.pool.push_back(std::move(block.data));
-            }
+            vrt_rx_recycle(&rx, &block);
         }
 
         // Report lost samples, at most once a second.
-        const uint64_t dropped_total = rx.dropped_driver + rx.dropped_queue + dropped_partial;
+        const uint64_t dropped_total = rx.dropped_driver + rx.dropped_queue + packetizer.dropped_partial;
         if (dropped_total != dropped_reported and now - last_drop_report > std::chrono::seconds(1)) {
             fprintf(stderr, "Warning: lost %llu samples (%llu in total).\n",
                 (unsigned long long)(dropped_total - dropped_reported),
@@ -1031,8 +859,8 @@ int main(int argc, char* argv[])
         const uint64_t dropped_driver = rx.dropped_driver;
         const uint64_t dropped_queue  = rx.dropped_queue;
         std::cout << boost::format("Lost %d samples (%d in the driver, %d in the queue, %d in cut packets).")
-                         % (dropped_driver + dropped_queue + dropped_partial)
-                         % dropped_driver % dropped_queue % dropped_partial
+                         % (dropped_driver + dropped_queue + packetizer.dropped_partial)
+                         % dropped_driver % dropped_queue % packetizer.dropped_partial
                   << std::endl;
     }
   
