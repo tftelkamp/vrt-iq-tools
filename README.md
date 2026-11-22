@@ -19,7 +19,7 @@ Optional dependencies:
 * `libuhd-dev` for UHD (USRP) support
 * `libiio-dev` and `libad9361-dev` for IIO (PLUTO) support
 * The Epiq Sidekiq SDK for Sidekiq support (aarch64 only). CMake looks for it in `/opt/sidekiq_sdk_current`, `~/sidekiq_sdk_current` or `SIDEKIQ_DIR`; with the Makefile use `make sidekiq SIDEKIQ_SDK=<path>`
-* `libgnuradio-pmt3.10.9t64` for gnuradio support
+* `gnuradio-dev` for gnuradio support (`vrt_to_gnuradio`)
 * `nvidia-cuda-toolkit-gcc` for GPU acceleration of some tools
 * `libpsrdada` for DADA support, see [installation instructions](https://psrdada.sourceforge.net/download.shtml)
 

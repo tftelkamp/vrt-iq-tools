@@ -251,12 +251,17 @@ add_executable(vrt_tuner src/vrt_tuner.cpp)
 add_executable(vrt_version src/vrt_version.cpp)
 
 find_library(GNURADIO_PMT_LIBRARY gnuradio-pmt QUIET)
-if(GNURADIO_PMT_LIBRARY)
+find_path(GNURADIO_PMT_INCLUDE_DIR NAMES pmt/pmt.h QUIET)
+if(GNURADIO_PMT_LIBRARY AND GNURADIO_PMT_INCLUDE_DIR)
   add_executable(vrt_to_gnuradio src/vrt_to_gnuradio.cpp)
+  target_include_directories(vrt_to_gnuradio
+                             PRIVATE ${GNURADIO_PMT_INCLUDE_DIR})
   target_link_libraries(vrt_to_gnuradio PRIVATE ${GNURADIO_PMT_LIBRARY})
 else()
   message(
-    WARNING "Gnuradio-pmt library not found, not building vrt_to_gnuradio")
+    WARNING
+      "Gnuradio-pmt library or headers not found (gnuradio-dev), not building vrt_to_gnuradio"
+  )
 endif()
 
 find_library(PSRDADA_LIBRARY psrdada QUIET)
