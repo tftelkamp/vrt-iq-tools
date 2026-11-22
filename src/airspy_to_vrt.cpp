@@ -52,6 +52,10 @@
 #define LINEARITY_GAIN_MAX (21)
 #define SENSITIVITY_GAIN_MAX (21)
 
+#define FREQ_HZ_MIN (24000000.0)
+#define FREQ_HZ_MAX (1900000000.0) // as airspy_rx; officially 1750 MHz
+#define FREQ_HZ_SPEC_MAX (1750000000.0)
+
 unsigned long long num_total_samps = 0;
 
 // R820T gain per index step, in tenths of a dB. Measured by Steve Markgraf on
@@ -338,13 +342,13 @@ int main(int argc, char* argv[])
     uint32_t stream_id;
     int hwm;
     double gain = 0; // approximate, in dB
-    double rate, freq, total_time, setup_time, if_freq;
+    double rate, freq, total_time = 0, setup_time, if_freq;
     bool merge;
     double real_freq;
 
     // Airspy
     struct airspy_device* device = 0;
-    char airspy_version[255 + 1];
+    char airspy_version[255 + 1] = "";
     uint64_t serial_number_val;
     uint32_t *supported_samplerates;
     uint32_t sample_rate_u32 = 0;
@@ -622,9 +626,23 @@ int main(int argc, char* argv[])
 
     // Frequency
 
-    freq = freq - if_freq;
-    
+    // The tuner takes whole Hz.
+    freq = std::round(freq - if_freq);
+
+    if (freq < FREQ_HZ_MIN or freq >= FREQ_HZ_MAX) {
+        fprintf(stderr, "argument error: frequency %.0f Hz is outside the tuner range of %.0f to %.0f MHz\n",
+            freq, FREQ_HZ_MIN/1e6, FREQ_HZ_MAX/1e6);
+        airspy_close(device);
+        airspy_exit();
+        return EXIT_FAILURE;
+    }
+    if (freq > FREQ_HZ_SPEC_MAX)
+        fprintf(stderr, "Warning: frequency %.0f Hz is above the specified maximum of %.0f MHz.\n",
+            freq, FREQ_HZ_SPEC_MAX/1e6);
+
     if (ref) {
+        if (fw_version < 0)
+            fprintf(stderr, "Warning: unknown firmware version, the true frequency assumes a 25 MHz tuner reference.\n");
         real_freq = true_freq(freq, sample_rate_u32, fw_version);
         printf("True frequency (R820T): %f Hz\n",real_freq);
     } else
