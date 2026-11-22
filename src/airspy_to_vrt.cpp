@@ -156,69 +156,74 @@ inline float get_abs_val(std::complex<int8_t> t)
     return std::fabs(t.real());
 }
 
-// From Phil Karn ka9q (modified)
+// Frequency the R820T is really tuned to, for a requested centre frequency.
+// Returns 0 if the tuner PLL cannot reach the frequency.
+//
+// After Phil Karn (ka9q). The PLL words are computed exactly as
+// r820t_set_pll() in the Airspy firmware does, including its truncating
+// divider: rounding to the nearest step instead gives a result that is one
+// PLL step off for about 0.5% of all frequencies.
+//
+// The offset was measured against a signal generator on the same 10 MHz
+// reference (firmware v1.0.0-rc10-6, 2.5 and 10 Msps, all six divider
+// ranges). With a non-zero fraction the VCO runs a quarter of a step above the
+// programmed value. With a zero fraction the firmware switches the sigma-delta
+// modulator off, and there is no offset. Model and measurement agree to 0.01 Hz.
 double true_freq(uint64_t freq_hz, uint32_t rate, int8_t fw_version) {
-  const int VCO_MIN=1770000000u; // 1.77 GHz
-  const int VCO_MAX=3900000000u; // 3.54 GHz
-  const int MAX_DIV = 5;
+  const uint32_t vco_min = 1770000000u; // 1.77 GHz
+  const uint32_t vco_max = 3900000000u; // 3.9 GHz
 
-  uint32_t pll_ref;
-  // Clock divider set to 2 for the best resolution
-  if (fw_version == 0)
-    pll_ref = 20000000u/2; // v1.0.0-rc10-0-g946184a 2016-09-19
-  else if (fw_version == 1)
-    pll_ref = 25000000u/2; // v1.0.0-rc10-6-g4008185 2020-05-08
-  else
-    pll_ref = 25000000u/2; // assume no changed in newer firmware?
-  
-  uint32_t lo_freq = rate/2;
-  freq_hz += lo_freq;
+  // Tuner reference: 20 MHz for v1.0.0-rc10-0-g946184a 2016-09-19, 25 MHz for
+  // v1.0.0-rc10-6-g4008185 2020-05-08, and assumed unchanged in newer firmware.
+  const uint32_t xtal_freq = (fw_version == 0) ? 20000000u : 25000000u;
 
-  if ( (freq_hz % pll_ref) == 0) {
-    return (double)freq_hz-lo_freq;
-  }
- 
-  // Find divider to put VCO = f*2^(d+1) in range VCO_MIN to VCO_MAX
-  //          MHz             step, Hz
-  // 0: 885.0     1770.0      190.735
+  const uint32_t if_freq = rate/2;
+  const uint32_t lo_freq = (uint32_t)freq_hz + if_freq;
+
+  // The firmware works in 32 bits throughout.
+  uint32_t ref = xtal_freq >> 1;
+  uint32_t div_num;
+  uint32_t vco = 0;
+  bool div_found = false;
+
+  // Find divider to put VCO = f*2^(d+1) in range vco_min to vco_max
+  //          MHz             step, Hz (25 MHz reference)
+  // 0: 885.0     1950.0      190.735
   // 1: 442.50     885.00      95.367
   // 2: 221.25     442.50      47.684
   // 3: 110.625    221.25      23.842
   // 4:  55.3125   110.625     11.921
   // 5:  27.65625   55.312      5.960
-  int8_t div_num;
-  for (div_num = 0; div_num <= MAX_DIV; div_num++){
-    uint32_t vco = freq_hz << (div_num + 1);
-    if (VCO_MIN <= vco && vco <= VCO_MAX)
+  for (div_num = 0; div_num <= 5; div_num++) {
+    vco = lo_freq << (div_num + 1);
+    if (vco >= vco_min && vco <= vco_max) {
+      div_found = true;
       break;
+    }
   }
-  if(div_num > MAX_DIV)
+  if (!div_found)
     return 0; // Frequency out of range
 
-  // PLL programming bits: Nint in upper 16 bits, Nfract in lower 16 bits
-  // Freq steps are pll_ref / 2^(16 + div_num) Hz
-  // Note the '+ (pll_ref >> 1)' term simply rounds the division to the nearest integer
-  uint32_t r = (((uint64_t) freq_hz << (div_num + 16)) + (pll_ref >> 1)) / pll_ref;
- 
-  // This is a puzzle; is it related to spur suppression?
-  double offset = 0.25;
+  // PLL programming bits: Nint in bits 16 and up, Nfract (sdm) in the lower 16.
+  // Long division of the VCO frequency by the step, with a rounding term.
+  vco += ref >> 16;
+  ref <<= 8;
+  uint32_t mask = 1u << 23;
+  uint32_t rem = 0;
+  while (mask > 0 && vco > 0) {
+    if (vco >= ref) {
+      rem |= mask;
+      vco -= ref;
+    }
+    ref >>= 1;
+    mask >>= 1;
+  }
 
-  // printf("div_num: %u\n", div_num);
-  // switch(div_num){
-  // default: // 2, 1, 0
-  //  case 3:
-  //   offset = 0.25;
-  //   break;
-  // case 4:
-  //   offset = 0.5;
-  //   break;
-  // case 5:
-  //   offset = 1.0;
-  //   break;
-  // }
+  const uint32_t sdm = rem & 0xffff;
+  const double offset = (sdm == 0) ? 0.0 : 0.25;
 
-  // Compute true frequency
-  return ((double)(r + offset) * pll_ref) / (double)(1 << (div_num + 16)) - lo_freq;
+  // Freq steps are (xtal_freq/2) / 2^(16 + div_num) Hz
+  return ((double)rem + offset) * (xtal_freq / 2.0) / (double)(1u << (div_num + 16)) - if_freq;
 }
 
 int parse_u64(const char* s, uint64_t* const value) {
@@ -640,10 +645,21 @@ int main(int argc, char* argv[])
         fprintf(stderr, "Warning: frequency %.0f Hz is above the specified maximum of %.0f MHz.\n",
             freq, FREQ_HZ_SPEC_MAX/1e6);
 
+    // The firmware does not report it when the tuner PLL cannot reach a
+    // frequency, it leaves the tuner where it was.
+    const double pll_freq = true_freq(freq, sample_rate_u32, fw_version);
+    if (pll_freq == 0) {
+        fprintf(stderr, "argument error: frequency %.0f Hz is outside the range of the tuner PLL at this sample rate (minimum %.0f Hz)\n",
+            freq, 27656250.0 - sample_rate_u32/2);
+        airspy_close(device);
+        airspy_exit();
+        return EXIT_FAILURE;
+    }
+
     if (ref) {
         if (fw_version < 0)
             fprintf(stderr, "Warning: unknown firmware version, the true frequency assumes a 25 MHz tuner reference.\n");
-        real_freq = true_freq(freq, sample_rate_u32, fw_version);
+        real_freq = pll_freq;
         printf("True frequency (R820T): %f Hz\n",real_freq);
     } else
         real_freq = freq;
