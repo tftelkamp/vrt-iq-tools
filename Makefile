@@ -9,6 +9,7 @@ CXX=g++
 all: clients dt
 clients: vrt_version vrt_fftmax vrt_to_sigmf sigmf_to_vrt play_vrt vrt_forwarder vrt_spectrum vrt_to_void control_vrt vrt_to_rtl_tcp vrt_fftmax_quad vrt_to_filterbank vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_tuner vrt_correlate vrt_merge vrt_hybrid vrt_channelizer vrt_quantize vrt_buffer vrt_to_vdif
 sdr: usrp_to_vrt rfspace_to_vrt rtlsdr_to_vrt airspy_to_vrt airspyhf_to_vrt iio_to_vrt hackrf_to_vrt
+sidekiq: sidekiq_to_vrt
 gnuradio: vrt_to_gnuradio
 gpu: vrt_gpu_fftmax vrt_gpu_channelizer
 dada: vrt_to_dada
@@ -24,6 +25,11 @@ LIBS = -L. -L../libvrt/build/ -L/usr/local/lib -L/opt/local/lib -L/opt/homebrew/
 
 BOOSTLIBS = -lboost_program_options -lboost_chrono -lboost_filesystem -lboost_thread -lboost_date_time
 # BOOSTLIBS = -lboost_system-mt -lboost_program_options-mt -lboost_chrono-mt -lboost_filesystem-mt -lboost_thread-mt -lboost_date_time-mt
+
+# Epiq Sidekiq SDK (only available for the Jetson/aarch64 hosts), override with
+# e.g. make sidekiq SIDEKIQ_SDK=$HOME/sidekiq_sdk_current
+SIDEKIQ_SDK ?= /opt/sidekiq_sdk_current
+SIDEKIQ_LIB ?= $(SIDEKIQ_SDK)/lib/libsidekiq__aarch64.gcc6.3.a
 
 # Extract git information
 GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
@@ -153,6 +159,10 @@ rfspace_to_vrt: src/rfspace_to_vrt.cpp
 		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/rfspace_to_vrt.cpp -o rfspace_to_vrt \
 		$(BOOSTLIBS) -lzmq -lvrt
 
+sidekiq_to_vrt: src/sidekiq_to_vrt.cpp
+		${CXX} -O3 -fstrict-aliasing -fPIC $(INCLUDES) -I$(SIDEKIQ_SDK)/sidekiq_core/inc $(LIBS) $(CFLAGS) src/sidekiq_to_vrt.cpp -o sidekiq_to_vrt \
+		$(SIDEKIQ_LIB) -lusb-1.0 -liio -lglib-2.0 -lrt -lm -lpthread -lzmq -lvrt $(BOOSTLIBS) -lboost_system
+
 iio_to_vrt: src/iio_to_vrt.cpp
 		${CXX} -O3 $(INCLUDES) $(LIBS) $(CFLAGS) src/iio_to_vrt.cpp -o iio_to_vrt \
 		-liio -lad9361 -lpthread -lzmq -lvrt $(BOOSTLIBS)
@@ -203,4 +213,4 @@ install: all
 		install -m 755 query_dt_console   $(DESTDIR)$(PREFIX)/bin/
 
 clean:
-		$(RM) vrt_version usrp_to_vrt vrt_fftmax vrt_to_gnuradio vrt_to_sigmf convenience.o rtlsdr_to_vrt rfspace_to_vrt vrt_forwarder vrt_to_void vrt_spectrum sigmf_to_vrt play_vrt vrt_gpu_fftmax control_vrt vrt_to_dada vrt_to_rtl_tcp vrt_to_vrt_quad vrt_fftmax_quad vrt_to_filterbank query_dt_console vrt_rffft vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_tuner airspy_to_vrt airspyhf_to_vrt hackrf_to_vrt vrt_correlate vrt_merge vrt_hybrid vrt_channelizer vrt_gpu_channelizer vrt_quantize iio_to_vrt vrt_to_vdif vrt_buffer
+		$(RM) vrt_version usrp_to_vrt vrt_fftmax vrt_to_gnuradio vrt_to_sigmf convenience.o rtlsdr_to_vrt rfspace_to_vrt vrt_forwarder vrt_to_void vrt_spectrum sigmf_to_vrt play_vrt vrt_gpu_fftmax control_vrt vrt_to_dada vrt_to_rtl_tcp vrt_to_vrt_quad vrt_fftmax_quad vrt_to_filterbank query_dt_console vrt_rffft vrt_to_fifo vrt_pulsar vrt_to_udp vrt_metadata vrt_to_stdout vrt_tuner airspy_to_vrt airspyhf_to_vrt hackrf_to_vrt vrt_correlate vrt_merge vrt_hybrid vrt_channelizer vrt_gpu_channelizer vrt_quantize iio_to_vrt vrt_to_vdif vrt_buffer sidekiq_to_vrt

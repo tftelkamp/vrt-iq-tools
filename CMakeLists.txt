@@ -168,6 +168,43 @@ else()
   )
 endif()
 
+# Epiq Sidekiq SDK (static library, only shipped for the Jetson/aarch64 hosts).
+# Point to the SDK with -DSIDEKIQ_DIR=... or the SIDEKIQ_DIR environment
+# variable.
+find_path(
+  SIDEKIQ_INCLUDE_DIR
+  NAMES sidekiq_api.h
+  HINTS ${SIDEKIQ_DIR}/sidekiq_core/inc $ENV{SIDEKIQ_DIR}/sidekiq_core/inc
+  PATHS /opt/sidekiq_sdk_current/sidekiq_core/inc
+        $ENV{HOME}/sidekiq_sdk_current/sidekiq_core/inc)
+find_library(
+  SIDEKIQ_LIBRARY
+  NAMES libsidekiq__aarch64.gcc6.3.a
+  HINTS ${SIDEKIQ_DIR}/lib $ENV{SIDEKIQ_DIR}/lib
+  PATHS /opt/sidekiq_sdk_current/lib $ENV{HOME}/sidekiq_sdk_current/lib)
+find_library(USB1_LIBRARY usb-1.0)
+find_library(GLIB2_LIBRARY glib-2.0)
+if(SIDEKIQ_INCLUDE_DIR
+   AND SIDEKIQ_LIBRARY
+   AND USB1_LIBRARY
+   AND GLIB2_LIBRARY
+   AND IIO_LIBRARY)
+  add_executable(sidekiq_to_vrt src/sidekiq_to_vrt.cpp)
+  target_compile_options(sidekiq_to_vrt PRIVATE -fstrict-aliasing -fPIC)
+  target_include_directories(sidekiq_to_vrt PRIVATE ${SIDEKIQ_INCLUDE_DIR})
+  target_link_libraries(
+    sidekiq_to_vrt
+    PRIVATE ${SIDEKIQ_LIBRARY}
+            ${USB1_LIBRARY}
+            ${IIO_LIBRARY}
+            ${GLIB2_LIBRARY}
+            rt
+            m
+            pthread)
+else()
+  message(WARNING "Sidekiq SDK not found, not building sidekiq_to_vrt")
+endif()
+
 find_package(CUDAToolkit)
 if(NOT CUDAToolkit_FOUND)
   message(WARNING "CUDA not found, building without GPU support")

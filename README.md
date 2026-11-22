@@ -18,6 +18,7 @@ Optional dependencies:
 * `librtlsdr-dev` for RTL-SDR support
 * `libuhd-dev` for UHD (USRP) support
 * `libiio-dev` and `libad9361-dev` for IIO (PLUTO) support
+* The Epiq Sidekiq SDK for Sidekiq support (aarch64 only). CMake looks for it in `/opt/sidekiq_sdk_current`, `~/sidekiq_sdk_current` or `SIDEKIQ_DIR`; with the Makefile use `make sidekiq SIDEKIQ_SDK=<path>`
 * `libgnuradio-pmt3.10.9t64` for gnuradio support
 * `nvidia-cuda-toolkit-gcc` for GPU acceleration of some tools
 * `libpsrdada` for DADA support, see [installation instructions](https://psrdada.sourceforge.net/download.shtml)
@@ -45,6 +46,7 @@ Alternatively, the project can be built with the Makefile. To do that, edit the 
 * `airspy_to_vrt`: Create VRT stream from [Airspy R2 and mini](https://airspy.com/airspy-r2/) device.
 * `airspyhf_to_vrt`: Create VRT stream from [Airspy HF+](https://airspy.com/airspy-hf-plus/) device.
 * `iio_to_vrt`: Create VRT stream from an IIO device, such as the [ADALM-PLUTO](https://www.analog.com/en/resources/evaluation-hardware-and-software/evaluation-boards-kits/adalm-pluto.html).
+* `sidekiq_to_vrt`: Create VRT stream from an [Epiq Sidekiq](https://epiqsolutions.com) SDR (mPCIe, M.2). With `--pps` the clock is synchronized to an external PPS (e.g. from GPS), and with `--pps-track` the timestamps follow the PPS edges.
 * `sigmf_to_vrt`: Create VRT stream from [SigMF](https://sigmf.org) recording, or with `--vrt` from a VRT recording.
 * `play_vrt`: Create VRT stream from [SigMF](https://sigmf.org) recording, intended for transmitting.
 
