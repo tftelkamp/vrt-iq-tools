@@ -584,6 +584,19 @@ int main(int argc, char* argv[])
 
     if( (linearity_gain == false) && (sensitivity_gain == false) )
     {
+        // Manual gain: switch the AGCs off first, as libairspy does for its
+        // linearity and sensitivity settings. The tuner keeps whatever a
+        // previous application left behind.
+        result = airspy_set_mixer_agc(device, 0);
+        if( result != AIRSPY_SUCCESS ) {
+            fprintf(stderr, "airspy_set_mixer_agc() failed: %s (%d)\n", airspy_error_name((airspy_error)result), result);
+        }
+
+        result = airspy_set_lna_agc(device, 0);
+        if( result != AIRSPY_SUCCESS ) {
+            fprintf(stderr, "airspy_set_lna_agc() failed: %s (%d)\n", airspy_error_name((airspy_error)result), result);
+        }
+
         result = airspy_set_vga_gain(device, vga_gain);
         if( result != AIRSPY_SUCCESS ) {
             fprintf(stderr, "airspy_set_vga_gain() failed: %s (%d)\n", airspy_error_name((airspy_error)result), result);
