@@ -141,6 +141,17 @@ else()
   message(WARNING "Airspy library not found, not building airspy_to_vrt")
 endif()
 
+find_library(AIRSPYHF_LIBRARY airspyhf)
+if(AIRSPYHF_LIBRARY)
+  find_path(AIRSPYHF_INCLUDE_DIR NAMES libairspyhf/airspyhf.h REQUIRED)
+  add_executable(airspyhf_to_vrt src/airspyhf_to_vrt.cpp)
+  target_include_directories(airspyhf_to_vrt PRIVATE ${AIRSPYHF_INCLUDE_DIR})
+  target_link_libraries(airspyhf_to_vrt PRIVATE ${AIRSPYHF_LIBRARY})
+else()
+  message(
+    WARNING "Airspy HF+ library not found, not building airspyhf_to_vrt")
+endif()
+
 find_library(IIO_LIBRARY iio)
 find_library(AD9361_LIBRARY ad9361)
 if(IIO_LIBRARY AND AD9361_LIBRARY)
