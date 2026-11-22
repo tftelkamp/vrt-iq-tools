@@ -9,14 +9,20 @@
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
-#include <boost/circular_buffer.hpp>
 
+#include <atomic>
 #include <chrono>
+#include <cmath>
 #include <complex>
+#include <condition_variable>
 #include <csignal>
+#include <cstring>
+#include <deque>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 #include <zmq.h>
 #include <assert.h>
@@ -28,8 +34,6 @@
 #include <vrt/vrt_util.h>
 #include <vrt/vrt_write.h>
 #include <vrt/vrt_read.h>
-
-#include <boost/thread/thread.hpp>
 
 #include <inttypes.h>
 
@@ -52,10 +56,40 @@ unsigned long long num_total_samps = 0;
 
 namespace po = boost::program_options;
 
-// Create a circular buffer with a capacity for xxx.
-boost::circular_buffer<int16_t> cb(65536*2*4*2);
+// Samples travel from the libairspy callback thread to the main loop in whole
+// transfer blocks. Every block carries the index of its first sample on the
+// stream timeline. That index also counts the samples that were lost on the
+// way, so packet timestamps follow the sample clock across a gap.
+#define RX_QUEUE_MAX_BLOCKS 64
 
-boost::shared_mutex _access;
+struct sample_block {
+    std::vector<int16_t> data; // interleaved I/Q
+    uint64_t first_sample = 0;
+};
+
+struct rx_state {
+    double rate     = 0;
+    bool int_second = false;
+
+    // Blocks are discarded until the main loop sets this.
+    std::atomic<bool> enabled{false};
+
+    // Used by the callback thread only.
+    bool started         = false;
+    uint64_t next_sample = 0;
+
+    // Protected by mutex.
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::deque<sample_block> queue;
+    std::vector<std::vector<int16_t>> pool;
+    struct vrt_time_ps time_first_sample = {0, 0};
+
+    // Samples lost before libairspy called us, and samples we had to throw
+    // away because the main loop did not keep up.
+    std::atomic<uint64_t> dropped_driver{0};
+    std::atomic<uint64_t> dropped_queue{0};
+};
 
 static bool stop_signal_called = false;
 void sig_int_handler(int)
@@ -170,23 +204,88 @@ int parse_u64(const char* s, uint64_t* const value) {
     }
 }
 
+// Time of the sample that lies `samples` before t.
+static struct vrt_time_ps time_before_samples(struct vrt_time_ps t, uint64_t samples, double rate)
+{
+    uint64_t back_ps = (uint64_t)std::llround((double)samples * (double)VRT_PS_PER_SECOND / rate);
+
+    t.seconds -= (int64_t)(back_ps / VRT_PS_PER_SECOND);
+    back_ps %= VRT_PS_PER_SECOND;
+    if (t.frac_ps < back_ps) {
+        t.seconds -= 1;
+        t.frac_ps += VRT_PS_PER_SECOND;
+    }
+    t.frac_ps -= back_ps;
+    return t;
+}
+
 int rx_callback(airspy_transfer_t* transfer)
 {
-    uint32_t ints_to_write;
-    int16_t* pt_rx_buffer;
-    
-    ints_to_write = transfer->sample_count * 2;
-    pt_rx_buffer = (int16_t*)transfer->samples;
+    rx_state* rx = (rx_state*)transfer->ctx;
+
+    const struct vrt_time_ps arrival = vrt_time_now();
+    const int16_t* samples           = (const int16_t*)transfer->samples;
+
+    if (not rx->enabled.load() or samples == nullptr or transfer->sample_count <= 0)
+        return 0;
+
+    const uint64_t count = (uint64_t)transfer->sample_count;
+    uint64_t skip        = 0;
+    struct vrt_time_ps time_first_sample = {0, 0};
+
+    if (not rx->started) {
+        // The wall clock is read once, for the first block: the block has just
+        // arrived, so its first sample was taken one block length ago. All
+        // later timestamps are counted in samples from here.
+        time_first_sample = time_before_samples(arrival, count, rx->rate);
+
+        if (rx->int_second) {
+            // Start at the sample that falls on the next integer second.
+            const struct vrt_time_ps boundary = {
+                time_first_sample.seconds + (time_first_sample.frac_ps > 0 ? 1 : 0), 0};
+            skip = (uint64_t)std::llround(
+                (double)vrt_time_diff_ps(boundary, time_first_sample) * 1e-12 * rx->rate);
+            if (skip >= count)
+                return 0; // the second does not start in this block
+            time_first_sample = boundary;
+        }
+    } else if (transfer->dropped_samples > 0) {
+        // libairspy dropped whole transfers ahead of this one.
+        rx->next_sample += transfer->dropped_samples;
+        rx->dropped_driver += transfer->dropped_samples;
+    }
+
+    const uint64_t num_samps = count - skip;
+    const int16_t* first     = samples + 2 * skip;
+    bool queued              = false;
 
     {
-        boost::unique_lock< boost::shared_mutex > lock(_access);
+        std::lock_guard<std::mutex> lock(rx->mutex);
 
-        if(pt_rx_buffer) {
-            for (uint32_t i = 0; i < ints_to_write; i++) {
-                cb.push_back(pt_rx_buffer[i]);
+        if (not rx->started)
+            rx->time_first_sample = time_first_sample;
+
+        if (rx->queue.size() < RX_QUEUE_MAX_BLOCKS) {
+            sample_block block;
+            if (not rx->pool.empty()) {
+                block.data = std::move(rx->pool.back());
+                rx->pool.pop_back();
             }
+            block.data.assign(first, first + 2 * num_samps);
+            block.first_sample = rx->next_sample;
+            rx->queue.push_back(std::move(block));
+            queued = true;
         }
     }
+
+    if (queued)
+        rx->cv.notify_one();
+    else
+        rx->dropped_queue += num_samps;
+
+    rx->started = true;
+    rx->next_sample += num_samps;
+
     return 0;
 }
 
@@ -521,7 +620,12 @@ int main(int argc, char* argv[])
         }
     }
 
-    if( airspy_start_rx(device, rx_callback, NULL) != AIRSPY_SUCCESS ) {
+    // Samples received during setup are discarded: the callback only queues
+    // blocks once rx.enabled is set, just before the main loop.
+    rx_state rx;
+    rx.rate = rate;
+
+    if( airspy_start_rx(device, rx_callback, &rx) != AIRSPY_SUCCESS ) {
         fprintf(stderr, "airspy_start() failed.\n");
         exit(1);
     }
@@ -573,158 +677,215 @@ int main(int argc, char* argv[])
     unsigned long long last_update_samps = 0;
 
 
-    if (int_second) {
-    	time_now = vrt_time_now();
-    	struct vrt_time_ps new_time = vrt_time_now();
-        while (time_now.seconds==new_time.seconds)
-        	new_time = vrt_time_now();
-    }
-
     // Run this loop until either time expired (if a duration was given), until
     // the requested number of samples were collected (if such a number was
     // given), or until Ctrl-C was pressed.
 
     uint32_t frame_count = 0;
 
-    uint32_t len;
-    int32_t status=0;
     uint32_t num_words_read=0;
 
-    int16_t bodydata[samps_per_buff*2];
+    std::vector<int16_t> bodydata(2*samps_per_buff);
+
+    size_t fill = 0;                  // complex samples collected for the next packet
+    uint64_t packet_first_sample = 0; // timeline index of the first of them
+    uint64_t expected_sample = 0;     // timeline index that continues the stream
+    struct vrt_time_ps time_first_sample = {0, 0};
+
+    uint64_t dropped_partial = 0;     // samples of packets cut short by a gap
+    uint64_t dropped_reported = 0;
+    auto last_drop_report = start_time;
 
     // flush merge queue
     if (merge)
         while ( zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
 
+    // Start accepting samples. With --int-second the callback starts at the
+    // sample that falls on the next integer second.
+    rx.int_second = int_second;
+    rx.enabled = true;
+
     while (not stop_signal_called) {
- 
+
         const auto now = std::chrono::steady_clock::now();
 
+        sample_block block;
+        bool have_block = false;
+
         {
-            boost::shared_lock< boost::shared_mutex > lock(_access);
-        	while (cb.size() > 2*samps_per_buff ) {
+            std::unique_lock<std::mutex> lock(rx.mutex);
+            rx.cv.wait_for(lock, std::chrono::milliseconds(1), [&rx] { return not rx.queue.empty(); });
+            if (not rx.queue.empty()) {
+                block = std::move(rx.queue.front());
+                rx.queue.pop_front();
+                have_block = true;
+                time_first_sample = rx.time_first_sample;
+            }
+        }
 
-            	time_now = vrt_time_now();
+        if (have_block) {
 
-    	        if (first_frame) {
-    	            std::cout << boost::format(
-    	                             "First frame: %u full secs, %.09f frac secs")
-    	                             % time_now.seconds
-    	                             % ((double)time_now.frac_ps/1e12)
-    	                      << std::endl;
-    	            first_frame = false;
-    	        }
+            const size_t block_samps = block.data.size()/2;
+
+            if (block.first_sample != expected_sample) {
+                // Samples were lost ahead of this block. A packet never spans
+                // the gap: drop what was collected, and skip a packet count so
+                // that consumers see a lost frame.
+                dropped_partial += fill;
+                fill = 0;
+                frame_count++;
+            }
+
+            size_t pos = 0;
+
+            while (pos < block_samps) {
+
+                if (fill == 0)
+                    packet_first_sample = block.first_sample + pos;
+
+                const size_t take = std::min(samps_per_buff - fill, block_samps - pos);
+                std::memcpy(&bodydata[2*fill], &block.data[2*pos], take*2*sizeof(int16_t));
+                fill += take;
+                pos += take;
+
+                if (fill < samps_per_buff)
+                    break;
+
+                fill = 0;
+
+                // Timestamp of the first sample in the packet, counted in
+                // samples from the start of the stream.
+                time_now = vrt_time_add_samples(time_first_sample, packet_first_sample, rate);
+
+                if (first_frame) {
+                    std::cout << boost::format(
+                                     "First frame: %u full secs, %.09f frac secs")
+                                     % time_now.seconds
+                                     % ((double)time_now.frac_ps/1e12)
+                              << std::endl;
+                    first_frame = false;
+                }
 
                 num_words_read = samps_per_buff;
 
-            	int16_t this_sample;
-    	        for (uint32_t i = 0; i < 2*samps_per_buff; i++) {
-                    this_sample = cb.front();
-        			cb.pop_front();
-                    bodydata[i] = this_sample;
-        		}	
-       
-    	        num_total_samps += num_words_read;
+                num_total_samps += num_words_read;
 
-    	        p.body = bodydata;
-    	        p.header.packet_count = (uint8_t)frame_count%16;
-    	        p.fields.integer_seconds_timestamp = time_now.seconds;
-    	        p.fields.fractional_seconds_timestamp = time_now.frac_ps;
-    	
-    	        zmq_msg_t msg;
-    	        int rc = zmq_msg_init_size (&msg, SIZE*4);
+                p.body = bodydata.data();
+                p.header.packet_count = (uint8_t)frame_count%16;
+                p.fields.integer_seconds_timestamp = time_now.seconds;
+                p.fields.fractional_seconds_timestamp = time_now.frac_ps;
 
-    	        int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), SIZE, true);
+                zmq_msg_t msg;
+                int rc = zmq_msg_init_size (&msg, SIZE*4);
 
-    	        frame_count++;
+                int32_t rv = vrt_write_packet(&p, zmq_msg_data(&msg), SIZE, true);
 
-    	        // VRT
-    	        zmq_msg_send(&msg, zmq_server, 0);
-    	        zmq_msg_close(&msg);
+                frame_count++;
 
-    	        const auto time_since_last_context = now - last_context;
-    	        if (time_since_last_context > std::chrono::milliseconds(200)) {
+                // VRT
+                zmq_msg_send(&msg, zmq_server, 0);
+                zmq_msg_close(&msg);
 
-    	            last_context = now;
+                const auto time_since_last_context = now - last_context;
+                if (time_since_last_context > std::chrono::milliseconds(200)) {
 
-    	            // VITA 49.2
-    	            /* Initialize to reasonable values */
-    	            struct vrt_packet pc;
-    	            vrt_init_packet(&pc);
+                    last_context = now;
 
-    	            /* VRT Configure. Note that context packets cannot have a trailer word. */
-    	            vrt_init_context_packet(&pc);
+                    // VITA 49.2
+                    /* Initialize to reasonable values */
+                    struct vrt_packet pc;
+                    vrt_init_packet(&pc);
 
-    	            time_now = vrt_time_now();
-    	            pc.fields.integer_seconds_timestamp = time_now.seconds;
-    	            pc.fields.fractional_seconds_timestamp = time_now.frac_ps;
+                    /* VRT Configure. Note that context packets cannot have a trailer word. */
+                    vrt_init_context_packet(&pc);
 
-    	            pc.fields.stream_id = p.fields.stream_id;
+                    pc.fields.integer_seconds_timestamp = time_now.seconds;
+                    pc.fields.fractional_seconds_timestamp = time_now.frac_ps;
 
-    	            pc.if_context.bandwidth                         = rate;
-    	            pc.if_context.sample_rate                       = rate;
-    	            pc.if_context.rf_reference_frequency            = real_freq+if_freq;
-    	            pc.if_context.rf_reference_frequency_offset     = 0;
-    	            pc.if_context.if_reference_frequency            = if_freq; // 0 for Zero-IF
-    	            pc.if_context.gain.stage1                       = gain;
-    	            pc.if_context.gain.stage2                       = 0;
+                    pc.fields.stream_id = p.fields.stream_id;
 
-    	            pc.if_context.state_and_event_indicators.reference_lock = ref;
+                    pc.if_context.bandwidth                         = rate;
+                    pc.if_context.sample_rate                       = rate;
+                    pc.if_context.rf_reference_frequency            = real_freq+if_freq;
+                    pc.if_context.rf_reference_frequency_offset     = 0;
+                    pc.if_context.if_reference_frequency            = if_freq; // 0 for Zero-IF
+                    pc.if_context.gain.stage1                       = gain;
+                    pc.if_context.gain.stage2                       = 0;
 
-    	            pc.if_context.state_and_event_indicators.calibrated_time = false;
+                    pc.if_context.state_and_event_indicators.reference_lock = ref;
+
+                    pc.if_context.state_and_event_indicators.calibrated_time = false;
 
                     if (context_changed)
                         pc.if_context.context_field_change_indicator = true;
                     else
                         pc.if_context.context_field_change_indicator = false;
 
-    	            int32_t rv = vrt_write_packet(&pc, buffer, SIZE, true);
-    	            if (rv < 0) {
-    	                fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
-    	            }
+                    int32_t rv = vrt_write_packet(&pc, buffer, SIZE, true);
+                    if (rv < 0) {
+                        fprintf(stderr, "Failed to write packet: %s\n", vrt_string_error(rv));
+                    }
 
-    	            // ZMQ
+                    // ZMQ
                     zmq_send (zmq_server, buffer, rv*4, 0);
 
                     context_changed = false;
-    	        }
-            
-    	        if (bw_summary) {
-    	            last_update_samps += num_words_read;
-    	            const auto time_since_last_update = now - last_update;
-    	            if (time_since_last_update > std::chrono::seconds(1)) {
+                }
 
-    	                const double time_since_last_update_s =
-    	                    std::chrono::duration<double>(time_since_last_update).count();
-    	                const double rate = double(last_update_samps) / time_since_last_update_s;
-    	                std::cout << "\t" << (rate / 1e6) << " Msps, ";
-    	                
-    	                last_update_samps = 0;
-    	                last_update       = now;
+                if (bw_summary) {
+                    last_update_samps += num_words_read;
+                    const auto time_since_last_update = now - last_update;
+                    if (time_since_last_update > std::chrono::seconds(1)) {
 
-    	                float sum_i = 0;
-    	                uint32_t clip_i = 0;
+                        const double time_since_last_update_s =
+                            std::chrono::duration<double>(time_since_last_update).count();
+                        const double rate = double(last_update_samps) / time_since_last_update_s;
+                        std::cout << "\t" << (rate / 1e6) << " Msps, ";
 
-    	                double datatype_max = 32767.;
+                        last_update_samps = 0;
+                        last_update       = now;
 
-    	                for (int i=0; i<10000; i++ ) {
-    	                    auto sample_i = get_abs_val(bodydata[2*i]);
-    	                    sum_i += sample_i;
-    	                    if (sample_i > datatype_max*0.99)
-    	                        clip_i++;
-    	                }
-    	                sum_i = sum_i/10000;
-    	                std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
-    	                std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
-    	                std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
-    	                std::cout << "" << boost::format("%.0f") % (100.0*clip_i/10000) << "% I clip.";
-    	                std::cout << std::endl;
+                        float sum_i = 0;
+                        uint32_t clip_i = 0;
 
-    	            }
-    	        }
-    	    }
-        }      
-	
+                        double datatype_max = 32767.;
+
+                        for (int i=0; i<10000; i++ ) {
+                            auto sample_i = get_abs_val(bodydata[2*i]);
+                            sum_i += sample_i;
+                            if (sample_i > datatype_max*0.99)
+                                clip_i++;
+                        }
+                        sum_i = sum_i/10000;
+                        std::cout << boost::format("%.0f") % (100.0*log2(sum_i)/log2(datatype_max)) << "% I (";
+                        std::cout << boost::format("%.0f") % ceil(log2(sum_i)+1) << " of ";
+                        std::cout << (int)ceil(log2(datatype_max)+1) << " bits), ";
+                        std::cout << "" << boost::format("%.0f") % (100.0*clip_i/10000) << "% I clip.";
+                        std::cout << std::endl;
+
+                    }
+                }
+            }
+
+            expected_sample = block.first_sample + block_samps;
+
+            // Hand the buffer back for reuse.
+            {
+                std::lock_guard<std::mutex> lock(rx.mutex);
+                rx.pool.push_back(std::move(block.data));
+            }
+        }
+
+        // Report lost samples, at most once a second.
+        const uint64_t dropped_total = rx.dropped_driver + rx.dropped_queue + dropped_partial;
+        if (dropped_total != dropped_reported and now - last_drop_report > std::chrono::seconds(1)) {
+            fprintf(stderr, "Warning: lost %llu samples (%llu in total).\n",
+                (unsigned long long)(dropped_total - dropped_reported),
+                (unsigned long long)dropped_total);
+            dropped_reported = dropped_total;
+            last_drop_report = now;
+        }
+
         // Merge
         if (merge) {
             int mergelen;
@@ -736,8 +897,6 @@ int main(int argc, char* argv[])
                 zmq_msg_close(&msg);
             }
         }
-        usleep(10);
-
     }
 
     const auto actual_stop_time = std::chrono::steady_clock::now();
@@ -752,6 +911,13 @@ int main(int argc, char* argv[])
                   << std::endl;
         const double rate = (double)num_total_samps / actual_duration_seconds;
         std::cout << (rate / 1e6) << " Msps." << std::endl;
+
+        const uint64_t dropped_driver = rx.dropped_driver;
+        const uint64_t dropped_queue  = rx.dropped_queue;
+        std::cout << boost::format("Lost %d samples (%d in the driver, %d in the queue, %d in cut packets).")
+                         % (dropped_driver + dropped_queue + dropped_partial)
+                         % dropped_driver % dropped_queue % dropped_partial
+                  << std::endl;
     }
   
     /* switch bias-tee off */
