@@ -54,6 +54,46 @@
 
 unsigned long long num_total_samps = 0;
 
+// R820T gain per index step, in tenths of a dB. Measured by Steve Markgraf on
+// an RTL-SDR dongle at 928 MHz (librtlsdr, tuner_r82xx.c), so the gain reported
+// for an Airspy is approximate, and relative rather than absolute.
+#define R820T_VGA_BASE_GAIN (-47)
+static const int r820t_vga_gain_steps[] = {
+    0, 26, 26, 30, 42, 35, 24, 13, 14, 32, 36, 34, 35, 37, 35, 36
+};
+static const int r820t_lna_gain_steps[] = {
+    0, 9, 13, 40, 38, 13, 31, 22, 26, 31, 26, 14, 19, 5, 35, 13
+};
+static const int r820t_mixer_gain_steps[] = {
+    0, 5, 10, 10, 19, 9, 10, 25, 17, 10, 8, 16, 13, 6, 3, -8
+};
+
+// The VGA, mixer and LNA index that libairspy sets for each linearity and
+// sensitivity gain value (libairspy, airspy.c). Entry 0 is the highest gain:
+// a gain value v selects entry GAIN_COUNT - 1 - v.
+#define GAIN_COUNT (22)
+static const uint8_t linearity_vga_gains[GAIN_COUNT] = { 13, 12, 11, 11, 11, 11, 11, 10, 10, 10, 10, 10, 10, 10, 10, 10, 9, 8, 7, 6, 5, 4 };
+static const uint8_t linearity_mixer_gains[GAIN_COUNT] = { 12, 12, 11, 9, 8, 7, 6, 6, 5, 0, 0, 1, 0, 0, 2, 2, 1, 1, 1, 1, 0, 0 };
+static const uint8_t linearity_lna_gains[GAIN_COUNT] = { 14, 14, 14, 13, 12, 10, 9, 9, 8, 9, 8, 6, 5, 3, 1, 0, 0, 0, 0, 0, 0, 0 };
+static const uint8_t sensitivity_vga_gains[GAIN_COUNT] = { 13, 12, 11, 10, 9, 8, 7, 6, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4 };
+static const uint8_t sensitivity_mixer_gains[GAIN_COUNT] = { 12, 12, 12, 12, 11, 10, 10, 9, 9, 8, 7, 4, 4, 4, 3, 2, 2, 1, 0, 0, 0, 0 };
+static const uint8_t sensitivity_lna_gains[GAIN_COUNT] = { 14, 14, 14, 14, 14, 14, 14, 14, 14, 13, 12, 12, 9, 9, 8, 7, 6, 5, 3, 2, 1, 0 };
+
+// Approximate gain in dB for a set of R820T gain indexes.
+static double r820t_gain_db(uint32_t vga, uint32_t mixer, uint32_t lna)
+{
+    int tenth_db = R820T_VGA_BASE_GAIN;
+
+    for (uint32_t i = 1; i <= vga and i < 16; i++)
+        tenth_db += r820t_vga_gain_steps[i];
+    for (uint32_t i = 1; i <= mixer and i < 16; i++)
+        tenth_db += r820t_mixer_gain_steps[i];
+    for (uint32_t i = 1; i <= lna and i < 16; i++)
+        tenth_db += r820t_lna_gain_steps[i];
+
+    return tenth_db / 10.0;
+}
+
 namespace po = boost::program_options;
 
 // Samples travel from the libairspy callback thread to the main loop in whole
@@ -296,7 +336,8 @@ int main(int argc, char* argv[])
     size_t total_num_samps = 0;
     uint16_t instance, port, merge_port;
     uint32_t stream_id;
-    int hwm, gain;
+    int hwm;
+    double gain = 0; // approximate, in dB
     double rate, freq, total_time, setup_time, if_freq;
     bool merge;
     double real_freq;
@@ -618,7 +659,7 @@ int main(int argc, char* argv[])
         if( result != AIRSPY_SUCCESS ) {
             fprintf(stderr, "airspy_set_lna_gain() failed: %s (%d)\n", airspy_error_name((airspy_error)result), result);
         }
-        gain = vga_gain + mixer_gain + lna_gain;
+        gain = r820t_gain_db(vga_gain, mixer_gain, lna_gain);
     } else
     {
         if( linearity_gain == true )
@@ -627,7 +668,8 @@ int main(int argc, char* argv[])
             if( result != AIRSPY_SUCCESS ) {
                 fprintf(stderr, "airspy_set_linearity_gain() failed: %s (%d)\n", airspy_error_name((airspy_error)result), result);
             }
-            gain = linearity_gain_val;
+            const uint32_t entry = GAIN_COUNT - 1 - linearity_gain_val;
+            gain = r820t_gain_db(linearity_vga_gains[entry], linearity_mixer_gains[entry], linearity_lna_gains[entry]);
         }
 
         if( sensitivity_gain == true )
@@ -636,7 +678,8 @@ int main(int argc, char* argv[])
             if( result != AIRSPY_SUCCESS ) {
                 fprintf(stderr, "airspy_set_sensitivity_gain() failed: %s (%d)\n", airspy_error_name((airspy_error)result), result);
             }
-            gain = sensitivity_gain_val;
+            const uint32_t entry = GAIN_COUNT - 1 - sensitivity_gain_val;
+            gain = r820t_gain_db(sensitivity_vga_gains[entry], sensitivity_mixer_gains[entry], sensitivity_lna_gains[entry]);
         }
     }
 
@@ -644,6 +687,8 @@ int main(int argc, char* argv[])
     // blocks once rx.enabled is set, just before the main loop.
     rx_state rx;
     rx.rate = rate;
+
+    fprintf(stderr, "Gain: %.1f dB (approximate)\n", gain);
 
     if( airspy_start_rx(device, rx_callback, &rx) != AIRSPY_SUCCESS ) {
         fprintf(stderr, "airspy_start() failed.\n");
