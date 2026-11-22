@@ -670,6 +670,10 @@ int main(int argc, char* argv[])
     bool int_second             = (bool)vm.count("int-second");
 
     uint32_t buffer[SIZE];
+
+    // Merged messages come from other tools, so they get a buffer of their
+    // own that is large enough for any VRT packet.
+    std::vector<uint8_t> merge_buffer(ZMQ_BUFFER_SIZE);
    
     bool first_frame = true;
     bool context_changed = true;
@@ -712,7 +716,7 @@ int main(int argc, char* argv[])
 
     // flush merge queue
     if (merge)
-        while ( zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK) > 0 ) { }
+        while ( zmq_recv(merge_zmq, merge_buffer.data(), merge_buffer.size(), ZMQ_NOBLOCK) > 0 ) { }
 
     // Start accepting samples. With --int-second the callback starts at the
     // sample that falls on the next integer second.
@@ -910,10 +914,15 @@ int main(int argc, char* argv[])
         // Merge
         if (merge) {
             int mergelen;
-            while ( (mergelen = zmq_recv(merge_zmq, buffer, 100000, ZMQ_NOBLOCK)) > 0  ) {
+            while ( (mergelen = zmq_recv(merge_zmq, merge_buffer.data(), merge_buffer.size(), ZMQ_NOBLOCK)) > 0  ) {
+                // zmq_recv() truncates a longer message but returns its full length.
+                if ((size_t)mergelen > merge_buffer.size()) {
+                    fprintf(stderr, "Warning: merged message of %d bytes is too long, dropped.\n", mergelen);
+                    continue;
+                }
                 zmq_msg_t msg;
                 zmq_msg_init_size (&msg, mergelen);
-                memcpy (zmq_msg_data(&msg), buffer, mergelen);
+                memcpy (zmq_msg_data(&msg), merge_buffer.data(), mergelen);
                 zmq_msg_send(&msg, zmq_server, 0);
                 zmq_msg_close(&msg);
             }
