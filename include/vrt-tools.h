@@ -317,7 +317,7 @@ bool check_packet_count(int8_t counter, context_type* vrt_context) {
     if ( (vrt_context->last_data_counter > 0) and
             ( (counter != (vrt_context->last_data_counter+1)%16) and
               (counter != (vrt_context->last_data_counter  )%16) ) ) {
-        printf("# Error: lost frame (expected %i, received %i)\n", vrt_context->last_data_counter, counter);
+        fprintf(stderr, "# Error: lost frame (expected %i, received %i)\n", vrt_context->last_data_counter, counter);
         vrt_context->last_data_counter = counter;
         return false;
     } else {
