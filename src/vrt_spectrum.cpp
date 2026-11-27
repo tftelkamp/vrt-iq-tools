@@ -459,7 +459,7 @@ int main(int argc, char* argv[])
                     printf("# - {name: current_el_offset_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: current_ra_h, unit: h, datatype: float64}\n");
                     printf("# - {name: current_dec_deg, unit: deg, datatype: float64}\n");
-                    printf("# - {name: setpoint_ra_h, unit: deg, datatype: float64}\n");
+                    printf("# - {name: setpoint_ra_h, unit: h, datatype: float64}\n");
                     printf("# - {name: setpoint_dec_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: radec_error_angle_deg, unit: deg, datatype: float64}\n");
                     printf("# - {name: radec_error_bearing_deg, unit: deg, datatype: float64}\n");
